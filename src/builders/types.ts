@@ -1,0 +1,126 @@
+import type { ComponentDefinition, Placement, PlacementAnchor } from '../definition.ts';
+import type { Frame, GeometryKernel, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
+
+/** The opening a part of the axial run presents to its neighbour. */
+export interface Junction {
+  readonly insideDiameter: number;
+  readonly outsideDiameter: number;
+}
+
+/**
+ * A circle on the vessel axis that means something: a tangent line, the end of a course.
+ *
+ * Builders state them from the parameters, so an edge of the rebuilt solid is named by matching
+ * it against these — never by its index.
+ */
+export interface Landmark {
+  /** Stable within the part: `lower-inside`, `crown-knuckle-outside`. */
+  readonly key: string;
+  readonly z: number;
+  readonly diameter: number;
+  readonly role: string;
+  /** Set on the circles where the part meets a neighbour, which the assembly then names. */
+  readonly junction?: 'lower' | 'upper';
+}
+
+/** Where a mounted part stands on its host, in the host's frame. */
+export interface HostFrame extends Frame {
+  /** Wall thickness along `axis`, from the outside surface inwards. */
+  readonly wall: number;
+}
+
+/** What a part offers the parts mounted on it. */
+export interface HostSurface {
+  readonly anchor: PlacementAnchor;
+  /** The range `axialOffset` may take, before the size of what is mounted is accounted for. */
+  readonly offsetRange: readonly [number, number];
+  readonly defaultOffset: number;
+  /** A point on the outside surface and the direction a mounted part leaves it in. */
+  frameAt(axialOffset: number, azimuth: number): HostFrame;
+  /** The volume the part encloses, extended past its ends, to trim what projects inwards. */
+  cavity(): Solid;
+  /**
+   * Which of its two surfaces a point of its wall lies on — how an opening's two edges are told
+   * apart whatever angle the nozzle cuts them at.
+   */
+  sideOf(point: readonly [number, number, number]): 'inside' | 'outside';
+  /** Set on a straight cylindrical course, the only host a reinforcing pad is drawn on today. */
+  readonly outsideRadius?: number;
+  /** Set on a course — a cylinder or a cone — for what is shaped by its section. */
+  readonly course?: CourseShape;
+}
+
+/**
+ * The section of a course at a height: what a ring is wrapped round, what a saddle bears on,
+ * and what a nozzle that is not normal to the wall has to be aimed through.
+ */
+export interface CourseShape {
+  /** Half-apex angle in degrees; 0 for a cylinder. Positive narrows upwards. */
+  readonly halfApexAngle: number;
+  /** Wall thickness, normal to the wall. */
+  readonly thickness: number;
+  insideRadiusAt(axialOffset: number): number;
+  outsideRadiusAt(axialOffset: number): number;
+}
+
+export interface RunPart {
+  /** The body: what openings are cut into. */
+  readonly solid: Solid;
+  /** What else the part is drawn with — a cover's dish, a plate's stays. Never pierced. */
+  readonly extraSolids?: readonly Solid[];
+  /** Repeats of the solids, parallel to `[solid, ...extraSolids]`: see {@link Copies}. */
+  readonly copies?: Copies;
+  /** Extent along the axis, from the lower junction to the upper one. */
+  readonly height: number;
+  /** Null where the part is closed: the crown of a head, the pole of a sphere. */
+  readonly lower: Junction | null;
+  readonly upper: Junction | null;
+  readonly landmarks: readonly Landmark[];
+  readonly host?: HostSurface;
+  /** Assumptions the drawing had to make, which the user should see. */
+  readonly notes: readonly string[];
+}
+
+export interface RunContext {
+  readonly kernel: GeometryKernel;
+  /** Outside radius of the neighbour a flat end closes, when it has one. */
+  readonly neighbourOutsideRadius?: number;
+  /** Inside diameter of that neighbour: the opening a cover with no diameter of its own closes. */
+  readonly neighbourInsideDiameter?: number;
+  /** For a flange: whether its hub points down, towards the course below it. */
+  readonly hubDown?: boolean;
+}
+
+export type RunBuilder = (component: ComponentDefinition, context: RunContext) => RunPart;
+
+export interface MountedPart {
+  /** In the host's frame. A nozzle with a pad carries two. */
+  readonly solids: readonly Solid[];
+  /** The tool its opening is cut into the host with, in the host's frame; none for a ring. */
+  readonly opening?: {
+    readonly tool: Solid;
+    readonly frame: HostFrame;
+    readonly radius: number;
+  };
+  /** Half the part's extent along the host's offset: what must stay on the host. */
+  readonly footprint: number;
+  /** Repeats of the solids, parallel to `solids`: see {@link Copies}. */
+  readonly copies?: Copies;
+  readonly notes: readonly string[];
+}
+
+/**
+ * Identical solids a part is drawn with many times — the stays of a plate, the turns of a
+ * jacket. Each is built and tessellated once and drawn again at every translation listed here,
+ * parallel to the part's solids; an absent entry means the solid is drawn once, where it is.
+ */
+export type Copies = readonly (readonly Vec3[] | undefined)[];
+
+export interface MountedContext {
+  readonly kernel: GeometryKernel;
+  readonly host: ComponentDefinition;
+  readonly hostSurface: HostSurface;
+  readonly placement: Placement;
+}
+
+export type MountedBuilder = (component: ComponentDefinition, context: MountedContext) => MountedPart;

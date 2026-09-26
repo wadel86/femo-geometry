@@ -1,0 +1,234 @@
+// Nozzles: the five geometries §4.5 distinguishes, each one a neck set through its host's wall.
+//
+// They differ only in where the neck's axis runs — normal to the wall, offset from the vessel
+// axis, leaning towards it, or square to it in a cone — so each one states its axis and the
+// neck, its projections, its pad and the real opening in the host are built the same way. The
+// opening is always a boolean: an ellipse where the axis is not normal to the wall.
+import {
+  AnchorError,
+  BuildError,
+  NotDrawnError,
+  Sym,
+  optionalDimension,
+  requireDimension,
+  type ComponentDefinition,
+} from '../definition.ts';
+import type { Vec3 } from '../kernel/GeometryKernel.ts';
+import { mm, requireWithinHost } from './placing.ts';
+import type { CourseShape, HostFrame, MountedBuilder, MountedContext, MountedPart } from './types.ts';
+
+const DEG = Math.PI / 180;
+
+/** Where a neck runs, and how far its opening reaches along the host's offset. */
+interface Aim {
+  readonly frame: HostFrame;
+  readonly footprint: number;
+  /** A pad is only drawn round a neck normal to a cylindrical course. */
+  readonly padAllowed: boolean;
+}
+
+type Aimer = (component: ComponentDefinition, context: MountedContext, outside: number) => Aim;
+
+function courseOf(component: ComponentDefinition, context: MountedContext, what: string): CourseShape {
+  const course = context.hostSurface.course;
+  if (!course) {
+    throw new NotDrawnError(component, `${what} is drawn in a course, and ${context.host.name} is not one`);
+  }
+  return course;
+}
+
+function nozzle(aimer: Aimer): MountedBuilder {
+  return (component, context) => {
+    const { kernel, hostSurface, host } = context;
+    const inside = requireDimension(component, Sym.NOZZLE_INSIDE_DIAMETER) / 2;
+    const outside = inside + requireDimension(component, Sym.NOZZLE_THICKNESS);
+    const notes: string[] = [];
+
+    let outward = optionalDimension(component, Sym.NOZZLE_OUTWARD_PROJECTION);
+    if (outward === undefined) {
+      outward = Math.max(150, 2 * outside);
+      notes.push(`Outward projection not stated — drawn ${mm(outward)}`);
+    }
+    const inward = optionalDimension(component, Sym.NOZZLE_INWARD_PROJECTION) ?? 0;
+
+    const { frame, footprint, padAllowed } = aimer(component, context, outside);
+    if (!frame.origin.every(Number.isFinite) || !(frame.wall > 0)) {
+      throw new AnchorError(component, `no surface of ${host.name} where it is placed`);
+    }
+
+    // Deep enough to cross the wall all round the neck, where a curved or sloping host falls
+    // away from the axis.
+    const through = frame.wall + 2 * footprint + 1;
+    const neck =
+      inward > 0
+        ? kernel.tube(frame, inside, outside, -(frame.wall + inward), outward)
+        : kernel.cut(kernel.tube(frame, inside, outside, -through, outward), [hostSurface.cavity()]);
+    const solids = [neck];
+
+    const padWidth = optionalDimension(component, Sym.PAD_WIDTH);
+    const padThickness = optionalDimension(component, Sym.PAD_THICKNESS);
+    if (padWidth !== undefined && padThickness !== undefined) {
+      const radius = hostSurface.outsideRadius;
+      if (radius === undefined || !padAllowed) {
+        notes.push('Reinforcing pad not drawn on this geometry yet');
+      } else {
+        const reach = outside + padWidth;
+        const z = frame.origin[2];
+        const band = kernel.revolve({
+          start: [radius, z - reach - 1],
+          steps: [
+            { kind: 'line', to: [radius + padThickness, z - reach - 1] },
+            { kind: 'line', to: [radius + padThickness, z + reach + 1] },
+            { kind: 'line', to: [radius, z + reach + 1] },
+          ],
+        });
+        const around = kernel.tube(frame, outside, reach, -frame.wall, padThickness + reach + 1);
+        solids.push(kernel.intersect(band, around));
+      }
+    }
+
+    const part: MountedPart = {
+      solids,
+      opening: {
+        tool: kernel.tube(frame, 0, outside, -through, 2 * footprint + 10),
+        frame,
+        radius: outside,
+      },
+      footprint,
+      notes,
+    };
+    return part;
+  };
+}
+
+/** §4.5.5 and §4.5.10 — normal to the wall, whatever the host. */
+const radial: Aimer = (component, context, outside) => {
+  requireWithinHost(component, context, outside);
+  return {
+    frame: context.hostSurface.frameAt(context.placement.axialOffset, context.placement.azimuth),
+    footprint: outside,
+    padAllowed: true,
+  };
+};
+
+/**
+ * §4.5.6 — parallel to a radius of a cylinder but offset from the vessel axis by `D_X`, so it
+ * meets the wall off-centre and cuts an ellipse stretched round the circumference.
+ */
+const hillside: Aimer = (component, context, outside) => {
+  const course = courseOf(component, context, 'a hillside nozzle');
+  if (course.halfApexAngle !== 0) {
+    throw new NotDrawnError(component, `a hillside nozzle is drawn in a cylinder, and ${context.host.name} is a cone`);
+  }
+  const offset = requireDimension(component, Sym.NOZZLE_OFFSET);
+  requireWithinHost(component, context, outside);
+
+  const z = context.placement.axialOffset;
+  const a = course.insideRadiusAt(z);
+  const ro = course.outsideRadiusAt(z);
+  if (offset + outside >= a) {
+    throw new AnchorError(
+      component,
+      `offset ${mm(offset)} from the axis, its ${mm(2 * outside)} neck no longer meets the inside of ${context.host.name} (radius ${mm(a)})`
+    );
+  }
+
+  const phi = context.placement.azimuth * DEG;
+  const radial: Vec3 = [Math.cos(phi), Math.sin(phi), 0];
+  const across: Vec3 = [-Math.sin(phi), Math.cos(phi), 0];
+  const out = Math.sqrt(ro * ro - offset * offset);
+  const inn = Math.sqrt(a * a - offset * offset);
+  return {
+    frame: {
+      origin: [offset * across[0] + out * radial[0], offset * across[1] + out * radial[1], z],
+      axis: radial,
+      wall: out - inn,
+    },
+    footprint: outside,
+    padAllowed: true,
+  };
+};
+
+/**
+ * §4.5.7 — in a cylinder, on the centreline of the course but leaning: its axis makes `θ` with
+ * the vessel axis, and the opening stretches to `R_n/sin θ` along the course.
+ */
+const angled: Aimer = (component, context, outside) => {
+  const course = courseOf(component, context, 'a nozzle at an angle');
+  if (course.halfApexAngle !== 0) {
+    throw new NotDrawnError(component, `a nozzle at an angle is drawn in a cylinder, and ${context.host.name} is a cone`);
+  }
+  const theta = requireDimension(component, Sym.NOZZLE_ANGLE);
+  if (theta >= 180) {
+    throw new BuildError(component, `leans at ${theta}°, which is not an angle to the axis`);
+  }
+  const sin = Math.sin(theta * DEG);
+  const footprint = outside / sin;
+  requireWithinHost(component, context, footprint);
+
+  const z = context.placement.axialOffset;
+  const ro = course.outsideRadiusAt(z);
+  const phi = context.placement.azimuth * DEG;
+  return {
+    frame: {
+      origin: [ro * Math.cos(phi), ro * Math.sin(phi), z],
+      axis: [sin * Math.cos(phi), sin * Math.sin(phi), Math.cos(theta * DEG)],
+      wall: course.thickness / sin,
+    },
+    footprint,
+    padAllowed: false,
+  };
+};
+
+/** §4.5.9.1 — in a cone, square to the vessel axis: horizontal, cutting `R_n/cos α` along the cone. */
+const perpendicular: Aimer = (component, context, outside) => {
+  const course = courseOf(component, context, 'a nozzle perpendicular to the axis');
+  requireWithinHost(component, context, outside);
+
+  const z = context.placement.axialOffset;
+  const cos = Math.cos(course.halfApexAngle * DEG);
+  const ro = course.outsideRadiusAt(z);
+  const phi = context.placement.azimuth * DEG;
+  return {
+    frame: {
+      origin: [ro * Math.cos(phi), ro * Math.sin(phi), z],
+      axis: [Math.cos(phi), Math.sin(phi), 0],
+      wall: course.thickness / cos,
+    },
+    footprint: outside,
+    padAllowed: course.halfApexAngle === 0,
+  };
+};
+
+/**
+ * §4.5.9.2 — in a cone, parallel to the vessel axis: vertical, meeting the sloping wall on a
+ * chord of `R_n/sin α`. The shallower the cone, the longer the chord.
+ */
+const axial: Aimer = (component, context, outside) => {
+  const course = courseOf(component, context, 'a nozzle parallel to the axis');
+  const alpha = course.halfApexAngle;
+  if (alpha <= 0) {
+    throw new NotDrawnError(component, `a nozzle parallel to the axis never meets the wall of a cylinder`);
+  }
+  const footprint = outside / Math.tan(alpha * DEG);
+  requireWithinHost(component, context, footprint);
+
+  const z = context.placement.axialOffset;
+  const rho = course.outsideRadiusAt(z);
+  const phi = context.placement.azimuth * DEG;
+  return {
+    frame: {
+      origin: [rho * Math.cos(phi), rho * Math.sin(phi), z],
+      axis: [0, 0, 1],
+      wall: course.thickness / Math.sin(alpha * DEG),
+    },
+    footprint,
+    padAllowed: false,
+  };
+};
+
+export const radialNozzle = nozzle(radial);
+export const hillsideNozzle = nozzle(hillside);
+export const angledNozzle = nozzle(angled);
+export const perpendicularNozzle = nozzle(perpendicular);
+export const axialNozzle = nozzle(axial);

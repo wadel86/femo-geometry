@@ -1,0 +1,241 @@
+// The GeometryKernel port, implemented on brepjs over OpenCascade (occt-wasm).
+//
+// The only file of the package that imports brepjs. Everything brepjs-specific — its drawing
+// pen, its Result type, its branded shape types, its face and edge hashes — stops here.
+import {
+  OcctWasmAdapter,
+  curveLength,
+  curvePointAt,
+  cut,
+  cutAll,
+  draw,
+  faceCenter,
+  facesOfEdge,
+  getBounds,
+  getCurveType,
+  getEdges,
+  getFaces,
+  getHashCode,
+  getSurfaceType,
+  intersect,
+  measureCurvatureAtMid,
+  measureVolume,
+  mesh,
+  meshEdges,
+  registerKernel,
+  rotate,
+  translate,
+  unwrap,
+  curveIsClosed,
+} from 'brepjs';
+import { OcctKernel } from 'occt-wasm';
+import type {
+  Bounds,
+  CurveKind,
+  EdgeInfo,
+  FaceInfo,
+  Frame,
+  GeometryKernel,
+  Profile,
+  Solid,
+  SurfaceKind,
+  Tessellation,
+  Vec3,
+} from './GeometryKernel.ts';
+
+/**
+ * brepjs proves validity with branded phantom types (`ValidSolid`, `OrientedFace` …) that an
+ * opaque port cannot carry across, so shapes are untyped inside this adapter and only here.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Shape = any;
+
+const asShape = (solid: Solid): Shape => solid as unknown as Shape;
+const asSolid = (shape: Shape): Solid => shape as Solid;
+
+/** Angular deflection of the tessellation, in radians: what keeps small fillets round. */
+const ANGULAR_TOLERANCE = 0.12;
+
+const SURFACES: Record<string, SurfaceKind> = {
+  PLANE: 'plane',
+  CYLINDRE: 'cylinder',
+  CONE: 'cone',
+  SPHERE: 'sphere',
+  TORUS: 'torus',
+  REVOLUTION_SURFACE: 'revolution',
+};
+
+const CURVES: Record<string, CurveKind> = {
+  LINE: 'line',
+  CIRCLE: 'circle',
+  ELLIPSE: 'ellipse',
+  BSPLINE_CURVE: 'bspline',
+  BEZIER_CURVE: 'bspline',
+};
+
+export interface BrepjsKernelOptions {
+  /**
+   * Where the OpenCascade WASM binary is. Omitted, occt-wasm finds it next to its own module,
+   * which works in Node; a bundler has to hand over the URL it emitted.
+   */
+  readonly wasm?: string | URL | ArrayBuffer | Uint8Array;
+}
+
+/** Loads OpenCascade (multi-megabyte — call it lazily, in a worker) and wraps it. */
+export async function createBrepjsKernel(options: BrepjsKernelOptions = {}): Promise<GeometryKernel> {
+  const occt = await OcctKernel.init(options.wasm === undefined ? undefined : { wasm: options.wasm });
+  registerKernel('occt-wasm', OcctWasmAdapter.fromKernel(occt));
+  return new BrepjsKernel();
+}
+
+class BrepjsKernel implements GeometryKernel {
+  revolve(profile: Profile): Solid {
+    return asSolid(drawing(profile).sketchOnPlane('XZ').revolve([0, 0, 1]));
+  }
+
+  extrude(outline: Profile, from: number, to: number): Solid {
+    const prism: Shape = drawing(outline).sketchOnPlane('XY').extrude(to - from);
+    return from === 0 ? asSolid(prism) : asSolid(translate(prism, [0, 0, from]));
+  }
+
+  tube(frame: Frame, innerRadius: number, outerRadius: number, from: number, to: number): Solid {
+    const outline = draw([innerRadius, from])
+      .lineTo([outerRadius, from])
+      .lineTo([outerRadius, to])
+      .lineTo([innerRadius, to])
+      .close();
+    let shape: Shape = outline.sketchOnPlane('XZ').revolve([0, 0, 1]);
+
+    // Tilt Z onto the axis: a turn of θ about Y, then of φ about Z, lands (0,0,1) on
+    // (sin θ cos φ, sin θ sin φ, cos θ).
+    const [ax, ay, az] = frame.axis;
+    const theta = (Math.acos(Math.max(-1, Math.min(1, az))) * 180) / Math.PI;
+    const phi = (Math.atan2(ay, ax) * 180) / Math.PI;
+    if (Math.abs(theta) > 1e-9) shape = rotate(shape, theta, { axis: [0, 1, 0] });
+    if (Math.abs(phi) > 1e-9) shape = rotate(shape, phi, { axis: [0, 0, 1] });
+    return asSolid(translate(shape, [frame.origin[0], frame.origin[1], frame.origin[2]]));
+  }
+
+  cut(base: Solid, tools: readonly Solid[]): Solid {
+    if (tools.length === 0) return base;
+    if (tools.length === 1) return asSolid(unwrap(cut(asShape(base), asShape(tools[0]))));
+    return asSolid(unwrap(cutAll(asShape(base), tools.map(asShape))));
+  }
+
+  intersect(a: Solid, b: Solid): Solid {
+    return asSolid(unwrap(intersect(asShape(a), asShape(b))));
+  }
+
+  translate(solid: Solid, offset: Vec3): Solid {
+    return asSolid(translate(asShape(solid), [offset[0], offset[1], offset[2]]));
+  }
+
+  rotateZ(solid: Solid, degrees: number): Solid {
+    return Math.abs(degrees) < 1e-12 ? solid : asSolid(rotate(asShape(solid), degrees, { axis: [0, 0, 1] }));
+  }
+
+  flip(solid: Solid): Solid {
+    return asSolid(rotate(asShape(solid), 180, { axis: [1, 0, 0] }));
+  }
+
+  volume(solid: Solid): number {
+    return unwrap(measureVolume(asShape(solid)));
+  }
+
+  bounds(solid: Solid): Bounds {
+    const b = getBounds(asShape(solid));
+    return { min: [b.xMin, b.yMin, b.zMin], max: [b.xMax, b.yMax, b.zMax] };
+  }
+
+  tessellate(solid: Solid, tolerance: number): Tessellation {
+    return tessellate(asShape(solid), tolerance);
+  }
+}
+
+/** A closed outline as a brepjs drawing, in whichever plane it is then sketched on. */
+function drawing(profile: Profile): Shape {
+  let pen = draw([profile.start[0], profile.start[1]]);
+  let from = profile.start;
+  for (const step of profile.steps) {
+    if (step.kind === 'line') {
+      pen = pen.lineTo([step.to[0], step.to[1]]);
+    } else if (step.kind === 'arc') {
+      pen = pen.threePointsArcTo([step.to[0], step.to[1]], [step.through[0], step.through[1]]);
+    } else {
+      // SVG arc semantics: an arc of less than half a turn, swept counter-clockwise when the
+      // flag is set — in the drawing plane, whose y is the vessel axis.
+      pen = pen.ellipseTo(
+        [step.to[0], step.to[1]],
+        step.radiusR,
+        step.radiusZ,
+        0,
+        false,
+        step.counterClockwise
+      );
+    }
+    from = step.to;
+  }
+  if (from[0] !== profile.start[0] || from[1] !== profile.start[1]) {
+    pen = pen.lineTo([profile.start[0], profile.start[1]]);
+  }
+  return pen.done();
+}
+
+function tessellate(shape: Shape, tolerance: number): Tessellation {
+  const triangles = mesh(shape, { tolerance, angularTolerance: ANGULAR_TOLERANCE, cache: false });
+  const lines = meshEdges(shape, { tolerance, angularTolerance: ANGULAR_TOLERANCE, cache: false });
+
+  const trianglesByFace = new Map<number, { start: number; count: number }>();
+  for (const group of triangles.faceGroups) trianglesByFace.set(group.faceId, group);
+
+  const faces: FaceInfo[] = getFaces(shape).map((face: Shape) => {
+    const id = getHashCode(face);
+    const type = getSurfaceType(face);
+    const curvature = measureCurvatureAtMid(face);
+    const range = trianglesByFace.get(id) ?? { start: 0, count: 0 };
+    return {
+      id,
+      surface: type.ok ? (SURFACES[type.value] ?? 'other') : 'other',
+      radii: curvature.ok
+        ? [radiusOf(curvature.value.maxCurvature), radiusOf(curvature.value.minCurvature)]
+        : [Infinity, Infinity],
+      center: toVec3(faceCenter(face)),
+      start: range.start,
+      count: range.count,
+    };
+  });
+
+  const segmentsByEdge = new Map<number, { start: number; count: number }>();
+  for (const group of lines.edgeGroups) segmentsByEdge.set(group.edgeId, group);
+
+  const edges: EdgeInfo[] = getEdges(shape).map((edge: Shape) => {
+    const id = getHashCode(edge);
+    const range = segmentsByEdge.get(id) ?? { start: 0, count: 0 };
+    return {
+      id,
+      curve: CURVES[getCurveType(edge)] ?? 'other',
+      length: curveLength(edge),
+      closed: curveIsClosed(edge),
+      start: toVec3(curvePointAt(edge, 0)),
+      middle: toVec3(curvePointAt(edge, 0.5)),
+      end: toVec3(curvePointAt(edge, 1)),
+      faceIds: facesOfEdge(shape, edge).map((face: Shape) => getHashCode(face)),
+      start3: range.start,
+      count3: range.count,
+    };
+  });
+
+  return {
+    positions: triangles.vertices,
+    normals: triangles.normals,
+    indices: triangles.triangles,
+    lines: lines.lines,
+    faces,
+    edges,
+  };
+}
+
+const radiusOf = (curvature: number): number =>
+  Math.abs(curvature) < 1e-12 ? Infinity : 1 / Math.abs(curvature);
+
+const toVec3 = (point: ArrayLike<number>): Vec3 => [point[0], point[1], point[2]];
