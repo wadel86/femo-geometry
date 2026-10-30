@@ -93,6 +93,8 @@ export const Sym = {
   OUTER_FILLET_WELD_LEG: 'outer_fillet_weld_leg',
   PAD_FILLET_WELD_LEG: 'pad_fillet_weld_leg',
   INNER_FILLET_WELD_LEG: 'inner_fillet_weld_leg',
+  NOZZLE_SPACING: 'nozzle_spacing',
+  SUPPORT_TO_DISCONTINUITY: 'support_to_discontinuity',
 } as const;
 
 /**
@@ -171,6 +173,8 @@ export interface AssemblyDefinition {
   readonly placements: Readonly<Record<string, Placement>>;
   /** Parts of the axial run drawn upside down: a cone with its small end first. */
   readonly reversed: readonly string[];
+  /** The layout revision the placements were read at, carried onto what is measured from them. */
+  readonly layoutRevision?: number;
 }
 
 /** Parts of the run that close it: drawn turned over when they close its bottom. */

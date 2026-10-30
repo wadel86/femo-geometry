@@ -33,7 +33,7 @@ import type {
   Neck,
   RunPart,
 } from '../builders/types.ts';
-import type { Bounds, GeometryKernel, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
+import type { Bounds, GeometryKernel, Point2, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { stableStringify } from '../hash.ts';
 
 /**
@@ -89,6 +89,10 @@ export interface BuiltPart {
   readonly hostSurface?: HostSurface;
   /** For a part of the run: where it meets its neighbours, in its own frame. */
   readonly junctions?: { readonly lower: Junction | null; readonly upper: Junction | null };
+  /** For a part of the run: its mid-surface meridian, in its own frame. */
+  readonly meridian?: readonly Point2[];
+  /** For a formed head: the height of its tangent line above its lower junction. */
+  readonly tangentLine?: number;
   /** For a mounted part: its placement in its host's frame, mirrored when the host is turned over. */
   readonly localPlacement?: Placement;
   readonly neck?: Neck;
@@ -143,6 +147,7 @@ export class AssemblyBuilder {
       }
 
       const neighbour = closesBottom ? above : below;
+      const sphere = component.kind === Kind.SPHERICAL_SHELL;
       const context = {
         neighbourOutsideRadius: outsideRadiusOf(neighbour),
         neighbourInsideDiameter: insideDiameterOf(neighbour),
@@ -150,6 +155,9 @@ export class AssemblyBuilder {
           component.kind === Kind.INTEGRAL_FLANGE || component.kind === Kind.LOOSE_FLANGE
             ? below !== undefined && COURSES.has(below.kind)
             : undefined,
+        // Only a sphere is cut to its neighbours; nothing else's cache key carries them.
+        belowInsideDiameter: sphere ? insideDiameterOf(below) : undefined,
+        aboveInsideDiameter: sphere ? insideDiameterOf(above) : undefined,
       };
       const key = stableStringify({ kind: component.kind, dimensions: component.dimensions, context });
 
@@ -210,16 +218,30 @@ export class AssemblyBuilder {
         continue;
       }
 
+      const tangentLines = tangentLinesOf(component.hostId, host.part, host.transform, run, runParts);
       const stated = definition.placements[component.id];
-      let placement = stated ?? this.defaultPlacement(host.part.host, unplacedOnHost, component);
+      let placement = stated ?? this.defaultPlacement(host.part.host, unplacedOnHost, component, tangentLines);
       const hostSurface = host.part.host;
       // A host turned over mirrors y, so the azimuth is mirrored on the way in.
       const localOf = (p: Placement): Placement => (host.transform.flipped ? { ...p, azimuth: -p.azimuth } : p);
       const buildAt = (p: Placement) => {
         const at = localOf(p);
-        const key = stableStringify({ kind: component.kind, dimensions: component.dimensions, placement: at, host: host.key });
+        const key = stableStringify({
+          kind: component.kind,
+          dimensions: component.dimensions,
+          placement: at,
+          host: host.key,
+          tangentLines,
+        });
         const part = this.remember(this.mountedCache, key, () =>
-          builder(component, { kernel: this.kernel, host: hostComponent, hostSurface, placement: at })
+          builder(component, {
+            kernel: this.kernel,
+            host: hostComponent,
+            hostSurface,
+            placement: at,
+            tangentLines,
+            hostSolid: host.part.solid,
+          })
         );
         return { part, key, local: at };
       };
@@ -244,7 +266,10 @@ export class AssemblyBuilder {
         );
         continue;
       }
-      const { part: mounted, key, local } = built;
+      const { part: mounted, key } = built;
+      // A part whose own dimensions decide where it stands reports that, not its placement.
+      const local = mounted.anchorOffset === undefined ? built.local : { ...built.local, axialOffset: mounted.anchorOffset };
+      if (mounted.anchorOffset !== undefined) placement = { ...placement, axialOffset: mounted.anchorOffset };
 
       if (mounted.opening) {
         const list = openingsByHost.get(component.hostId) ?? [];
@@ -324,6 +349,8 @@ export class AssemblyBuilder {
         hostAnchor: entry.part.host?.anchor,
         hostSurface: entry.part.host,
         junctions: { lower: entry.part.lower, upper: entry.part.upper },
+        meridian: entry.part.meridian,
+        tangentLine: entry.part.tangentLine,
         notes,
       });
     });
@@ -346,13 +373,15 @@ export class AssemblyBuilder {
   private defaultPlacement(
     host: HostSurface,
     counter: Map<string, number>,
-    component: ComponentDefinition
+    component: ComponentDefinition,
+    tangentLines: readonly [number, number] | undefined
   ): Placement {
     const [low, high] = host.offsetRange;
     const hostId = component.hostId as string;
 
     if (component.kind === Kind.SKIRT_SUPPORT) {
-      return { anchor: 'shell_side', axialOffset: low, azimuth: 0 };
+      // On a head the skirt's own diameter says where it meets the knuckle; the offset is unused.
+      return { anchor: host.anchor, axialOffset: host.anchor === 'head_crown' ? 0 : low, azimuth: 0 };
     }
     if (component.kind === Kind.HALF_PIPE_JACKET) {
       return { anchor: 'shell_side', axialOffset: host.defaultOffset, azimuth: 0 };
@@ -361,10 +390,12 @@ export class AssemblyBuilder {
       const key = `${hostId}/saddles`;
       const index = counter.get(key) ?? 0;
       counter.set(key, index + 1);
+      // §4.15.3's a runs from the head's tangent line, past its straight flange.
+      const [first, last] = tangentLines ?? [low, high];
       const distance = component.dimensions[Sym.SADDLE_DISTANCE] ?? 0.2 * (high - low);
       return {
         anchor: 'shell_side',
-        axialOffset: Math.min(high, Math.max(low, index % 2 === 0 ? low + distance : high - distance)),
+        axialOffset: Math.min(high, Math.max(low, index % 2 === 0 ? first + distance : last - distance)),
         azimuth: 0,
       };
     }
@@ -415,13 +446,36 @@ function nameJunctions(
 
     const side = landmark.key.endsWith('outside') ? ' (outside)' : landmark.key.endsWith('inside') ? ' (inside)' : '';
     const headInvolved = CLOSURE_OR_FLAT.has(component.kind) || CLOSURE_OR_FLAT.has(neighbour.kind);
+    const onFlange = landmark.role.startsWith('Straight flange');
     const role = headInvolved
-      ? `Tangent line, head-to-shell junction with ${neighbour.name}`
+      ? `${onFlange ? 'Straight flange end' : 'Tangent line'}, head-to-shell junction with ${neighbour.name}`
       : component.kind.endsWith('_flange') || neighbour.kind.endsWith('_flange')
         ? `Flange joint with ${neighbour.name}`
         : `Circumferential seam with ${neighbour.name}`;
     return { ...landmark, role: `${role}${side}` };
   });
+}
+
+/**
+ * Where the head tangent lines nearest a course stand, in its own offset: past each end by the
+ * straight flange of a formed head there, at the end itself otherwise. Undefined for a host that
+ * is not a course.
+ */
+function tangentLinesOf(
+  hostId: string,
+  host: RunPart,
+  transform: PartTransform,
+  run: readonly ComponentDefinition[],
+  runParts: ReadonlyMap<string, { part: RunPart }>
+): readonly [number, number] | undefined {
+  if (host.host?.anchor !== 'shell_side') return undefined;
+  const [low, high] = host.host.offsetRange;
+  const index = run.findIndex((c) => c.id === hostId);
+  // A course turned over meets the part above it at its own low end.
+  const atLow = transform.flipped ? run[index + 1] : run[index - 1];
+  const atHigh = transform.flipped ? run[index - 1] : run[index + 1];
+  const flange = (c: ComponentDefinition | undefined) => (c ? runParts.get(c.id)?.part.tangentLine ?? 0 : 0);
+  return [low - flange(atLow), high + flange(atHigh)];
 }
 
 /** The opening a part presents: its inside diameter, or a flange's bore. */

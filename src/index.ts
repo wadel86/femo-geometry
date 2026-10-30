@@ -40,6 +40,16 @@ export {
 } from './topology/descriptors.ts';
 export { derivePorts, type Joint, type JointKind, type Port, type PortKind, type PortsAndJoints } from './ports/ports.ts';
 export {
+  ZONE_FACTOR,
+  deriveZones,
+  type Discontinuity,
+  type DiscontinuityKind,
+  type Measured,
+  type MeasurementIssue,
+  type Proximity,
+  type Zones,
+} from './ports/zones.ts';
+export {
   GEOMETRY_FORMAT_VERSION,
   RefusedError,
   namingTolerance,

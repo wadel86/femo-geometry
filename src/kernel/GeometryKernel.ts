@@ -24,7 +24,9 @@ export type ProfileStep =
       readonly radiusR: number;
       readonly radiusZ: number;
       readonly counterClockwise: boolean;
-    };
+    }
+  /** One Bézier to `to`, through the interior control points `controls`. */
+  | { readonly kind: 'bezier'; readonly to: Point2; readonly controls: readonly Point2[] };
 
 /** A closed outline of the meridian half-plane, closed by a straight line back to its start. */
 export interface Profile {

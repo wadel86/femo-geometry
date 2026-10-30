@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { ellipseOffset } from '../src/builders/bezierFit.ts';
 import { RUN_BUILDERS } from '../src/builders/runParts.ts';
+import type { RunContext } from '../src/builders/types.ts';
 import { kernel, part } from './fixtures.ts';
 
-const build = (kind: string, dimensions: Record<string, number>) =>
-  RUN_BUILDERS[kind](part('P', kind, dimensions), { kernel });
+const build = (kind: string, dimensions: Record<string, number>, context: Omit<RunContext, 'kernel'> = {}) =>
+  RUN_BUILDERS[kind](part('P', kind, dimensions), { kernel, ...context });
 
 const close = (actual: number, expected: number, relative = 1e-6) =>
   assert.ok(
@@ -41,11 +43,70 @@ test('a hemispherical head is half a spherical shell', () => {
   close(kernel.volume(head.solid), ((2 / 3) * Math.PI * (1050 ** 3 - 1000 ** 3)));
 });
 
-test('an ellipsoidal head bulges outwards', () => {
+test('an ellipsoidal head is t thick all over: its outside is the true offset of its inside', () => {
   const head = build('ellipsoidal_head', { inside_diameter: 2000, head_height: 500, thickness: 20 });
-  // An ellipse revolves into a general surface of revolution, integrated numerically.
-  close(kernel.volume(head.solid), (2 / 3) * Math.PI * (1020 ** 2 * 520 - 1000 ** 2 * 500), 1e-4);
-  close(kernel.bounds(head.solid).max[2], 520, 1e-4);
+  // The exact offset shell, revolved from a dense polygon of the offset curve and the ellipse.
+  const offset = ellipseOffset(1000, 500, 20).curve;
+  const outline: [number, number][] = [];
+  for (let i = 0; i <= 4000; i++) outline.push(offset.point((Math.PI / 2) * (i / 4000)) as [number, number]);
+  for (let i = 4000; i >= 0; i--) {
+    const u = (Math.PI / 2) * (i / 4000);
+    outline.push([1000 * Math.cos(u), 500 * Math.sin(u)]);
+  }
+  const exact = outline.reduce((sum, [r0, z0], i) => {
+    const [r1, z1] = outline[(i + 1) % outline.length];
+    return sum + (Math.PI / 3) * (r0 * r0 + r0 * r1 + r1 * r1) * (z1 - z0);
+  }, 0);
+  close(kernel.volume(head.solid), Math.abs(exact), 2e-5);
+  // The ellipse of semi-axes a + t and h + t, drawn before, held 3.4 % less metal.
+  assert.ok(Math.abs(exact) / ((2 / 3) * Math.PI * (1020 ** 2 * 520 - 1000 ** 2 * 500)) > 1.03);
+  close(kernel.bounds(head.solid).max[2], 520, 1e-6);
+  assert.deepEqual(head.notes.map((n) => n.symbol), ['straight_flange_length']);
+});
+
+test('a straight flange lifts a head off its weld, and moves the tangent line with it', () => {
+  const plain = build('hemispherical_head', { inside_diameter: 2000, thickness: 50, straight_flange_length: 0 });
+  const flanged = build('hemispherical_head', { inside_diameter: 2000, thickness: 50, straight_flange_length: 40 });
+  assert.deepEqual(plain.notes, [], 'a stated zero is an answer');
+  close(flanged.height, plain.height + 40);
+  close(kernel.volume(flanged.solid), kernel.volume(plain.solid) + Math.PI * (1050 ** 2 - 1000 ** 2) * 40);
+  assert.equal(flanged.tangentLine, 40);
+  assert.deepEqual(flanged.landmarks.map((l) => [l.key, l.z]).sort(), [
+    ['lower-inside', 0],
+    ['lower-outside', 0],
+    ['tangent-inside', 40],
+    ['tangent-outside', 40],
+  ]);
+  assert.equal(flanged.lower!.wall.surface.kind, 'cylinder', 'the weld is on the flange, not the sphere');
+
+  for (const kind of ['torispherical_head', 'ellipsoidal_head'] as const) {
+    const dimensions = { inside_diameter: 2000, thickness: 20, crown_radius: 2000, knuckle_radius: 200, head_height: 500 };
+    const without = build(kind, { ...dimensions, straight_flange_length: 0 });
+    const withFlange = build(kind, { ...dimensions, straight_flange_length: 50 });
+    // The volume of a fitted surface of revolution is integrated numerically, to about 1e-5.
+    close(kernel.volume(withFlange.solid), kernel.volume(without.solid) + Math.PI * (1020 ** 2 - 1000 ** 2) * 50, 3e-5);
+  }
+});
+
+test('a spherical course is cut to meet its neighbours, not drawn whole between them', () => {
+  const zone = build(
+    'spherical_shell',
+    { inside_diameter: 2000, thickness: 30 },
+    { belowInsideDiameter: 1200, aboveInsideDiameter: 800 }
+  );
+  const c = Math.sqrt(1000 ** 2 - 600 ** 2);
+  const top = c + Math.sqrt(1000 ** 2 - 400 ** 2);
+  close(zone.height, top);
+  close(zone.lower!.insideDiameter, 1200);
+  close(zone.upper!.insideDiameter, 800);
+  // A spherical zone between two planes: the outside's cap volume less the inside's.
+  const capBetween = (radius: number, z0: number, z1: number) =>
+    Math.PI * (radius * radius * (z1 - z0) - (z1 ** 3 - z0 ** 3) / 3);
+  close(kernel.volume(zone.solid), capBetween(1030, -c, top - c) - capBetween(1000, -c, top - c), 1e-6);
+  // Its walls meet the neighbours at an angle, pointing away from the sphere.
+  assert.ok(zone.lower!.wall.meridian[0] < 0 && zone.lower!.wall.meridian[1] < 0);
+  assert.ok(zone.upper!.wall.meridian[0] < 0 && zone.upper!.wall.meridian[1] > 0);
+  assert.throws(() => build('spherical_shell', { inside_diameter: 2000, thickness: 30 }, { belowInsideDiameter: 2000 }), /no wider/);
 });
 
 test('a spherical shell is a whole sphere', () => {

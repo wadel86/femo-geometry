@@ -89,6 +89,8 @@ export const rectangularVessel: RunBuilder = (component, context) => {
     lower: null,
     upper: null,
     landmarks: [],
+    // Not a surface of revolution: nothing is measured along it.
+    meridian: [],
     notes,
   };
 };
@@ -147,6 +149,8 @@ export const obroundVessel: RunBuilder = (component, context) => {
     lower: null,
     upper: null,
     landmarks: [],
+    // Not a surface of revolution: nothing is measured along it.
+    meridian: [],
     notes,
   };
 };

@@ -34,6 +34,7 @@ import type {
   WallSurface,
 } from './types.ts';
 import { PLANE, cylinderSurface, sphereSurface } from './walls.ts';
+import { ellipseOffset, fitBezier } from './bezierFit.ts';
 
 const DEG = Math.PI / 180;
 
@@ -68,35 +69,126 @@ function cavityProfile(insideRadius: number, margin: number, steps: ProfileStep[
   };
 }
 
+/** A profile step raised by `dz`: a head drawn above its straight flange. */
+function lift(step: ProfileStep, dz: number): ProfileStep {
+  if (dz === 0) return step;
+  const up = (p: Point2): Point2 => [p[0], p[1] + dz];
+  switch (step.kind) {
+    case 'line':
+      return { kind: 'line', to: up(step.to) };
+    case 'arc':
+      return { kind: 'arc', to: up(step.to), through: up(step.through) };
+    case 'ellipse':
+      return { ...step, to: up(step.to) };
+    case 'bezier':
+      return { kind: 'bezier', to: up(step.to), controls: step.controls.map(up) };
+  }
+}
+
+/** Points of a circular arc in the meridian half-plane, for a mid-surface meridian. */
+function arcPoints(centre: Point2, radius: number, from: number, to: number, count = 32): Point2[] {
+  return Array.from({ length: count + 1 }, (_, i): Point2 => {
+    const angle = from + ((to - from) * i) / count;
+    return [centre[0] + radius * Math.cos(angle), centre[1] + radius * Math.sin(angle)];
+  });
+}
+
+/** The shape of a formed head with no straight flange, tangent line at z = 0, crown up. */
+interface HeadShape {
+  /** From the outside of the tangent line, `[a + t, 0]`, up to the axis. */
+  readonly outside: readonly ProfileStep[];
+  /** The inside surface's height on the axis. */
+  readonly insideTop: number;
+  /** From the inside on the axis down to the inside of the tangent line, `[a, 0]`. */
+  readonly inside: readonly ProfileStep[];
+  /** The same inside surface the other way round, from `[a, 0]` up to the axis: the cavity. */
+  readonly insideUp: readonly ProfileStep[];
+  readonly zInside: (rho: number) => number;
+  readonly zOutside: (rho: number) => number;
+  readonly surfaceAt: (rho: number) => WallSurface;
+  /** The mid-surface at the tangent line, where the head meets its shell when it has no flange. */
+  readonly tangentSurface: WallSurface;
+  /** The mid-surface meridian from the tangent line to the pole. */
+  readonly meridian: readonly Point2[];
+  readonly height: number;
+  readonly landmarks: readonly Landmark[];
+  readonly notes: readonly Note[];
+}
+
 /**
- * A formed head says nothing of a straight flange until `SF` is stated, and a weld drawn on the
- * tangent line sits on the discontinuity rather than clear of it: harmless on screen, wrong
- * under a mesh. Zero is an answer — a head welded straight on.
+ * A formed head on its straight flange: the cylinder of length `SF` between the head-to-shell
+ * weld and the tangent line, which moves that weld off the discontinuity. Zero is an answer — a
+ * head welded straight on — and absence is the question unasked, refused under analysis.
  */
-function straightFlangeNotes(component: ComponentDefinition): Note[] {
-  const length = signedDimension(component, Sym.STRAIGHT_FLANGE_LENGTH);
-  if (length === undefined) {
-    return [
+function formedHead(component: ComponentDefinition, context: RunContext, a: number, t: number, shape: HeadShape) {
+  const flange = signedDimension(component, Sym.STRAIGHT_FLANGE_LENGTH);
+  if (flange !== undefined && flange < 0) {
+    throw new BuildError(component, `has a straight flange of ${mm(flange)}`);
+  }
+  const sf = flange ?? 0;
+  const notes: Note[] = [...shape.notes];
+  if (flange === undefined) {
+    notes.push(
       analysisNote(
         'Straight flange length not stated — drawn without one, so the head-to-shell weld sits on the tangent line',
         Sym.STRAIGHT_FLANGE_LENGTH
-      ),
-    ];
+      )
+    );
   }
-  if (length > 0) {
-    return [
-      note(
-        `A straight flange of ${mm(length)} is stated but not drawn yet — the head-to-shell weld is drawn on the tangent line`,
-        Sym.STRAIGHT_FLANGE_LENGTH
-      ),
-    ];
-  }
-  return [];
+
+  const diameter = 2 * a;
+  const tangent: Landmark[] =
+    sf > 0
+      ? [
+          { key: 'tangent-inside', z: sf, diameter, role: 'Tangent line (inside)' },
+          { key: 'tangent-outside', z: sf, diameter: diameter + 2 * t, role: 'Tangent line (outside)' },
+        ]
+      : [];
+
+  return {
+    solid: context.kernel.revolve({
+      start: [a, 0],
+      steps: [
+        line(a + t, 0),
+        ...(sf > 0 ? [line(a + t, sf)] : []),
+        ...shape.outside.map((s) => lift(s, sf)),
+        line(0, shape.insideTop + sf),
+        ...shape.inside.map((s) => lift(s, sf)),
+      ],
+    }),
+    height: shape.height + sf,
+    lower: {
+      insideDiameter: diameter,
+      outsideDiameter: diameter + 2 * t,
+      wall: { surface: sf > 0 ? cylinderSurface(a + t / 2) : shape.tangentSurface, thickness: t, meridian: DOWN },
+    },
+    upper: null,
+    landmarks: [
+      ...junctionLandmarks('lower', 0, diameter, diameter + 2 * t, sf > 0 ? 'Straight flange end' : 'Tangent line'),
+      ...tangent,
+      ...shape.landmarks.map((l) => ({ ...l, z: l.z + sf })),
+    ],
+    host: headCrownHost(
+      context,
+      a,
+      t,
+      (rho) => shape.zInside(rho) + sf,
+      (rho) => shape.zOutside(rho) + sf,
+      () => cavityProfile(a, a / 4, [...(sf > 0 ? [line(a, sf)] : []), ...shape.insideUp.map((s) => lift(s, sf))]),
+      shape.surfaceAt
+    ),
+    meridian: [[a + t / 2, 0] as Point2, ...shape.meridian.map((p): Point2 => [p[0], p[1] + sf])].filter(
+      (p, i, all) => i === 0 || Math.hypot(p[0] - all[i - 1][0], p[1] - all[i - 1][1]) > 1e-9
+    ),
+    tangentLine: sf,
+    notes,
+  };
 }
 
 function headCrownHost(
   context: RunContext,
   insideRadius: number,
+  thickness: number,
   zInside: (rho: number) => number,
   zOutside: (rho: number) => number,
   cavity: () => Profile,
@@ -126,17 +218,14 @@ function headCrownHost(
       return Math.abs(point[2] - zOutside(rho)) < Math.abs(point[2] - zInside(rho)) ? 'outside' : 'inside';
     },
     wallAt(rho: number): WallAt {
-      // The slope of the mid-surface, by a central difference kept inside the crown.
+      // The slope of the mid-surface, by a central difference kept inside the crown. Every head
+      // is drawn as a true offset of its inside, so the wall is t thick normal to it everywhere.
       const h = Math.max(1e-6, 1e-4 * insideRadius);
       const low = Math.max(0, rho - h);
       const high = Math.min(insideRadius, rho + h);
       const slope = high > low ? (middle(high) - middle(low)) / (high - low) : 0;
       const length = Math.hypot(1, slope);
-      return {
-        surface: surfaceAt(rho),
-        thickness: (zOutside(rho) - zInside(rho)) / length,
-        meridian: [1 / length, slope / length],
-      };
+      return { surface: surfaceAt(rho), thickness, meridian: [1 / length, slope / length] };
     },
   };
 }
@@ -213,6 +302,10 @@ export const cylindricalShell: RunBuilder = (component, context) => {
       },
       wallAt: () => ({ surface, thickness, meridian: UP }),
     },
+    meridian: [
+      [a + thickness / 2, 0],
+      [a + thickness / 2, length],
+    ],
     notes,
   };
 };
@@ -329,39 +422,88 @@ export const conicalShell: RunBuilder = (component, context) => {
       },
       wallAt: (offset) => ({ surface: surfaceAt(offset), thickness, meridian: upward }),
     },
+    meridian: [
+      [a0 + across / 2, 0],
+      [a1 + across / 2, length],
+    ],
     notes,
   };
 };
 
-/** A whole sphere: a spherical course has no open end for a neighbour to meet. */
+/**
+ * A spherical course: a whole sphere on its own, and cut to meet its neighbours where it has
+ * them — at the plane where its inside surface reaches the neighbour's opening, so the metal is
+ * what is built and nothing more. The two walls then meet at an angle: a real discontinuity, not
+ * a tangent one, which the ports report.
+ */
 export const sphericalShell: RunBuilder = (component, context) => {
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
   const thickness = requireDimension(component, Sym.THICKNESS);
   const a = diameter / 2;
   const outside = a + thickness;
-  const c = outside;
-  const between = context.neighbourOutsideRadius !== undefined || context.neighbourInsideDiameter !== undefined;
+  const mean = a + thickness / 2;
+
+  const opening = (stated: number | undefined, where: string): number | undefined => {
+    if (stated === undefined) return undefined;
+    if (stated / 2 >= a) {
+      throw new BuildError(
+        component,
+        `cannot meet the ${mm(stated)} opening ${where} it: a sphere of ${mm(diameter)} inside is no wider`
+      );
+    }
+    return stated / 2;
+  };
+  const rb = opening(context.belowInsideDiameter, 'below');
+  const ru = opening(context.aboveInsideDiameter, 'above');
+
+  // The centre sits so that the lower cut — or the lower pole — is at z = 0.
+  const c = rb !== undefined ? Math.sqrt(a * a - rb * rb) : outside;
+  const zu = ru !== undefined ? c + Math.sqrt(a * a - ru * ru) : c + outside;
+  const outsideAt = (z: number) => Math.sqrt(Math.max(0, outside * outside - (z - c) ** 2));
+  const meanAt = (z: number) => Math.sqrt(Math.max(0, mean * mean - (z - c) ** 2));
+
+  const bottomOutside: Point2 = rb !== undefined ? [outsideAt(0), 0] : [0, 0];
+  const topOutside: Point2 = ru !== undefined ? [outsideAt(zu), zu] : [0, c + outside];
+  const bottomInside: Point2 = rb !== undefined ? [rb, 0] : [0, c - a];
+  const steps: ProfileStep[] = [
+    ...(rb !== undefined ? [line(bottomOutside[0], 0)] : []),
+    arc(topOutside, [outside, c]),
+    ru !== undefined ? line(ru, zu) : line(0, c + a),
+    arc(bottomInside, [a, c]),
+  ];
+
+  const surface = sphereSurface(mean);
+  const end = (z: number, r: number, side: 'lower' | 'upper') => {
+    const rel = z - c;
+    const away: Point2 = side === 'lower' ? [rel / mean, -meanAt(z) / mean] : [-rel / mean, meanAt(z) / mean];
+    return {
+      insideDiameter: 2 * r,
+      outsideDiameter: 2 * outsideAt(z),
+      wall: { surface, thickness, meridian: away },
+    };
+  };
+  const lower = rb !== undefined ? end(0, rb, 'lower') : null;
+  const upper = ru !== undefined ? end(zu, ru, 'upper') : null;
+
+  // The mid-surface meridian, from the lower cut or pole to the upper one.
+  const angleOf = (z: number) => Math.asin(Math.max(-1, Math.min(1, (z - c) / mean)));
+  const from = rb !== undefined ? angleOf(0) : -Math.PI / 2;
+  const to = ru !== undefined ? angleOf(zu) : Math.PI / 2;
 
   return {
-    solid: context.kernel.revolve({
-      start: [0, 0],
-      steps: [
-        arc([0, 2 * c], [outside, c]),
-        line(0, c + a),
-        arc([0, c - a], [a, c]),
-      ],
-    }),
-    height: 2 * outside,
-    lower: null,
-    upper: null,
+    solid: context.kernel.revolve({ start: rb !== undefined ? [rb, 0] : [0, 0], steps }),
+    height: ru !== undefined ? zu : c + outside,
+    lower,
+    upper,
     landmarks: [
       { key: 'equator-inside', z: c, diameter, role: 'Equator (inside)' },
       { key: 'equator-outside', z: c, diameter: 2 * outside, role: 'Equator (outside)' },
+      ...(lower ? junctionLandmarks('lower', 0, lower.insideDiameter, lower.outsideDiameter, 'Sphere opening') : []),
+      ...(upper ? junctionLandmarks('upper', zu, upper.insideDiameter, upper.outsideDiameter, 'Sphere opening') : []),
     ],
-    host: sphereHost(context, a, outside, c),
-    notes: between
-      ? [analysisNote('Drawn as a whole sphere, not joined to its neighbours — the metal where they meet is invented')]
-      : [],
+    host: sphereHost(context, a, outside, c, ru ?? 0),
+    meridian: arcPoints([0, c], mean, from, to, 48),
+    notes: [],
   };
 };
 
@@ -370,13 +512,20 @@ export const sphericalShell: RunBuilder = (component, context) => {
  * the vessel axis; unlike it, what stands there is normal to the surface — §4.5.10's radial
  * nozzle in a sphere.
  */
-function sphereHost(context: RunContext, inside: number, outside: number, centre: number): HostSurface {
+function sphereHost(
+  context: RunContext,
+  inside: number,
+  outside: number,
+  centre: number,
+  topOpening: number
+): HostSurface {
   let cavity: ReturnType<RunContext['kernel']['revolve']> | undefined;
   const mean = (inside + outside) / 2;
   return {
     anchor: 'head_crown',
-    offsetRange: [0, inside],
-    defaultOffset: 0,
+    // Cut to meet a neighbour above, its upper half keeps only the ring outside that opening.
+    offsetRange: [topOpening, inside],
+    defaultOffset: topOpening > 0 ? (topOpening + inside) / 2 : 0,
     frameAt(rho: number, azimuth: number): HostFrame {
       const phi = azimuth * DEG;
       const up = Math.sqrt(Math.max(0, outside * outside - rho * rho));
@@ -412,30 +561,20 @@ export const hemisphericalHead: RunBuilder = (component, context) => {
   const s = Math.SQRT1_2;
   const surface = sphereSurface(a + thickness / 2);
 
-  return {
-    solid: context.kernel.revolve({
-      start: [a, 0],
-      steps: [
-        line(outside, 0),
-        arc([0, outside], [outside * s, outside * s]),
-        line(0, a),
-        arc([a, 0], [a * s, a * s]),
-      ],
-    }),
+  return formedHead(component, context, a, thickness, {
+    outside: [arc([0, outside], [outside * s, outside * s])],
+    insideTop: a,
+    inside: [arc([a, 0], [a * s, a * s])],
+    insideUp: [arc([0, a], [a * s, a * s])],
+    zInside: (rho) => (rho < a ? Math.sqrt(a * a - rho * rho) : 0),
+    zOutside: (rho) => Math.sqrt(Math.max(0, outside * outside - rho * rho)),
+    surfaceAt: () => surface,
+    tangentSurface: surface,
+    meridian: arcPoints([0, 0], a + thickness / 2, 0, Math.PI / 2),
     height: outside,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * outside, wall: { surface, thickness, meridian: DOWN } },
-    upper: null,
-    landmarks: junctionLandmarks('lower', 0, diameter, 2 * outside, 'Tangent line'),
-    host: headCrownHost(
-      context,
-      a,
-      (rho) => (rho < a ? Math.sqrt(a * a - rho * rho) : 0),
-      (rho) => Math.sqrt(outside * outside - rho * rho),
-      () => cavityProfile(a, a / 4, [arc([0, a], [a * s, a * s])]),
-      () => surface
-    ),
-    notes: straightFlangeNotes(component),
-  };
+    landmarks: [],
+    notes: [],
+  });
 };
 
 /**
@@ -494,31 +633,25 @@ export const torisphericalHead: RunBuilder = (component, context) => {
     return { kind: 'torus', principalRadii: [meanKnuckle, rho / cos] };
   };
 
-  return {
-    solid: context.kernel.revolve({
-      start: [a, 0],
-      steps: [
-        line(a + thickness, 0),
-        arc(outsideTangent, onKnuckle(outsideKnuckle, beta / 2)),
-        arc([0, zc + outsideCrown], onCrown(outsideCrown, crownMiddle)),
-        line(0, zc + crown),
-        arc(insideTangent, onCrown(crown, crownMiddle)),
-        arc([a, 0], onKnuckle(knuckle, beta / 2)),
-      ],
-    }),
+  return formedHead(component, context, a, thickness, {
+    outside: [
+      arc(outsideTangent, onKnuckle(outsideKnuckle, beta / 2)),
+      arc([0, zc + outsideCrown], onCrown(outsideCrown, crownMiddle)),
+    ],
+    insideTop: zc + crown,
+    inside: [arc(insideTangent, onCrown(crown, crownMiddle)), arc([a, 0], onKnuckle(knuckle, beta / 2))],
+    insideUp: [arc(insideTangent, onKnuckle(knuckle, beta / 2)), arc([0, zc + crown], onCrown(crown, crownMiddle))],
+    zInside: (rho) => zOf(rho, crown, knuckle),
+    zOutside: (rho) => zOf(rho, outsideCrown, outsideKnuckle),
+    surfaceAt,
+    tangentSurface: { kind: 'torus', principalRadii: [meanKnuckle, a + thickness / 2] },
+    // The knuckle's mid-surface up to where the crown takes over, then the crown's.
+    meridian: [
+      ...arcPoints([xc, 0], meanKnuckle, 0, beta, 16),
+      ...arcPoints([0, zc], meanCrown, beta, Math.PI / 2, 32).slice(1),
+    ],
     height: zc + outsideCrown,
-    lower: {
-      insideDiameter: diameter,
-      outsideDiameter: diameter + 2 * thickness,
-      wall: {
-        surface: { kind: 'torus', principalRadii: [meanKnuckle, a + thickness / 2] },
-        thickness,
-        meridian: DOWN,
-      },
-    },
-    upper: null,
     landmarks: [
-      ...junctionLandmarks('lower', 0, diameter, diameter + 2 * thickness, 'Tangent line'),
       {
         key: 'crown-knuckle-inside',
         z: insideTangent[1],
@@ -532,84 +665,59 @@ export const torisphericalHead: RunBuilder = (component, context) => {
         role: 'Crown-to-knuckle tangent line (outside)',
       },
     ],
-    host: headCrownHost(
-      context,
-      a,
-      (rho) => zOf(rho, crown, knuckle),
-      (rho) => zOf(rho, outsideCrown, outsideKnuckle),
-      () =>
-        cavityProfile(a, a / 4, [
-          arc(insideTangent, onKnuckle(knuckle, beta / 2)),
-          arc([0, zc + crown], onCrown(crown, crownMiddle)),
-        ]),
-      surfaceAt
-    ),
-    notes: straightFlangeNotes(component),
-  };
+    notes: [],
+  });
 };
 
 /**
- * An ellipsoidal head of inside height `h`. The outside is drawn as the ellipse of semi-axes
- * `a + t` and `h + t`: the true offset of an ellipse is not an ellipse, and at the proportions
- * of a pressure head the two differ by far less than the plate.
+ * An ellipsoidal head of inside height `h`, whose outside is the true offset of its inside by
+ * `t`. That offset is not an ellipse — the ellipse of semi-axes `a + t` and `h + t` leaves the
+ * wall thinner than `t` over the knuckle — so it is drawn as one Bézier fitted to the exact
+ * offset curve, the fit's error being measured and held to a millionth of the head's size.
  */
 export const ellipsoidalHead: RunBuilder = (component, context) => {
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
   const height = requireDimension(component, Sym.HEAD_HEIGHT);
   const thickness = requireDimension(component, Sym.THICKNESS);
   const a = diameter / 2;
-  const ao = a + thickness;
-  const ho = height + thickness;
 
-  // The mid-surface, x = A·cos u, z = B·sin u: R1 = (A²sin²u + B²cos²u)^1.5 / (A·B) along the
-  // meridian, R2 = A·sqrt(B²cos²u + A²sin²u) / B round it.
-  const A = a + thickness / 2;
-  const B = height + thickness / 2;
-  const surfaceAt = (rho: number): WallSurface => {
-    const cos = Math.min(1, rho / A);
-    const sin2 = 1 - cos * cos;
-    const q = A * A * sin2 + B * B * cos * cos;
-    return { kind: 'ellipsoid', principalRadii: [q ** 1.5 / (A * B), (A * Math.sqrt(q)) / B] };
-  };
+  const outside = ellipseOffset(a, height, thickness);
+  const tolerance = Math.max(1e-4, 1e-6 * (a + height));
+  let fit = fitBezier(outside.curve, 0, Math.PI / 2, 9);
+  for (let degree = 11; fit.error > tolerance && degree <= 21; degree += 2) {
+    fit = fitBezier(outside.curve, 0, Math.PI / 2, degree);
+  }
+  const notes: Note[] =
+    fit.error > tolerance
+      ? [note(`Outside surface drawn within ${mm(fit.error)} of the true offset of the inside`)]
+      : [];
 
-  const insideArc: ProfileStep = {
-    kind: 'ellipse',
-    to: [a, 0],
-    radiusR: a,
-    radiusZ: height,
-    counterClockwise: false,
+  // On the inside ellipse x = a·cos u, z = h·sin u the principal radii are
+  // R1 = (a²sin²u + h²cos²u)^1.5 / (a·h) and R2 = a·sqrt(h²cos²u + a²sin²u) / h. An offset
+  // surface shares its centres of curvature, so the mid-surface's are both larger by t/2.
+  const radiiAt = (u: number): WallSurface => {
+    const q = a * a * Math.sin(u) ** 2 + height * height * Math.cos(u) ** 2;
+    return {
+      kind: 'ellipsoid',
+      principalRadii: [q ** 1.5 / (a * height) + thickness / 2, (a * Math.sqrt(q)) / height + thickness / 2],
+    };
   };
+  const middle = ellipseOffset(a, height, thickness / 2);
 
-  return {
-    solid: context.kernel.revolve({
-      start: [a, 0],
-      steps: [
-        line(ao, 0),
-        { kind: 'ellipse', to: [0, ho], radiusR: ao, radiusZ: ho, counterClockwise: true },
-        line(0, height),
-        insideArc,
-      ],
-    }),
-    height: ho,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * ao, wall: { surface: surfaceAt(A), thickness, meridian: DOWN } },
-    upper: null,
-    landmarks: junctionLandmarks('lower', 0, diameter, 2 * ao, 'Tangent line'),
-    host: headCrownHost(
-      context,
-      a,
-      (rho) => (rho < a ? height * Math.sqrt(1 - (rho / a) ** 2) : 0),
-      (rho) => ho * Math.sqrt(Math.max(0, 1 - (rho / ao) ** 2)),
-      () =>
-        cavityProfile(a, a / 4, [
-          { kind: 'ellipse', to: [0, height], radiusR: a, radiusZ: height, counterClockwise: true },
-        ]),
-      surfaceAt
-    ),
-    notes: [
-      note('Outside surface drawn as the ellipse of semi-axes a + t and h + t, so the wall is not t thick all over'),
-      ...straightFlangeNotes(component),
-    ],
-  };
+  return formedHead(component, context, a, thickness, {
+    outside: [{ kind: 'bezier', to: [0, height + thickness], controls: fit.controls.slice(1, -1) }],
+    insideTop: height,
+    inside: [{ kind: 'ellipse', to: [a, 0], radiusR: a, radiusZ: height, counterClockwise: false }],
+    insideUp: [{ kind: 'ellipse', to: [0, height], radiusR: a, radiusZ: height, counterClockwise: true }],
+    zInside: (rho) => (rho < a ? height * Math.sqrt(1 - (rho / a) ** 2) : 0),
+    zOutside: (rho) => (rho < a + thickness ? outside.curve.point(outside.parameterAt(rho))[1] : 0),
+    surfaceAt: (rho) => radiiAt(outside.parameterAt(rho)),
+    tangentSurface: radiiAt(0),
+    meridian: Array.from({ length: 49 }, (_, i) => middle.curve.point((Math.PI / 2) * (i / 48))),
+    height: height + thickness,
+    landmarks: [],
+    notes,
+  });
 };
 
 /** A flat end: a plate of thickness `t`, drawn to the outside diameter of what it closes. */
@@ -635,11 +743,17 @@ export const flatHead: RunBuilder = (component, context) => {
     host: headCrownHost(
       context,
       a,
+      thickness,
       () => 0,
       () => thickness,
       () => cavityProfile(a, a / 4, [line(0, 0)]),
       () => PLANE
     ),
+    // The plate's mid-plane, from over the wall it closes in to the axis.
+    meridian: [
+      [(a + rim) / 2, thickness / 2],
+      [0, thickness / 2],
+    ],
     notes: [],
   };
 };
@@ -710,6 +824,10 @@ export const flange: RunBuilder = (component, context) => {
     landmarks: [
       ...junctionLandmarks('lower', 0, bore, lower.outsideDiameter, 'Flange face'),
       ...junctionLandmarks('upper', height, bore, upper.outsideDiameter, 'Flange face'),
+    ],
+    meridian: [
+      [(bore + lower.outsideDiameter) / 4, 0],
+      [(bore + upper.outsideDiameter) / 4, height],
     ],
     notes,
   };

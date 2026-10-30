@@ -10,6 +10,13 @@
 import type { AssemblyDefinition, Note, Placement } from '../definition.ts';
 import type { Frame, GeometryKernel, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { derivePorts, type Joint, type Port } from '../ports/ports.ts';
+import {
+  deriveZones,
+  type Discontinuity,
+  type Measured,
+  type MeasurementIssue,
+  type Proximity,
+} from '../ports/zones.ts';
 import { describeGeometry, type EdgeDescriptor, type FaceDescriptor } from '../topology/descriptors.ts';
 import {
   assemblyBounds,
@@ -23,7 +30,8 @@ import {
 
 export type GeometryMode = 'display' | 'analysis';
 
-export const GEOMETRY_FORMAT_VERSION = 1;
+/** 2: discontinuities, proximities, measured symbols and their issues. */
+export const GEOMETRY_FORMAT_VERSION = 2;
 
 /** Why a part cannot go to analysis as it is. */
 export interface Refusal {
@@ -70,6 +78,14 @@ export interface ResolvedGeometry {
   readonly errors: readonly string[];
   readonly parts: readonly ResolvedPart[];
   readonly joints: readonly Joint[];
+  /** The multiple of √(R·t) the proximities' overlap flag uses. */
+  readonly zoneFactor: number;
+  readonly discontinuities: readonly Discontinuity[];
+  readonly proximities: readonly Proximity[];
+  /** Distances a rule reads, measured off the layout: by component id, then by symbol. */
+  readonly measured: Readonly<Record<string, Readonly<Record<string, Measured>>>>;
+  /** Stated symbols the layout contradicts — refusals too, under analysis. */
+  readonly issues: readonly MeasurementIssue[];
 }
 
 export interface ResolveOptions {
@@ -116,11 +132,21 @@ export function refusalsOf(definition: AssemblyDefinition, model: AssemblyModel,
     }
   }
   const names = new Map(model.parts.map((p) => [p.componentId, p.name]));
-  for (const joint of derivePorts(definition, model).joints) {
+  const { ports, joints } = derivePorts(definition, model);
+  for (const joint of joints) {
     const componentId = joint.ports[1].split('@').slice(1).join('@');
     for (const issue of joint.issues) {
       refusals.push({ componentId, name: names.get(componentId) ?? componentId, message: `${joint.id}: ${issue}` });
     }
+  }
+  // A dimension the layout contradicts is two models of one vessel: neither may be meshed.
+  for (const issue of deriveZones(definition, model, ports, joints).issues) {
+    refusals.push({
+      componentId: issue.componentId,
+      name: names.get(issue.componentId) ?? issue.componentId,
+      symbol: issue.symbol,
+      message: issue.message,
+    });
   }
   return refusals;
 }
@@ -135,6 +161,7 @@ export function resolveGeometry(
   const mode = options.mode ?? 'display';
   const epsilon = options.epsilon ?? namingTolerance(model, kernel);
   const { ports, joints } = derivePorts(definition, model);
+  const zones = deriveZones(definition, model, ports, joints);
   const refusals = refusalsOf(definition, model, mode);
   const errors: string[] = [];
 
@@ -179,6 +206,11 @@ export function resolveGeometry(
     errors,
     parts,
     joints,
+    zoneFactor: zones.zoneFactor,
+    discontinuities: zones.discontinuities,
+    proximities: zones.proximities,
+    measured: zones.measured,
+    issues: zones.issues,
   };
 }
 

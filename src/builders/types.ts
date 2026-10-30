@@ -106,6 +106,13 @@ export interface RunPart {
   readonly upper: Junction | null;
   readonly landmarks: readonly Landmark[];
   readonly host?: HostSurface;
+  /**
+   * The wall's mid-surface meridian, in the part's frame (r, z), from its lower junction —
+   * or its lower pole — onwards: what a distance along the vessel's surface is measured on.
+   */
+  readonly meridian: readonly Point2[];
+  /** For a formed head: the height of its tangent line above its lower junction. */
+  readonly tangentLine?: number;
   /** Assumptions the drawing had to make, which the user should see. */
   readonly notes: readonly Note[];
 }
@@ -118,6 +125,9 @@ export interface RunContext {
   readonly neighbourInsideDiameter?: number;
   /** For a flange: whether its hub points down, towards the course below it. */
   readonly hubDown?: boolean;
+  /** For a sphere: the openings of its neighbours below and above, which it is cut to meet. */
+  readonly belowInsideDiameter?: number;
+  readonly aboveInsideDiameter?: number;
 }
 
 export type RunBuilder = (component: ComponentDefinition, context: RunContext) => RunPart;
@@ -139,6 +149,11 @@ export interface MountedPart {
   readonly neck?: Neck;
   /** For a part welded on without opening its host: the patch of wall it covers. */
   readonly attachment?: Attachment;
+  /**
+   * Where the part really stands on its host when its own dimensions decide it rather than its
+   * placement — a skirt on a head meets the knuckle where its diameter says.
+   */
+  readonly anchorOffset?: number;
   readonly notes: readonly Note[];
 }
 
@@ -171,6 +186,14 @@ export interface MountedContext {
   readonly host: ComponentDefinition;
   readonly hostSurface: HostSurface;
   readonly placement: Placement;
+  /**
+   * Where the nearest head tangent lines stand, in the host's offset: below its low end and
+   * above its high end by a neighbouring head's straight flange, or at the course's own ends
+   * where no formed head is next to it. What a saddle's `a` is measured to.
+   */
+  readonly tangentLines?: readonly [number, number];
+  /** The host's own solid, for a part that is cut to its outside surface: a skirt on a head. */
+  readonly hostSolid?: Solid;
 }
 
 export type MountedBuilder = (component: ComponentDefinition, context: MountedContext) => MountedPart;

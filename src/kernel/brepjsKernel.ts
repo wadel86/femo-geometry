@@ -208,6 +208,11 @@ function drawing(profile: Profile): Shape {
       pen = pen.lineTo([step.to[0], step.to[1]]);
     } else if (step.kind === 'arc') {
       pen = pen.threePointsArcTo([step.to[0], step.to[1]], [step.through[0], step.through[1]]);
+    } else if (step.kind === 'bezier') {
+      pen = pen.bezierCurveTo(
+        [step.to[0], step.to[1]],
+        step.controls.map((p): [number, number] => [p[0], p[1]])
+      );
     } else {
       // SVG arc semantics: an arc of less than half a turn, swept counter-clockwise when the
       // flag is set — in the drawing plane, whose y is the vessel axis.

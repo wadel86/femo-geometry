@@ -110,7 +110,12 @@ function parse(raw: string): { definition: AssemblyDefinition; mode: GeometryMod
     throw new BadRequest(`Unknown mode "${mode}": display or analysis`);
   }
   return {
-    definition: { components: definition.components, placements: definition.placements ?? {}, reversed: definition.reversed ?? [] },
+    definition: {
+      components: definition.components,
+      placements: definition.placements ?? {},
+      reversed: definition.reversed ?? [],
+      ...(Number.isFinite(definition.layoutRevision) ? { layoutRevision: definition.layoutRevision } : {}),
+    },
     mode,
   };
 }

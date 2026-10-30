@@ -14,7 +14,7 @@ import {
 } from '../definition.ts';
 import type { Point2, Profile, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { mm, requireWithinHost } from './placing.ts';
-import type { CourseShape, MountedBuilder, MountedContext } from './types.ts';
+import type { CourseShape, MountedBuilder, MountedContext, MountedPart } from './types.ts';
 
 const DEG = Math.PI / 180;
 
@@ -65,8 +65,9 @@ export const saddleSupport: MountedBuilder = (component, context) => {
     plate === undefined ? width : width + 1.56 * Math.sqrt(((inside + outside) / 2) * course.thickness);
   requireWithinHost(component, context, plateWidth / 2);
 
+  // a is measured from a head's tangent line, which a straight flange puts past the course's end.
   const distance = optionalDimension(component, Sym.SADDLE_DISTANCE);
-  const [low, high] = hostSurface.offsetRange;
+  const [low, high] = context.tangentLines ?? hostSurface.offsetRange;
   if (distance !== undefined && Math.abs(z - low - distance) > 1 && Math.abs(high - z - distance) > 1) {
     notes.push(
       note(`Drawn at ${mm(z)}, but its a = ${mm(distance)} puts it that far from a tangent line`, Sym.SADDLE_DISTANCE)
@@ -127,8 +128,12 @@ export const saddleSupport: MountedBuilder = (component, context) => {
   };
 };
 
-/** A skirt — §4.15.4: a cylinder hanging from the course, from its placement downwards. */
+/**
+ * A skirt — §4.15.4: a cylinder hanging from the course, from its placement downwards; or,
+ * hosted on a head, welded to the head's knuckle.
+ */
 export const skirtSupport: MountedBuilder = (component, context) => {
+  if (context.hostSurface.anchor === 'head_crown') return skirtOnHead(component, context);
   const { kernel, placement } = context;
   cylinderOf(component, context, 'a skirt');
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
@@ -154,6 +159,50 @@ export const skirtSupport: MountedBuilder = (component, context) => {
     notes: [note('Drawn from its placement on the course downwards, not welded to a knuckle')],
   };
 };
+
+/**
+ * A skirt welded to a head's knuckle, the usual way a tall column stands: where it meets the head
+ * is not a placement but the skirt's own diameter — the circle on which the head's outside
+ * reaches the skirt's mid-wall — so the placement's offset is not read. The skirt's top is cut
+ * to the head's outside surface, so the two meet on the same surface and a mesher can join them;
+ * the skirt runs its length from that circle, away from the vessel.
+ */
+function skirtOnHead(component: ComponentDefinition, context: MountedContext): MountedPart {
+  const { kernel, hostSurface, host } = context;
+  const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
+  const thickness = requireDimension(component, Sym.THICKNESS);
+  const length = requireDimension(component, Sym.COURSE_LENGTH);
+  if (!context.hostSolid) {
+    throw new NotDrawnError(component, `${host.name} offers no surface to cut the skirt to`);
+  }
+
+  const inner = diameter / 2;
+  const outer = inner + thickness;
+  const middle = inner + thickness / 2;
+  const [, reach] = hostSurface.offsetRange;
+  // Past the head's inside radius the outside surface falls to the tangent line and below.
+  const headOutside = hostSurface.frameAt(reach, 0);
+  const headOutsideRadius = reach + hostSurface.wallAt(reach).thickness;
+  if (outer >= headOutsideRadius) {
+    throw new NotDrawnError(
+      component,
+      `as wide as ${host.name} or wider, the skirt meets its shell rather than its knuckle — host it on the course`
+    );
+  }
+  if (inner <= 0) throw new BuildError(component, 'has no inside radius');
+
+  // The head's outside surface is stated out to its own outside radius, past the inside one.
+  const weld = hostSurface.frameAt(middle, 0).origin[2];
+  const lowest = Math.min(headOutside.origin[2], hostSurface.frameAt(outer, 0).origin[2]) - 1;
+  const tube = kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, inner, outer, lowest, weld + length);
+  return {
+    solids: [kernel.cut(tube, [context.hostSolid, hostSurface.cavity()])],
+    footprint: 0,
+    attachment: { axial: thickness, circumferentialDeg: 360, thickness },
+    anchorOffset: middle,
+    notes: [],
+  };
+}
 
 /**
  * A lug — §4.15.5: two gussets on a base plate. No rule reads its dimensions, so the

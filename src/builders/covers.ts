@@ -54,7 +54,13 @@ function dish(context: RunContext, crown: number, thickness: number, rim: number
   // The mid-surface's meridian at the rim, carried on past it: away from the dish.
   const middleRadius = crown + thickness / 2;
   const meridian: Point2 = [(base - zc) / crown, -rim / crown];
-  return { solid, top: zc + crown + thickness, outsideRim, middleRadius, meridian };
+  // And the mid-surface itself, from the rim up to the pole.
+  const from = Math.atan2(base - zc, rim);
+  const midline = Array.from({ length: 33 }, (_, i): Point2 => {
+    const angle = from + ((Math.PI / 2 - from) * i) / 32;
+    return [middleRadius * Math.cos(angle), zc + middleRadius * Math.sin(angle)];
+  });
+  return { solid, top: zc + crown + thickness, outsideRim, middleRadius, meridian, midline };
 }
 
 /** §4.7 — the dish alone, closing what it sits on. */
@@ -82,6 +88,7 @@ export const sphericallyDishedCover: RunBuilder = (component, context) => {
       { key: 'lower-inside', z: 0, diameter: opening, role: 'Dish rim (inside)', junction: 'lower' },
       { key: 'lower-outside', z: 0, diameter: 2 * built.outsideRim, role: 'Dish rim (outside)', junction: 'lower' },
     ],
+    meridian: built.midline,
     notes: [note('Drawn as the dish alone, on the opening of the part it closes')],
   };
 };
@@ -156,6 +163,8 @@ function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
       },
       upper: null,
       landmarks,
+      // Across the ring's joint face to its bore, then over the dish.
+      meridian: [[(outsideDiameter + bore) / 4, 0], ...built.midline],
       notes,
     };
   };
@@ -187,6 +196,10 @@ export const quickActuatingClosure: RunBuilder = (component, context) => {
     },
     upper: null,
     landmarks: [{ key: 'lower-rim', z: 0, diameter: 2 * rim, role: 'Door rim (inner face)', junction: 'lower' }],
+    meridian: [
+      [(diameter / 2 + rim) / 2, thickness / 2],
+      [0, thickness / 2],
+    ],
     notes: [note('Drawn as its door; the locking mechanism is not modelled')],
   };
 };
@@ -235,6 +248,10 @@ export const stayedSurface: RunBuilder = (component, context) => {
     },
     upper: null,
     landmarks: [{ key: 'lower-rim', z: 0, diameter: 2 * rim, role: 'Plate rim (inner face)', junction: 'lower' }],
+    meridian: [
+      [(a + rim) / 2, thickness / 2],
+      [0, thickness / 2],
+    ],
     notes: [note(`${positions.length} stays on a square array ${mm(spacing)} apart, drawn ${mm(depth)} into the vessel`)],
   };
 };
