@@ -84,7 +84,48 @@ export const Sym = {
   STAY_PLANES: 'stay_planes',
   STAY_PLATE_THICKNESS: 'stay_plate_thickness',
   STIFFENER_PITCH: 'stiffener_pitch',
+  STRAIGHT_FLANGE_LENGTH: 'straight_flange_length',
+  SUPPORT_LUG_HEIGHT: 'support_lug_height',
+  SUPPORT_LUG_PROJECTION: 'support_lug_projection',
+  SUPPORT_LUG_GUSSET_SPACING: 'support_lug_gusset_spacing',
+  SUPPORT_LUG_GUSSET_THICKNESS: 'support_lug_gusset_thickness',
+  SUPPORT_LUG_BASE_PLATE_THICKNESS: 'support_lug_base_plate_thickness',
+  OUTER_FILLET_WELD_LEG: 'outer_fillet_weld_leg',
+  PAD_FILLET_WELD_LEG: 'pad_fillet_weld_leg',
+  INNER_FILLET_WELD_LEG: 'inner_fillet_weld_leg',
 } as const;
+
+/**
+ * Kinds that are analyses rather than parts — a classification line, a collapse or fatigue
+ * assessment, an overpressure argument. They are components of the assembly, so that the rules
+ * can judge them, but there is no metal to draw.
+ */
+export const ANALYSIS_KINDS: ReadonlySet<string> = new Set([
+  'stress_classification_line',
+  'plastic_collapse_analysis',
+  'fatigue_assessment',
+  'overpressure_protection_by_design',
+]);
+
+/**
+ * An assumption the drawing had to make, naming the symbol that would have spared it when there
+ * is one.
+ *
+ * On screen it is shown and the drawing goes ahead. Under analysis it is a refusal: a mesh of an
+ * assumed length is an invented number. `analysisOnly` marks an approximation that is harmless
+ * on screen — a weld drawn on the tangent line — and is not worth showing there.
+ */
+export interface Note {
+  readonly message: string;
+  /** A `CodeSymbol` wire value. */
+  readonly symbol?: string;
+  readonly analysisOnly?: boolean;
+}
+
+export const note = (message: string, symbol?: string): Note => (symbol ? { message, symbol } : { message });
+
+export const analysisNote = (message: string, symbol?: string): Note =>
+  symbol ? { message, symbol, analysisOnly: true } : { message, analysisOnly: true };
 
 /** One part, as the platform stores it. */
 export interface ComponentDefinition {
@@ -155,6 +196,12 @@ export function requireDimension(component: ComponentDefinition, symbol: string)
     throw new BuildError(component, `has a ${symbol.replace(/_/g, ' ')} of ${value}`);
   }
   return value;
+}
+
+/** A dimension that may be zero — zero being an answer, absence the question unasked. */
+export function signedDimension(component: ComponentDefinition, symbol: string): number | undefined {
+  const value = component.dimensions[symbol];
+  return value !== undefined && Number.isFinite(value) ? value : undefined;
 }
 
 export function optionalDimension(

@@ -3,11 +3,14 @@
 // Built in the course's frame, round +X and then turned to their azimuth: a saddle at azimuth 0
 // is the one a horizontal vessel stands on.
 import {
+  BuildError,
   NotDrawnError,
   Sym,
+  note,
   optionalDimension,
   requireDimension,
   type ComponentDefinition,
+  type Note,
 } from '../definition.ts';
 import type { Point2, Profile, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { mm, requireWithinHost } from './placing.ts';
@@ -48,7 +51,7 @@ export const saddleSupport: MountedBuilder = (component, context) => {
   const course = cylinderOf(component, context, 'a saddle');
   const theta = requireDimension(component, Sym.SADDLE_ANGLE);
   const plate = optionalDimension(component, Sym.WEAR_PLATE_THICKNESS);
-  const notes: string[] = [];
+  const notes: Note[] = [];
 
   const z = placement.axialOffset;
   const inside = course.insideRadiusAt(z);
@@ -56,7 +59,7 @@ export const saddleSupport: MountedBuilder = (component, context) => {
   let width = optionalDimension(component, Sym.SADDLE_WIDTH);
   if (width === undefined) {
     width = Math.max(150, 0.12 * outside);
-    notes.push(`Saddle width not stated — drawn ${mm(width)}`);
+    notes.push(note(`Saddle width not stated — drawn ${mm(width)}`, Sym.SADDLE_WIDTH));
   }
   const plateWidth =
     plate === undefined ? width : width + 1.56 * Math.sqrt(((inside + outside) / 2) * course.thickness);
@@ -65,7 +68,9 @@ export const saddleSupport: MountedBuilder = (component, context) => {
   const distance = optionalDimension(component, Sym.SADDLE_DISTANCE);
   const [low, high] = hostSurface.offsetRange;
   if (distance !== undefined && Math.abs(z - low - distance) > 1 && Math.abs(high - z - distance) > 1) {
-    notes.push(`Drawn at ${mm(z)}, but its a = ${mm(distance)} puts it that far from a tangent line`);
+    notes.push(
+      note(`Drawn at ${mm(z)}, but its a = ${mm(distance)} puts it that far from a tangent line`, Sym.SADDLE_DISTANCE)
+    );
   }
 
   const solids: Solid[] = [];
@@ -109,10 +114,15 @@ export const saddleSupport: MountedBuilder = (component, context) => {
     );
   }
 
-  notes.push('Drawn as a solid block; its web and ribs are not modelled');
+  notes.push(note('Drawn as a solid block; its web and ribs are not modelled'));
   return {
     solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
     footprint: plateWidth / 2,
+    attachment: {
+      axial: plateWidth,
+      circumferentialDeg: plate === undefined ? theta : (theta * 13) / 12,
+      thickness: plate ?? width,
+    },
     notes,
   };
 };
@@ -140,38 +150,55 @@ export const skirtSupport: MountedBuilder = (component, context) => {
       }),
     ],
     footprint: 0,
-    notes: ['Drawn from its placement on the course downwards'],
+    attachment: { axial: thickness, circumferentialDeg: 360, thickness },
+    notes: [note('Drawn from its placement on the course downwards, not welded to a knuckle')],
   };
 };
 
 /**
- * A lug — §4.15.5. The type carries no dimension of the lug itself, only its distance to the
- * nearest seam, so it is drawn to proportions of the course: two gussets on a base plate.
+ * A lug — §4.15.5: two gussets on a base plate. No rule reads its dimensions, so the
+ * `SUPPORT_LUG_*` symbols exist for the drawing alone; what is not stated is drawn to
+ * proportions of the course, and said.
  */
 export const lugSupport: MountedBuilder = (component, context) => {
   const { kernel, placement } = context;
   const course = cylinderOf(component, context, 'a lug');
   const z = placement.axialOffset;
   const outside = course.outsideRadiusAt(z);
+  const notes: Note[] = [];
+  const stated = (symbol: string, label: string, assumed: number): number => {
+    const value = optionalDimension(component, symbol);
+    if (value !== undefined) return value;
+    notes.push(note(`${label} not stated — drawn ${mm(assumed)}`, symbol));
+    return assumed;
+  };
 
-  const reach = Math.min(400, Math.max(100, 0.24 * outside));
-  const height = 1.5 * reach;
-  const plate = Math.min(30, Math.max(10, 0.024 * outside));
-  const gap = 0.6 * reach;
-  requireWithinHost(component, context, height / 2 + plate);
+  const reach = stated(Sym.SUPPORT_LUG_PROJECTION, 'Lug projection', Math.min(400, Math.max(100, 0.24 * outside)));
+  const height = stated(Sym.SUPPORT_LUG_HEIGHT, 'Lug height', 1.5 * reach);
+  const gap = stated(Sym.SUPPORT_LUG_GUSSET_SPACING, 'Gusset spacing', 0.6 * reach);
+  const assumedPlate = Math.min(30, Math.max(10, 0.024 * outside));
+  const plate = stated(Sym.SUPPORT_LUG_GUSSET_THICKNESS, 'Gusset thickness', assumedPlate);
+  const base = stated(Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS, 'Base plate thickness', assumedPlate);
+  if (gap <= plate) {
+    throw new BuildError(component, `has gussets ${mm(plate)} thick only ${mm(gap)} apart`);
+  }
+  requireWithinHost(component, context, height / 2 + base);
 
   const inner = outside - 1;
   const solids = [
     kernel.extrude(rectangle(inner, outside + reach, gap / 2 - plate / 2, gap / 2 + plate / 2), z - height / 2, z + height / 2),
     kernel.extrude(rectangle(inner, outside + reach, -gap / 2 - plate / 2, -gap / 2 + plate / 2), z - height / 2, z + height / 2),
-    kernel.extrude(rectangle(inner, outside + reach, -gap / 2 - plate / 2, gap / 2 + plate / 2), z - height / 2 - plate, z - height / 2),
+    kernel.extrude(rectangle(inner, outside + reach, -gap / 2 - plate / 2, gap / 2 + plate / 2), z - height / 2 - base, z - height / 2),
   ];
   return {
     solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
-    footprint: height / 2 + plate,
-    notes: [
-      `Drawn to assumed proportions (${mm(reach)} out, ${mm(height)} high, ${mm(plate)} plate) — the type carries no lug dimensions`,
-    ],
+    footprint: height / 2 + base,
+    attachment: {
+      axial: height + base,
+      circumferentialDeg: ((gap + plate) / outside) * (180 / Math.PI),
+      thickness: plate,
+    },
+    notes,
   };
 };
 
@@ -212,6 +239,7 @@ export const halfPipeJacket: MountedBuilder = (component, context) => {
     solids: [turn],
     copies: [Array.from({ length: turns - 1 }, (_, k): Vec3 => [0, 0, (k + 1) * pitch])],
     footprint: 0,
-    notes: [`Drawn as ${turns} closed turns at a ${mm(pitch)} pitch over the whole course — the helix is not modelled`],
+    attachment: { axial: (turns - 1) * pitch + 2 * reach, circumferentialDeg: 360, thickness },
+    notes: [note(`Drawn as ${turns} closed turns at a ${mm(pitch)} pitch over the whole course — the helix is not modelled`)],
   };
 };

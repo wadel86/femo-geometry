@@ -1,10 +1,37 @@
-import type { ComponentDefinition, Placement, PlacementAnchor } from '../definition.ts';
-import type { Frame, GeometryKernel, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
+import type { ComponentDefinition, Note, Placement, PlacementAnchor } from '../definition.ts';
+import type { Frame, GeometryKernel, Point2, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
+
+export type WallSurfaceKind = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'ellipsoid';
+
+/**
+ * The mid-surface of a wall at a point: what a mesh sizes against, `R/t` and `√(R·t)` being
+ * read off it. Radii are meridional then circumferential for a wall of revolution — along its
+ * axis then round it for a neck — null where the surface is straight that way.
+ */
+export interface WallSurface {
+  readonly kind: WallSurfaceKind;
+  readonly principalRadii: readonly [number | null, number | null];
+}
+
+/** The wall at a point: its mid-surface, its thickness normal to it, and its meridian. */
+export interface WallAt {
+  readonly surface: WallSurface;
+  readonly thickness: number;
+  /** Unit tangent of the meridian, as (dr, dz) in the part's frame. */
+  readonly meridian: Point2;
+}
 
 /** The opening a part of the axial run presents to its neighbour. */
 export interface Junction {
   readonly insideDiameter: number;
   readonly outsideDiameter: number;
+  /** A bolted or gasketed face, rather than the end of a wall that is welded. */
+  readonly face?: boolean;
+  /**
+   * The wall where it ends. Its meridian points away from the part; for a face, its thickness
+   * is the width across it.
+   */
+  readonly wall: WallAt;
 }
 
 /**
@@ -44,6 +71,8 @@ export interface HostSurface {
    * apart whatever angle the nozzle cuts them at.
    */
   sideOf(point: readonly [number, number, number]): 'inside' | 'outside';
+  /** The wall at an offset, its meridian pointing towards increasing offset. */
+  wallAt(axialOffset: number): WallAt;
   /** Set on a straight cylindrical course, the only host a reinforcing pad is drawn on today. */
   readonly outsideRadius?: number;
   /** Set on a course — a cylinder or a cone — for what is shaped by its section. */
@@ -78,7 +107,7 @@ export interface RunPart {
   readonly landmarks: readonly Landmark[];
   readonly host?: HostSurface;
   /** Assumptions the drawing had to make, which the user should see. */
-  readonly notes: readonly string[];
+  readonly notes: readonly Note[];
 }
 
 export interface RunContext {
@@ -106,7 +135,28 @@ export interface MountedPart {
   readonly footprint: number;
   /** Repeats of the solids, parallel to `solids`: see {@link Copies}. */
   readonly copies?: Copies;
-  readonly notes: readonly string[];
+  /** For a nozzle: its neck, and its pad when one is drawn. */
+  readonly neck?: Neck;
+  /** For a part welded on without opening its host: the patch of wall it covers. */
+  readonly attachment?: Attachment;
+  readonly notes: readonly Note[];
+}
+
+export interface Neck {
+  readonly insideRadius: number;
+  readonly outsideRadius: number;
+  /** Along the neck's axis, from where it meets the host's outside surface. */
+  readonly outward: number;
+  readonly inward: number;
+  readonly pad?: { readonly reach: number; readonly thickness: number };
+}
+
+export interface Attachment {
+  /** Along the host's offset. */
+  readonly axial: number;
+  readonly circumferentialDeg: number;
+  /** Of the part's own plate where it meets the wall. */
+  readonly thickness: number;
 }
 
 /**

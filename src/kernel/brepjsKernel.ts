@@ -4,7 +4,12 @@
 // pen, its Result type, its branded shape types, its face and edge hashes — stops here.
 import {
   OcctWasmAdapter,
+  compound,
   curveLength,
+  exportSTEPConfigured,
+  faceAxis,
+  isValid,
+  measureArea,
   curvePointAt,
   cut,
   cutAll,
@@ -32,14 +37,18 @@ import { OcctKernel } from 'occt-wasm';
 import type {
   Bounds,
   CurveKind,
+  EdgeGeometry,
   EdgeInfo,
+  FaceGeometry,
   FaceInfo,
   Frame,
   GeometryKernel,
   Profile,
   Solid,
+  StepProduct,
   SurfaceKind,
   Tessellation,
+  Topology,
   Vec3,
 } from './GeometryKernel.ts';
 
@@ -150,6 +159,44 @@ class BrepjsKernel implements GeometryKernel {
   tessellate(solid: Solid, tolerance: number): Tessellation {
     return tessellate(asShape(solid), tolerance);
   }
+
+  topology(solid: Solid): Topology {
+    const shape = asShape(solid);
+    return {
+      faces: getFaces(shape).map((face: Shape): FaceGeometry => {
+        const area = measureArea(face);
+        const axis = faceAxis(face);
+        return {
+          ...faceInfo(face, { start: 0, count: 0 }),
+          area: area.ok ? area.value : NaN,
+          bounds: boundsOf(face),
+          axis: axis ? { origin: toVec3(axis.origin), axis: toVec3(axis.direction) } : null,
+        };
+      }),
+      edges: getEdges(shape).map(
+        (edge: Shape): EdgeGeometry => ({ ...edgeInfo(shape, edge, { start: 0, count: 0 }), bounds: boundsOf(edge) })
+      ),
+    };
+  }
+
+  isValid(solid: Solid): boolean {
+    return isValid(asShape(solid));
+  }
+
+  exportStep(products: readonly StepProduct[]): string {
+    const parts = products
+      .filter((product) => product.solids.length > 0)
+      .map((product) => ({
+        shape: product.solids.length === 1 ? asShape(product.solids[0]) : compound(product.solids.map(asShape)),
+        name: product.name,
+      }));
+    return unwrap(exportSTEPConfigured(parts, { unit: 'mm', modelUnit: 'mm' }));
+  }
+}
+
+function boundsOf(shape: Shape): Bounds {
+  const b = getBounds(shape);
+  return { min: [b.xMin, b.yMin, b.zMin], max: [b.xMax, b.yMax, b.zMax] };
 }
 
 /** A closed outline as a brepjs drawing, in whichever plane it is then sketched on. */
@@ -188,42 +235,16 @@ function tessellate(shape: Shape, tolerance: number): Tessellation {
   const trianglesByFace = new Map<number, { start: number; count: number }>();
   for (const group of triangles.faceGroups) trianglesByFace.set(group.faceId, group);
 
-  const faces: FaceInfo[] = getFaces(shape).map((face: Shape) => {
-    const id = getHashCode(face);
-    const type = getSurfaceType(face);
-    const curvature = measureCurvatureAtMid(face);
-    const range = trianglesByFace.get(id) ?? { start: 0, count: 0 };
-    return {
-      id,
-      surface: type.ok ? (SURFACES[type.value] ?? 'other') : 'other',
-      radii: curvature.ok
-        ? [radiusOf(curvature.value.maxCurvature), radiusOf(curvature.value.minCurvature)]
-        : [Infinity, Infinity],
-      center: toVec3(faceCenter(face)),
-      start: range.start,
-      count: range.count,
-    };
-  });
+  const faces: FaceInfo[] = getFaces(shape).map((face: Shape) =>
+    faceInfo(face, trianglesByFace.get(getHashCode(face)) ?? { start: 0, count: 0 })
+  );
 
   const segmentsByEdge = new Map<number, { start: number; count: number }>();
   for (const group of lines.edgeGroups) segmentsByEdge.set(group.edgeId, group);
 
-  const edges: EdgeInfo[] = getEdges(shape).map((edge: Shape) => {
-    const id = getHashCode(edge);
-    const range = segmentsByEdge.get(id) ?? { start: 0, count: 0 };
-    return {
-      id,
-      curve: CURVES[getCurveType(edge)] ?? 'other',
-      length: curveLength(edge),
-      closed: curveIsClosed(edge),
-      start: toVec3(curvePointAt(edge, 0)),
-      middle: toVec3(curvePointAt(edge, 0.5)),
-      end: toVec3(curvePointAt(edge, 1)),
-      faceIds: facesOfEdge(shape, edge).map((face: Shape) => getHashCode(face)),
-      start3: range.start,
-      count3: range.count,
-    };
-  });
+  const edges: EdgeInfo[] = getEdges(shape).map((edge: Shape) =>
+    edgeInfo(shape, edge, segmentsByEdge.get(getHashCode(edge)) ?? { start: 0, count: 0 })
+  );
 
   return {
     positions: triangles.vertices,
@@ -232,6 +253,36 @@ function tessellate(shape: Shape, tolerance: number): Tessellation {
     lines: lines.lines,
     faces,
     edges,
+  };
+}
+
+function faceInfo(face: Shape, range: { start: number; count: number }): FaceInfo {
+  const type = getSurfaceType(face);
+  const curvature = measureCurvatureAtMid(face);
+  return {
+    id: getHashCode(face),
+    surface: type.ok ? (SURFACES[type.value] ?? 'other') : 'other',
+    radii: curvature.ok
+      ? [radiusOf(curvature.value.maxCurvature), radiusOf(curvature.value.minCurvature)]
+      : [Infinity, Infinity],
+    center: toVec3(faceCenter(face)),
+    start: range.start,
+    count: range.count,
+  };
+}
+
+function edgeInfo(shape: Shape, edge: Shape, range: { start: number; count: number }): EdgeInfo {
+  return {
+    id: getHashCode(edge),
+    curve: CURVES[getCurveType(edge)] ?? 'other',
+    length: curveLength(edge),
+    closed: curveIsClosed(edge),
+    start: toVec3(curvePointAt(edge, 0)),
+    middle: toVec3(curvePointAt(edge, 0.5)),
+    end: toVec3(curvePointAt(edge, 1)),
+    faceIds: facesOfEdge(shape, edge).map((face: Shape) => getHashCode(face)),
+    start3: range.start,
+    count3: range.count,
   };
 }
 

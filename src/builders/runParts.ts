@@ -6,9 +6,13 @@
 import {
   BuildError,
   Sym,
+  analysisNote,
+  note,
   optionalDimension,
   requireDimension,
+  signedDimension,
   type ComponentDefinition,
+  type Note,
 } from '../definition.ts';
 import type { Point2, Profile, ProfileStep } from '../kernel/GeometryKernel.ts';
 import {
@@ -19,7 +23,17 @@ import {
   stayedSurface,
 } from './covers.ts';
 import { dividingPlates, obroundVessel, rectangularVessel } from './special.ts';
-import type { CourseShape, HostFrame, HostSurface, Landmark, RunBuilder, RunContext } from './types.ts';
+import type {
+  CourseShape,
+  HostFrame,
+  HostSurface,
+  Landmark,
+  RunBuilder,
+  RunContext,
+  WallAt,
+  WallSurface,
+} from './types.ts';
+import { PLANE, cylinderSurface, sphereSurface } from './walls.ts';
 
 const DEG = Math.PI / 180;
 
@@ -28,6 +42,9 @@ const line = (r: number, z: number): ProfileStep => ({ kind: 'line', to: [r, z] 
 const arc = (to: Point2, through: Point2): ProfileStep => ({ kind: 'arc', to, through });
 
 const mm = (value: number): string => `${Number(value.toPrecision(5))} mm`;
+
+const DOWN: Point2 = [0, -1];
+const UP: Point2 = [0, 1];
 
 /** The two circles where a part meets a neighbour, inside and outside. */
 function junctionLandmarks(
@@ -51,14 +68,42 @@ function cavityProfile(insideRadius: number, margin: number, steps: ProfileStep[
   };
 }
 
+/**
+ * A formed head says nothing of a straight flange until `SF` is stated, and a weld drawn on the
+ * tangent line sits on the discontinuity rather than clear of it: harmless on screen, wrong
+ * under a mesh. Zero is an answer — a head welded straight on.
+ */
+function straightFlangeNotes(component: ComponentDefinition): Note[] {
+  const length = signedDimension(component, Sym.STRAIGHT_FLANGE_LENGTH);
+  if (length === undefined) {
+    return [
+      analysisNote(
+        'Straight flange length not stated — drawn without one, so the head-to-shell weld sits on the tangent line',
+        Sym.STRAIGHT_FLANGE_LENGTH
+      ),
+    ];
+  }
+  if (length > 0) {
+    return [
+      note(
+        `A straight flange of ${mm(length)} is stated but not drawn yet — the head-to-shell weld is drawn on the tangent line`,
+        Sym.STRAIGHT_FLANGE_LENGTH
+      ),
+    ];
+  }
+  return [];
+}
+
 function headCrownHost(
   context: RunContext,
   insideRadius: number,
   zInside: (rho: number) => number,
   zOutside: (rho: number) => number,
-  cavity: () => Profile
+  cavity: () => Profile,
+  surfaceAt: (rho: number) => WallSurface
 ): HostSurface {
   let cached: ReturnType<RunContext['kernel']['revolve']> | undefined;
+  const middle = (rho: number) => (zInside(rho) + zOutside(rho)) / 2;
   return {
     anchor: 'head_crown',
     offsetRange: [0, insideRadius],
@@ -80,6 +125,19 @@ function headCrownHost(
       const rho = Math.hypot(point[0], point[1]);
       return Math.abs(point[2] - zOutside(rho)) < Math.abs(point[2] - zInside(rho)) ? 'outside' : 'inside';
     },
+    wallAt(rho: number): WallAt {
+      // The slope of the mid-surface, by a central difference kept inside the crown.
+      const h = Math.max(1e-6, 1e-4 * insideRadius);
+      const low = Math.max(0, rho - h);
+      const high = Math.min(insideRadius, rho + h);
+      const slope = high > low ? (middle(high) - middle(low)) / (high - low) : 0;
+      const length = Math.hypot(1, slope);
+      return {
+        surface: surfaceAt(rho),
+        thickness: (zOutside(rho) - zInside(rho)) / length,
+        meridian: [1 / length, slope / length],
+      };
+    },
   };
 }
 
@@ -96,16 +154,17 @@ function courseSide(course: CourseShape) {
 export const cylindricalShell: RunBuilder = (component, context) => {
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
   const thickness = requireDimension(component, Sym.THICKNESS);
-  const notes: string[] = [];
+  const notes: Note[] = [];
 
   let length = optionalDimension(component, Sym.COURSE_LENGTH);
   if (length === undefined) {
     length = diameter;
-    notes.push(`Course length not stated — drawn ${mm(length)} long`);
+    notes.push(note(`Course length not stated — drawn ${mm(length)} long`, Sym.COURSE_LENGTH));
   }
 
   const a = diameter / 2;
   const outside = a + thickness;
+  const surface = cylinderSurface(a + thickness / 2);
   let cavity: ReturnType<RunContext['kernel']['revolve']> | undefined;
   const course: CourseShape = {
     halfApexAngle: 0,
@@ -114,8 +173,8 @@ export const cylindricalShell: RunBuilder = (component, context) => {
     outsideRadiusAt: () => outside,
   };
   // §4.12 Type 12: a circular course divided into two chambers by a stay plate.
-  const { plates, note } = dividingPlates(component, context.kernel, a, length);
-  if (note) notes.push(note);
+  const { plates, note: plateNote } = dividingPlates(component, context.kernel, a, length);
+  if (plateNote) notes.push(plateNote);
 
   return {
     solid: context.kernel.revolve({
@@ -124,8 +183,8 @@ export const cylindricalShell: RunBuilder = (component, context) => {
     }),
     extraSolids: plates,
     height: length,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * outside },
-    upper: { insideDiameter: diameter, outsideDiameter: 2 * outside },
+    lower: { insideDiameter: diameter, outsideDiameter: 2 * outside, wall: { surface, thickness, meridian: DOWN } },
+    upper: { insideDiameter: diameter, outsideDiameter: 2 * outside, wall: { surface, thickness, meridian: UP } },
     landmarks: [
       ...junctionLandmarks('lower', 0, diameter, 2 * outside, 'Course end'),
       ...junctionLandmarks('upper', length, diameter, 2 * outside, 'Course end'),
@@ -152,6 +211,7 @@ export const cylindricalShell: RunBuilder = (component, context) => {
         });
         return cavity;
       },
+      wallAt: () => ({ surface, thickness, meridian: UP }),
     },
     notes,
   };
@@ -169,7 +229,7 @@ export const conicalShell: RunBuilder = (component, context) => {
     throw new BuildError(component, `has a half-apex angle of ${alpha}°, a cone needs less than 90°`);
   }
   const tan = Math.tan(alpha * DEG);
-  const notes: string[] = [];
+  const notes: Note[] = [];
 
   const statedLength = optionalDimension(component, Sym.COURSE_LENGTH);
   const statedSmallEnd = optionalDimension(component, Sym.SMALL_END_DIAMETER);
@@ -179,14 +239,17 @@ export const conicalShell: RunBuilder = (component, context) => {
     const derived = diameter - 2 * length * tan;
     if (statedSmallEnd !== undefined && Math.abs(derived - statedSmallEnd) > 0.5) {
       notes.push(
-        `Small end stated as ${mm(statedSmallEnd)} but D, α and Lc give ${mm(derived)} — drawn from Lc`
+        note(
+          `Small end stated as ${mm(statedSmallEnd)} but D, α and Lc give ${mm(derived)} — drawn from Lc`,
+          Sym.SMALL_END_DIAMETER
+        )
       );
     }
   } else if (statedSmallEnd !== undefined && tan > 0) {
     length = (diameter - statedSmallEnd) / (2 * tan);
   } else {
     length = diameter / 2;
-    notes.push(`Neither course length nor small end diameter stated — drawn ${mm(length)} long`);
+    notes.push(note(`Neither course length nor small end diameter stated — drawn ${mm(length)} long`, Sym.COURSE_LENGTH));
   }
 
   const smallEnd = diameter - 2 * length * tan;
@@ -196,8 +259,10 @@ export const conicalShell: RunBuilder = (component, context) => {
 
   const a0 = diameter / 2;
   const a1 = smallEnd / 2;
+  const cosA = Math.cos(alpha * DEG);
+  const sinA = Math.sin(alpha * DEG);
   // Thickness is normal to the wall; across a horizontal section it reads t / cos α.
-  const across = thickness / Math.cos(alpha * DEG);
+  const across = thickness / cosA;
   const margin = Math.min(length, a1) / 4;
   let cavity: ReturnType<RunContext['kernel']['revolve']> | undefined;
   const course: CourseShape = {
@@ -206,6 +271,13 @@ export const conicalShell: RunBuilder = (component, context) => {
     insideRadiusAt: (offset: number) => a0 - offset * tan,
     outsideRadiusAt: (offset: number) => a0 - offset * tan + across,
   };
+  // The mid-surface's circumferential radius of curvature is its distance to the axis along
+  // the normal: r / cos α.
+  const surfaceAt = (offset: number): WallSurface => ({
+    kind: 'cone',
+    principalRadii: [null, (a0 - offset * tan + across / 2) / cosA],
+  });
+  const upward: Point2 = [-sinA, cosA];
 
   return {
     solid: context.kernel.revolve({
@@ -213,8 +285,16 @@ export const conicalShell: RunBuilder = (component, context) => {
       steps: [line(a0 + across, 0), line(a1 + across, length), line(a1, length)],
     }),
     height: length,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * (a0 + across) },
-    upper: { insideDiameter: smallEnd, outsideDiameter: 2 * (a1 + across) },
+    lower: {
+      insideDiameter: diameter,
+      outsideDiameter: 2 * (a0 + across),
+      wall: { surface: surfaceAt(0), thickness, meridian: [sinA, -cosA] },
+    },
+    upper: {
+      insideDiameter: smallEnd,
+      outsideDiameter: 2 * (a1 + across),
+      wall: { surface: surfaceAt(length), thickness, meridian: upward },
+    },
     landmarks: [
       ...junctionLandmarks('lower', 0, diameter, 2 * (a0 + across), 'Large end'),
       ...junctionLandmarks('upper', length, smallEnd, 2 * (a1 + across), 'Small end'),
@@ -228,8 +308,6 @@ export const conicalShell: RunBuilder = (component, context) => {
       frameAt(offset: number, azimuth: number): HostFrame {
         const phi = azimuth * DEG;
         const r = a0 - offset * tan + across;
-        const cosA = Math.cos(alpha * DEG);
-        const sinA = Math.sin(alpha * DEG);
         return {
           origin: [r * Math.cos(phi), r * Math.sin(phi), offset],
           axis: [cosA * Math.cos(phi), cosA * Math.sin(phi), sinA],
@@ -249,6 +327,7 @@ export const conicalShell: RunBuilder = (component, context) => {
         });
         return cavity;
       },
+      wallAt: (offset) => ({ surface: surfaceAt(offset), thickness, meridian: upward }),
     },
     notes,
   };
@@ -261,6 +340,7 @@ export const sphericalShell: RunBuilder = (component, context) => {
   const a = diameter / 2;
   const outside = a + thickness;
   const c = outside;
+  const between = context.neighbourOutsideRadius !== undefined || context.neighbourInsideDiameter !== undefined;
 
   return {
     solid: context.kernel.revolve({
@@ -279,7 +359,9 @@ export const sphericalShell: RunBuilder = (component, context) => {
       { key: 'equator-outside', z: c, diameter: 2 * outside, role: 'Equator (outside)' },
     ],
     host: sphereHost(context, a, outside, c),
-    notes: [],
+    notes: between
+      ? [analysisNote('Drawn as a whole sphere, not joined to its neighbours — the metal where they meet is invented')]
+      : [],
   };
 };
 
@@ -290,6 +372,7 @@ export const sphericalShell: RunBuilder = (component, context) => {
  */
 function sphereHost(context: RunContext, inside: number, outside: number, centre: number): HostSurface {
   let cavity: ReturnType<RunContext['kernel']['revolve']> | undefined;
+  const mean = (inside + outside) / 2;
   return {
     anchor: 'head_crown',
     offsetRange: [0, inside],
@@ -314,6 +397,10 @@ function sphereHost(context: RunContext, inside: number, outside: number, centre
       const distance = Math.hypot(point[0], point[1], point[2] - centre);
       return Math.abs(distance - outside) < Math.abs(distance - inside) ? 'outside' : 'inside';
     },
+    wallAt(rho: number): WallAt {
+      const up = Math.sqrt(Math.max(0, outside * outside - rho * rho));
+      return { surface: sphereSurface(mean), thickness: outside - inside, meridian: [up / outside, -rho / outside] };
+    },
   };
 }
 
@@ -323,6 +410,7 @@ export const hemisphericalHead: RunBuilder = (component, context) => {
   const a = diameter / 2;
   const outside = a + thickness;
   const s = Math.SQRT1_2;
+  const surface = sphereSurface(a + thickness / 2);
 
   return {
     solid: context.kernel.revolve({
@@ -335,7 +423,7 @@ export const hemisphericalHead: RunBuilder = (component, context) => {
       ],
     }),
     height: outside,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * outside },
+    lower: { insideDiameter: diameter, outsideDiameter: 2 * outside, wall: { surface, thickness, meridian: DOWN } },
     upper: null,
     landmarks: junctionLandmarks('lower', 0, diameter, 2 * outside, 'Tangent line'),
     host: headCrownHost(
@@ -343,9 +431,10 @@ export const hemisphericalHead: RunBuilder = (component, context) => {
       a,
       (rho) => (rho < a ? Math.sqrt(a * a - rho * rho) : 0),
       (rho) => Math.sqrt(outside * outside - rho * rho),
-      () => cavityProfile(a, a / 4, [arc([0, a], [a * s, a * s])])
+      () => cavityProfile(a, a / 4, [arc([0, a], [a * s, a * s])]),
+      () => surface
     ),
-    notes: [],
+    notes: straightFlangeNotes(component),
   };
 };
 
@@ -395,6 +484,16 @@ export const torisphericalHead: RunBuilder = (component, context) => {
       ? zc + Math.sqrt(crownRadius ** 2 - rho ** 2)
       : Math.sqrt(Math.max(0, knuckleRadius ** 2 - (rho - xc) ** 2));
 
+  // The mid-surface: a sphere over the crown, a torus over the knuckle, whose circumferential
+  // radius is the distance to the axis along the normal.
+  const meanKnuckle = knuckle + thickness / 2;
+  const meanCrown = crown + thickness / 2;
+  const surfaceAt = (rho: number): WallSurface => {
+    if (rho <= xc + meanKnuckle * Math.cos(beta)) return sphereSurface(meanCrown);
+    const cos = Math.min(1, Math.max(1e-9, (rho - xc) / meanKnuckle));
+    return { kind: 'torus', principalRadii: [meanKnuckle, rho / cos] };
+  };
+
   return {
     solid: context.kernel.revolve({
       start: [a, 0],
@@ -408,7 +507,15 @@ export const torisphericalHead: RunBuilder = (component, context) => {
       ],
     }),
     height: zc + outsideCrown,
-    lower: { insideDiameter: diameter, outsideDiameter: diameter + 2 * thickness },
+    lower: {
+      insideDiameter: diameter,
+      outsideDiameter: diameter + 2 * thickness,
+      wall: {
+        surface: { kind: 'torus', principalRadii: [meanKnuckle, a + thickness / 2] },
+        thickness,
+        meridian: DOWN,
+      },
+    },
     upper: null,
     landmarks: [
       ...junctionLandmarks('lower', 0, diameter, diameter + 2 * thickness, 'Tangent line'),
@@ -434,9 +541,10 @@ export const torisphericalHead: RunBuilder = (component, context) => {
         cavityProfile(a, a / 4, [
           arc(insideTangent, onKnuckle(knuckle, beta / 2)),
           arc([0, zc + crown], onCrown(crown, crownMiddle)),
-        ])
+        ]),
+      surfaceAt
     ),
-    notes: [],
+    notes: straightFlangeNotes(component),
   };
 };
 
@@ -452,6 +560,17 @@ export const ellipsoidalHead: RunBuilder = (component, context) => {
   const a = diameter / 2;
   const ao = a + thickness;
   const ho = height + thickness;
+
+  // The mid-surface, x = A·cos u, z = B·sin u: R1 = (A²sin²u + B²cos²u)^1.5 / (A·B) along the
+  // meridian, R2 = A·sqrt(B²cos²u + A²sin²u) / B round it.
+  const A = a + thickness / 2;
+  const B = height + thickness / 2;
+  const surfaceAt = (rho: number): WallSurface => {
+    const cos = Math.min(1, rho / A);
+    const sin2 = 1 - cos * cos;
+    const q = A * A * sin2 + B * B * cos * cos;
+    return { kind: 'ellipsoid', principalRadii: [q ** 1.5 / (A * B), (A * Math.sqrt(q)) / B] };
+  };
 
   const insideArc: ProfileStep = {
     kind: 'ellipse',
@@ -472,7 +591,7 @@ export const ellipsoidalHead: RunBuilder = (component, context) => {
       ],
     }),
     height: ho,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * ao },
+    lower: { insideDiameter: diameter, outsideDiameter: 2 * ao, wall: { surface: surfaceAt(A), thickness, meridian: DOWN } },
     upper: null,
     landmarks: junctionLandmarks('lower', 0, diameter, 2 * ao, 'Tangent line'),
     host: headCrownHost(
@@ -483,10 +602,12 @@ export const ellipsoidalHead: RunBuilder = (component, context) => {
       () =>
         cavityProfile(a, a / 4, [
           { kind: 'ellipse', to: [0, height], radiusR: a, radiusZ: height, counterClockwise: true },
-        ])
+        ]),
+      surfaceAt
     ),
     notes: [
-      'Outside surface drawn as the ellipse of semi-axes a + t and h + t',
+      note('Outside surface drawn as the ellipse of semi-axes a + t and h + t, so the wall is not t thick all over'),
+      ...straightFlangeNotes(component),
     ],
   };
 };
@@ -504,7 +625,8 @@ export const flatHead: RunBuilder = (component, context) => {
       steps: [line(rim, 0), line(rim, thickness), line(0, thickness)],
     }),
     height: thickness,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * rim },
+    // The plate's mid-surface runs out to its rim.
+    lower: { insideDiameter: diameter, outsideDiameter: 2 * rim, wall: { surface: PLANE, thickness, meridian: [1, 0] } },
     upper: null,
     landmarks: [
       { key: 'lower-rim', z: 0, diameter: 2 * rim, role: 'Plate rim (inner face)', junction: 'lower' },
@@ -515,7 +637,8 @@ export const flatHead: RunBuilder = (component, context) => {
       a,
       () => 0,
       () => thickness,
-      () => cavityProfile(a, a / 4, [line(0, 0)])
+      () => cavityProfile(a, a / 4, [line(0, 0)]),
+      () => PLANE
     ),
     notes: [],
   };
@@ -548,24 +671,47 @@ export const flange: RunBuilder = (component, context) => {
   steps.push(line(b, height));
 
   let solid = context.kernel.revolve({ start: [b, 0], steps });
-  const ringEnd = { insideDiameter: bore, outsideDiameter };
-  const hubEnd = { insideDiameter: bore, outsideDiameter: hasHub ? bore + 2 * hubSmall : outsideDiameter };
-
   const hubDown = hasHub && context.hubDown === true;
   if (hubDown) {
     solid = context.kernel.translate(context.kernel.flip(solid), [0, 0, height]);
   }
 
+  // The ring's face is bolted; the hub's small end is welded to its course.
+  const ringEnd = (meridian: Point2) => ({
+    insideDiameter: bore,
+    outsideDiameter,
+    face: true,
+    wall: { surface: PLANE, thickness: A - b, meridian },
+  });
+  const hubEnd = (meridian: Point2) =>
+    hasHub
+      ? {
+          insideDiameter: bore,
+          outsideDiameter: bore + 2 * hubSmall,
+          wall: { surface: cylinderSurface(b + hubSmall / 2), thickness: hubSmall, meridian },
+        }
+      : ringEnd(meridian);
+  const lower = hubDown ? hubEnd(DOWN) : ringEnd(DOWN);
+  const upper = hubDown ? ringEnd(UP) : hubEnd(UP);
+
+  const notes: Note[] = [];
+  if (!hasHub && component.kind === 'integral_flange') {
+    notes.push(note('No hub stated — drawn as a plain ring', Sym.HUB_LARGE_END_THICKNESS));
+  }
+  if (component.dimensions[Sym.BOLT_COUNT] !== undefined) {
+    notes.push(analysisNote('Its bolt holes are not drawn', Sym.BOLT_COUNT));
+  }
+
   return {
     solid,
     height,
-    lower: hubDown ? hubEnd : ringEnd,
-    upper: hubDown ? ringEnd : hubEnd,
+    lower,
+    upper,
     landmarks: [
-      ...junctionLandmarks('lower', 0, bore, (hubDown ? hubEnd : ringEnd).outsideDiameter, 'Flange face'),
-      ...junctionLandmarks('upper', height, bore, (hubDown ? ringEnd : hubEnd).outsideDiameter, 'Flange face'),
+      ...junctionLandmarks('lower', 0, bore, lower.outsideDiameter, 'Flange face'),
+      ...junctionLandmarks('upper', height, bore, upper.outsideDiameter, 'Flange face'),
     ],
-    notes: hasHub || component.kind !== 'integral_flange' ? [] : ['No hub stated — drawn as a plain ring'],
+    notes,
   };
 };
 

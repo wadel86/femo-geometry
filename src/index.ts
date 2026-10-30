@@ -10,8 +10,10 @@ export { MOUNTED_BUILDERS } from './builders/mounted.ts';
 export {
   AssemblyBuilder,
   assemblyBounds,
+  runOrder,
   tessellationTolerance,
   toAssembly,
+  toAssemblyVector,
   type AssemblyModel,
   type BuiltPart,
   type Opening,
@@ -30,4 +32,24 @@ export {
   type EntityDimension,
   type PartDescription,
 } from './topology/describe.ts';
+export {
+  describeGeometry,
+  type EdgeDescriptor,
+  type FaceDescriptor,
+  type PartDescriptors,
+} from './topology/descriptors.ts';
+export { derivePorts, type Joint, type JointKind, type Port, type PortKind, type PortsAndJoints } from './ports/ports.ts';
+export {
+  GEOMETRY_FORMAT_VERSION,
+  RefusedError,
+  namingTolerance,
+  refusalsOf,
+  resolveGeometry,
+  stepOf,
+  type GeometryMode,
+  type Refusal,
+  type ResolveOptions,
+  type ResolvedGeometry,
+  type ResolvedPart,
+} from './assembly/resolve.ts';
 export { shortHash, stableStringify } from './hash.ts';

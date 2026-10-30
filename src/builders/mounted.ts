@@ -4,7 +4,7 @@
 // They work in the host's frame, from the host's own description of its surface, so a mounted
 // part follows its host through every rebuild: the anchor is (offset, azimuth) on a named
 // surface, never a face of the previous solid.
-import { NotDrawnError, Sym, requireDimension } from '../definition.ts';
+import { NotDrawnError, Sym, analysisNote, requireDimension } from '../definition.ts';
 import {
   angledNozzle,
   axialNozzle,
@@ -43,7 +43,12 @@ export const stiffeningRing: MountedBuilder = (component, context) => {
       }),
     ],
     footprint: thickness / 2,
-    notes: [],
+    attachment: { axial: thickness, circumferentialDeg: 360, thickness },
+    notes: [
+      ...(hostSurface.course.halfApexAngle !== 0
+        ? [analysisNote('On a cone it is drawn square to the axis at the radius of its mid-plane, its face not following the slope')]
+        : []),
+    ],
   };
 };
 

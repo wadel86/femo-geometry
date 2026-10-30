@@ -9,13 +9,16 @@ import {
   BuildError,
   NotDrawnError,
   Sym,
+  analysisNote,
+  note,
   optionalDimension,
   requireDimension,
   type ComponentDefinition,
+  type Note,
 } from '../definition.ts';
 import type { Vec3 } from '../kernel/GeometryKernel.ts';
 import { mm, requireWithinHost } from './placing.ts';
-import type { CourseShape, HostFrame, MountedBuilder, MountedContext, MountedPart } from './types.ts';
+import type { CourseShape, HostFrame, MountedBuilder, MountedContext, MountedPart, Neck } from './types.ts';
 
 const DEG = Math.PI / 180;
 
@@ -42,12 +45,19 @@ function nozzle(aimer: Aimer): MountedBuilder {
     const { kernel, hostSurface, host } = context;
     const inside = requireDimension(component, Sym.NOZZLE_INSIDE_DIAMETER) / 2;
     const outside = inside + requireDimension(component, Sym.NOZZLE_THICKNESS);
-    const notes: string[] = [];
+    const notes: Note[] = [];
 
     let outward = optionalDimension(component, Sym.NOZZLE_OUTWARD_PROJECTION);
     if (outward === undefined) {
       outward = Math.max(150, 2 * outside);
-      notes.push(`Outward projection not stated — drawn ${mm(outward)}`);
+      notes.push(note(`Outward projection not stated — drawn ${mm(outward)}`, Sym.NOZZLE_OUTWARD_PROJECTION));
+    }
+    // The kernel invents no weld: a stated leg is carried on the joint, and not drawn yet.
+    for (const leg of [Sym.OUTER_FILLET_WELD_LEG, Sym.INNER_FILLET_WELD_LEG, Sym.PAD_FILLET_WELD_LEG]) {
+      const value = optionalDimension(component, leg);
+      if (value !== undefined) {
+        notes.push(analysisNote(`A ${leg.replace(/_/g, ' ')} of ${mm(value)} is stated but not drawn`, leg));
+      }
     }
     const inward = optionalDimension(component, Sym.NOZZLE_INWARD_PROJECTION) ?? 0;
 
@@ -67,11 +77,13 @@ function nozzle(aimer: Aimer): MountedBuilder {
 
     const padWidth = optionalDimension(component, Sym.PAD_WIDTH);
     const padThickness = optionalDimension(component, Sym.PAD_THICKNESS);
+    let pad: Neck['pad'];
     if (padWidth !== undefined && padThickness !== undefined) {
       const radius = hostSurface.outsideRadius;
       if (radius === undefined || !padAllowed) {
-        notes.push('Reinforcing pad not drawn on this geometry yet');
+        notes.push(note('Reinforcing pad not drawn on this geometry yet', Sym.PAD_WIDTH));
       } else {
+        pad = { reach: outside + padWidth, thickness: padThickness };
         const reach = outside + padWidth;
         const z = frame.origin[2];
         const band = kernel.revolve({
@@ -95,6 +107,7 @@ function nozzle(aimer: Aimer): MountedBuilder {
         radius: outside,
       },
       footprint,
+      neck: { insideRadius: inside, outsideRadius: outside, outward, inward, pad },
       notes,
     };
     return part;

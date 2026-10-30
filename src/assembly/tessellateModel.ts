@@ -30,6 +30,7 @@ export interface PartMesh {
   readonly hostId: string | null;
   readonly status: PartStatus;
   readonly message?: string;
+  /** What the drawing assumed, worded for the screen. */
   readonly notes: readonly string[];
   readonly transform: PartTransform;
   /** For a mounted part: the placement it was drawn at, stated or defaulted. */
@@ -84,7 +85,7 @@ export function tessellateModel(
       hostId: part.hostId,
       status: part.status,
       message: part.message,
-      notes: part.notes,
+      notes: part.notes.filter((n) => !n.analysisOnly).map((n) => n.message),
       transform: part.transform,
       placement: part.placement,
       footprint: part.footprint,

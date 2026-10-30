@@ -1,6 +1,14 @@
 // Parts of the run that are not surfaces of revolution: §4.12's noncircular vessels, and the
 // stay plates that divide a vessel — noncircular or not — into chambers.
-import { BuildError, Sym, optionalDimension, requireDimension, type ComponentDefinition } from '../definition.ts';
+import {
+  BuildError,
+  Sym,
+  note,
+  optionalDimension,
+  requireDimension,
+  type ComponentDefinition,
+  type Note,
+} from '../definition.ts';
 import type { GeometryKernel, Profile, ProfileStep, Solid } from '../kernel/GeometryKernel.ts';
 import { mm } from './placing.ts';
 import type { RunBuilder } from './types.ts';
@@ -23,7 +31,7 @@ function stayPlates(
   span: number,
   reach: number,
   length: number
-): { plates: Solid[]; note?: string } {
+): { plates: Solid[]; note?: Note } {
   const thickness = optionalDimension(component, Sym.STAY_PLATE_THICKNESS);
   if (thickness === undefined) return { plates: [] };
   const planes = Math.max(1, Math.round(optionalDimension(component, Sym.STAY_PLANES) ?? 1));
@@ -35,13 +43,17 @@ function stayPlates(
       length
     );
   });
-  return { plates, note: `${planes} stay plate${planes > 1 ? 's' : ''} of ${mm(thickness)}, evenly spaced` };
+  // Where they stand is assumed: the tables read only how many and how thick.
+  return {
+    plates,
+    note: note(`${planes} stay plate${planes > 1 ? 's' : ''} of ${mm(thickness)}, evenly spaced`, Sym.STAY_PLANES),
+  };
 }
 
-function lengthOf(component: ComponentDefinition, fallback: number, notes: string[]): number {
+function lengthOf(component: ComponentDefinition, fallback: number, notes: Note[]): number {
   const stated = optionalDimension(component, Sym.COURSE_LENGTH);
   if (stated !== undefined) return stated;
-  notes.push(`Length not stated — drawn ${mm(fallback)} long`);
+  notes.push(note(`Length not stated — drawn ${mm(fallback)} long`, Sym.COURSE_LENGTH));
   return fallback;
 }
 
@@ -58,17 +70,17 @@ export const rectangularVessel: RunBuilder = (component, context) => {
   if (short > long) {
     throw new BuildError(component, `has a short side (${mm(short)}) longer than its long side (${mm(long)})`);
   }
-  const notes: string[] = [];
+  const notes: Note[] = [];
   const length = lengthOf(component, long, notes);
   if (component.dimensions[Sym.STIFFENER_PITCH] !== undefined) {
-    notes.push('Its stiffeners are not drawn');
+    notes.push(note('Its stiffeners are not drawn', Sym.STIFFENER_PITCH));
   }
 
   const { kernel } = context;
   const outer = kernel.extrude(rectangle(long / 2 + shortPlate, short / 2 + longPlate), 0, length);
   const inner = kernel.extrude(rectangle(long / 2, short / 2), -1, length + 1);
-  const { plates, note } = stayPlates(component, kernel, long / 2, short / 2, length);
-  if (note) notes.push(note);
+  const { plates, note: plateNote } = stayPlates(component, kernel, long / 2, short / 2, length);
+  if (plateNote) notes.push(plateNote);
 
   return {
     solid: kernel.cut(outer, [inner]),
@@ -91,10 +103,10 @@ export const obroundVessel: RunBuilder = (component, context) => {
   const half = requireDimension(component, Sym.OBROUND_FLAT_HALF_LENGTH);
   const curved = requireDimension(component, Sym.CURVED_THICKNESS);
   const flat = requireDimension(component, Sym.FLAT_THICKNESS);
-  const notes: string[] = [];
+  const notes: Note[] = [];
   const length = lengthOf(component, 2 * (radius + half), notes);
   if (component.dimensions[Sym.STIFFENER_PITCH] !== undefined) {
-    notes.push('Its reinforcing members are not drawn');
+    notes.push(note('Its reinforcing members are not drawn', Sym.STIFFENER_PITCH));
   }
 
   const { kernel } = context;
@@ -125,8 +137,8 @@ export const obroundVessel: RunBuilder = (component, context) => {
   };
 
   const body = kernel.cut(kernel.extrude(outer, 0, length), [kernel.extrude(inner, -1, length + 1)]);
-  const { plates, note } = stayPlates(component, kernel, half, radius, length);
-  if (note) notes.push(note);
+  const { plates, note: plateNote } = stayPlates(component, kernel, half, radius, length);
+  if (plateNote) notes.push(plateNote);
 
   return {
     solid: body,
@@ -148,6 +160,6 @@ export function dividingPlates(
   kernel: GeometryKernel,
   insideRadius: number,
   length: number
-): { plates: Solid[]; note?: string } {
+): { plates: Solid[]; note?: Note } {
   return stayPlates(component, kernel, 0, insideRadius, length);
 }

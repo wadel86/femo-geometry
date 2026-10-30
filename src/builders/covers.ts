@@ -6,13 +6,17 @@
 import {
   BuildError,
   Sym,
+  analysisNote,
+  note,
   optionalDimension,
   requireDimension,
   type ComponentDefinition,
+  type Note,
 } from '../definition.ts';
 import type { Point2, ProfileStep, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { mm } from './placing.ts';
 import type { Landmark, RunBuilder, RunContext } from './types.ts';
+import { PLANE, sphereSurface } from './walls.ts';
 
 const line = (r: number, z: number): ProfileStep => ({ kind: 'line', to: [r, z] });
 
@@ -47,7 +51,10 @@ function dish(context: RunContext, crown: number, thickness: number, rim: number
       { kind: 'arc', to: [rim, base], through: middle(crown, rim) },
     ],
   });
-  return { solid, top: zc + crown + thickness, outsideRim };
+  // The mid-surface's meridian at the rim, carried on past it: away from the dish.
+  const middleRadius = crown + thickness / 2;
+  const meridian: Point2 = [(base - zc) / crown, -rim / crown];
+  return { solid, top: zc + crown + thickness, outsideRim, middleRadius, meridian };
 }
 
 /** §4.7 — the dish alone, closing what it sits on. */
@@ -65,13 +72,17 @@ export const sphericallyDishedCover: RunBuilder = (component, context) => {
   return {
     solid: built.solid,
     height: built.top,
-    lower: { insideDiameter: opening, outsideDiameter: 2 * built.outsideRim },
+    lower: {
+      insideDiameter: opening,
+      outsideDiameter: 2 * built.outsideRim,
+      wall: { surface: sphereSurface(built.middleRadius), thickness, meridian: built.meridian },
+    },
     upper: null,
     landmarks: [
       { key: 'lower-inside', z: 0, diameter: opening, role: 'Dish rim (inside)', junction: 'lower' },
       { key: 'lower-outside', z: 0, diameter: 2 * built.outsideRim, role: 'Dish rim (outside)', junction: 'lower' },
     ],
-    notes: ['Drawn as the dish alone, on the opening of the part it closes'],
+    notes: [note('Drawn as the dish alone, on the opening of the part it closes')],
   };
 };
 
@@ -90,7 +101,9 @@ function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
     if (outsideDiameter <= bore) {
       throw new BuildError(component, 'has a ring outside diameter no larger than its bore');
     }
-    const notes: string[] = [];
+    const notes: Note[] = [
+      analysisNote(`The dish meets the ring on a plane placed by convention (Type ${type})`),
+    ];
     const { kernel } = context;
 
     let ringSolid: Solid = kernel.revolve({
@@ -115,7 +128,7 @@ function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
       });
       ringSolid = kernel.cut(ringSolid, holes);
     } else {
-      notes.push('Number of bolts not stated — the bolt holes are not drawn');
+      notes.push(note('Number of bolts not stated — the bolt holes are not drawn', Sym.BOLT_COUNT));
     }
 
     let built;
@@ -135,7 +148,12 @@ function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
       solid: ringSolid,
       extraSolids: [built.solid],
       height: Math.max(ring, built.top),
-      lower: { insideDiameter: bore, outsideDiameter },
+      lower: {
+        insideDiameter: bore,
+        outsideDiameter,
+        face: true,
+        wall: { surface: PLANE, thickness: (outsideDiameter - bore) / 2, meridian: [0, -1] },
+      },
       upper: null,
       landmarks,
       notes,
@@ -161,10 +179,15 @@ export const quickActuatingClosure: RunBuilder = (component, context) => {
       steps: [line(rim, 0), line(rim, thickness), line(0, thickness)],
     }),
     height: thickness,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * rim },
+    lower: {
+      insideDiameter: diameter,
+      outsideDiameter: 2 * rim,
+      face: true,
+      wall: { surface: PLANE, thickness: rim - diameter / 2, meridian: [0, -1] },
+    },
     upper: null,
     landmarks: [{ key: 'lower-rim', z: 0, diameter: 2 * rim, role: 'Door rim (inner face)', junction: 'lower' }],
-    notes: ['Drawn as its door; the locking mechanism is not modelled'],
+    notes: [note('Drawn as its door; the locking mechanism is not modelled')],
   };
 };
 
@@ -205,9 +228,13 @@ export const stayedSurface: RunBuilder = (component, context) => {
     // The stay sits at the centre; the array is every other position.
     copies: [undefined, positions.filter(([x, y]) => x !== 0 || y !== 0)],
     height: thickness,
-    lower: { insideDiameter: diameter, outsideDiameter: 2 * rim },
+    lower: {
+      insideDiameter: diameter,
+      outsideDiameter: 2 * rim,
+      wall: { surface: PLANE, thickness, meridian: [1, 0] },
+    },
     upper: null,
     landmarks: [{ key: 'lower-rim', z: 0, diameter: 2 * rim, role: 'Plate rim (inner face)', junction: 'lower' }],
-    notes: [`${positions.length} stays on a square array ${mm(spacing)} apart, drawn ${mm(depth)} into the vessel`],
+    notes: [note(`${positions.length} stays on a square array ${mm(spacing)} apart, drawn ${mm(depth)} into the vessel`)],
   };
 };

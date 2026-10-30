@@ -94,6 +94,31 @@ export interface Tessellation {
   readonly edges: readonly EdgeInfo[];
 }
 
+/** A face with what a predicate re-evaluated elsewhere needs: its size, its box, its axis. */
+export interface FaceGeometry extends FaceInfo {
+  /** Square millimetres. */
+  readonly area: number;
+  readonly bounds: Bounds;
+  /** The axis of a face of revolution — cylinder, cone, sphere, torus — null otherwise. */
+  readonly axis: Frame | null;
+}
+
+export interface EdgeGeometry extends EdgeInfo {
+  readonly bounds: Bounds;
+}
+
+/** The faces and edges of a solid, measured and not meshed; ids match `tessellate`'s. */
+export interface Topology {
+  readonly faces: readonly FaceGeometry[];
+  readonly edges: readonly EdgeGeometry[];
+}
+
+/** One product of a STEP assembly: a component, named, made of separate solids. */
+export interface StepProduct {
+  readonly name: string;
+  readonly solids: readonly Solid[];
+}
+
 export interface GeometryKernel {
   /** Revolves a profile a full turn about the vessel axis (Z). */
   revolve(profile: Profile): Solid;
@@ -135,4 +160,15 @@ export interface GeometryKernel {
    *     never use an absolute value
    */
   tessellate(solid: Solid, tolerance: number): Tessellation;
+
+  topology(solid: Solid): Topology;
+
+  /** Whether the solid passes the kernel's own check: closed, oriented, self-consistent. */
+  isValid(solid: Solid): boolean;
+
+  /**
+   * A STEP file, millimetres: one product per entry, its solids kept apart — never fused, so
+   * whoever meshes them decides where they are joined.
+   */
+  exportStep(products: readonly StepProduct[]): string;
 }

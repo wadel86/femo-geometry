@@ -75,7 +75,7 @@ function circleThrough(a: Vec3, b: Vec3, c: Vec3): { center: Vec3; radius: numbe
 }
 
 /** Centre and radius of a circular edge, closed or not. */
-function circleOf(edge: EdgeInfo): { center: Vec3; radius: number } | null {
+export function circleOf(edge: EdgeInfo): { center: Vec3; radius: number } | null {
   if (edge.curve !== 'circle') return null;
   if (edge.closed) {
     // On a closed circle the middle parameter is diametrically opposite the start.
@@ -114,7 +114,7 @@ const FACE_TITLES: Record<FaceInfo['surface'], string> = {
  */
 export function describePart(
   part: BuiltPart,
-  tessellation: Tessellation,
+  tessellation: Pick<Tessellation, 'faces' | 'edges'>,
   solidIndex: number,
   epsilon: number
 ): PartDescription {
@@ -208,6 +208,30 @@ export function describePart(
     if (part.mount) {
       const along = dot(sub(edge.middle, part.mount.origin), part.mount.axis);
       const onAxis = circle && distanceToAxis(circle.center, part.mount.origin, part.mount.axis) < epsilon;
+
+      // A neck's ends: where it stands out, where it meets the host, where it projects inwards.
+      if (part.neck && solidIndex === 0) {
+        const r = distanceToAxis(edge.middle, part.mount.origin, part.mount.axis);
+        const side =
+          Math.abs(r - part.neck.insideRadius) < epsilon
+            ? 'inside'
+            : Math.abs(r - part.neck.outsideRadius) < epsilon
+              ? 'outside'
+              : null;
+        if (side) {
+          const end = along > epsilon ? 'outer-end' : part.neck.inward > 0 ? 'inner-end' : 'host-end';
+          const words = { 'outer-end': 'outer end', 'inner-end': 'inner end', 'host-end': 'where it meets the host' };
+          return {
+            ref: `${part.componentId}/neck/${end}/${side}`,
+            componentId: part.componentId,
+            entity: 'edge',
+            title,
+            dimension,
+            role: `${part.name}, ${words[end]} (${side})`,
+          };
+        }
+      }
+
       return {
         ref: `${part.componentId}/edge/${edge.curve}/${round(along)}/${round(circle?.radius ?? edge.length)}`,
         componentId: part.componentId,

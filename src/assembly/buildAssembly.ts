@@ -6,25 +6,31 @@
 // lengthening the bottom course moves everything above it without a single boolean, and moving
 // one nozzle re-cuts its host and rebuilds that nozzle only.
 import {
+  ANALYSIS_KINDS,
   AnchorError,
   BuildError,
   Kind,
   NotDrawnError,
   RUN_KINDS_THAT_CLOSE,
   Sym,
+  note,
   type AssemblyDefinition,
   type ComponentDefinition,
+  type Note,
   type Placement,
   type PlacementAnchor,
 } from '../definition.ts';
 import { MOUNTED_BUILDERS } from '../builders/mounted.ts';
 import { RUN_BUILDERS } from '../builders/runParts.ts';
 import type {
+  Attachment,
   Copies,
   HostFrame,
   HostSurface,
+  Junction,
   Landmark,
   MountedPart,
+  Neck,
   RunPart,
 } from '../builders/types.ts';
 import type { Bounds, GeometryKernel, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
@@ -39,7 +45,8 @@ export interface PartTransform {
   readonly dz: number;
 }
 
-export type PartStatus = 'drawn' | 'not_drawn' | 'failed';
+/** `analysis` is a component that is an analysis rather than a part: nothing to draw, nothing missing. */
+export type PartStatus = 'drawn' | 'not_drawn' | 'failed' | 'analysis';
 
 /** An opening cut into a host, described in the host's frame for naming its edges. */
 export interface Opening {
@@ -78,7 +85,15 @@ export interface BuiltPart {
   readonly hostOffsetRange?: readonly [number, number];
   /** For a part that can carry mounted ones: the surface it offers them. */
   readonly hostAnchor?: PlacementAnchor;
-  readonly notes: readonly string[];
+  /** For a part that can carry mounted ones: the surface itself, in the part's frame. */
+  readonly hostSurface?: HostSurface;
+  /** For a part of the run: where it meets its neighbours, in its own frame. */
+  readonly junctions?: { readonly lower: Junction | null; readonly upper: Junction | null };
+  /** For a mounted part: its placement in its host's frame, mirrored when the host is turned over. */
+  readonly localPlacement?: Placement;
+  readonly neck?: Neck;
+  readonly attachment?: Attachment;
+  readonly notes: readonly Note[];
 }
 
 export interface AssemblyModel {
@@ -106,14 +121,14 @@ export class AssemblyBuilder {
   build(definition: AssemblyDefinition): AssemblyModel {
     const byId = new Map(definition.components.map((c) => [c.id, c]));
     const reversed = new Set(definition.reversed);
-    const run = definition.components
-      .filter((c) => c.hostId === null)
-      .slice()
-      .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+    const results = new Map<string, BuiltPart>();
+    for (const component of definition.components) {
+      if (ANALYSIS_KINDS.has(component.kind)) results.set(component.id, analysis(component));
+    }
+    const run = runOrder(definition.components);
 
     // ---------------------------------------------------------------- the axial run
     const runParts = new Map<string, { part: RunPart; key: string; transform: PartTransform }>();
-    const results = new Map<string, BuiltPart>();
     let cursor = 0;
 
     run.forEach((component, index) => {
@@ -165,7 +180,7 @@ export class AssemblyBuilder {
     const unplacedOnHost = new Map<string, number>();
 
     for (const component of definition.components) {
-      if (component.hostId === null) continue;
+      if (component.hostId === null || ANALYSIS_KINDS.has(component.kind)) continue;
 
       const hostComponent = byId.get(component.hostId);
       const host = runParts.get(component.hostId);
@@ -260,10 +275,13 @@ export class AssemblyBuilder {
         openings: [],
         mount: mounted.opening?.frame ?? host.part.host.frameAt(local.axialOffset, local.azimuth),
         placement,
+        localPlacement: local,
         footprint: mounted.footprint,
+        neck: mounted.neck,
+        attachment: mounted.attachment,
         notes: stated
           ? mounted.notes
-          : [...mounted.notes, 'Not placed yet — drawn at a default position'],
+          : [...mounted.notes, note('Not placed yet — drawn at a default position')],
       });
     }
 
@@ -304,6 +322,8 @@ export class AssemblyBuilder {
         openings: openings.map((o) => o.opening),
         hostOffsetRange: entry.part.host?.offsetRange,
         hostAnchor: entry.part.host?.anchor,
+        hostSurface: entry.part.host,
+        junctions: { lower: entry.part.lower, upper: entry.part.upper },
         notes,
       });
     });
@@ -417,6 +437,22 @@ function outsideRadiusOf(component: ComponentDefinition | undefined): number | u
   return diameter !== undefined && thickness !== undefined ? diameter / 2 + thickness : undefined;
 }
 
+/** The parts of the axial run, bottom up: what stacks, analyses left out. */
+export function runOrder(components: readonly ComponentDefinition[]): ComponentDefinition[] {
+  return components
+    .filter((c) => c.hostId === null && !ANALYSIS_KINDS.has(c.kind))
+    .slice()
+    .sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
+}
+
+function analysis(component: ComponentDefinition): BuiltPart {
+  return {
+    ...notDrawn(component),
+    status: 'analysis',
+    message: `${component.name} is an analysis, not a part: there is nothing to draw`,
+  };
+}
+
 function notDrawn(component: ComponentDefinition): BuiltPart {
   return {
     componentId: component.id,
@@ -453,6 +489,17 @@ export function toAssembly(point: Vec3, transform: PartTransform): Vec3 {
   return transform.flipped
     ? [point[0], -point[1], transform.dz - point[2]]
     : [point[0], point[1], transform.dz + point[2]];
+}
+
+/** A direction of a part's frame, in the assembly's. */
+export function toAssemblyVector(vector: Vec3, transform: PartTransform): Vec3 {
+  return transform.flipped ? [vector[0], -vector[1], -vector[2]] : [vector[0], vector[1], vector[2]];
+}
+
+/** A solid of a part's frame, moved into the assembly's. */
+export function solidToAssembly(kernel: GeometryKernel, solid: Solid, transform: PartTransform): Solid {
+  const turned = transform.flipped ? kernel.flip(solid) : solid;
+  return transform.dz === 0 ? turned : kernel.translate(turned, [0, 0, transform.dz]);
 }
 
 /** The box around every drawn solid, in the assembly's frame. */

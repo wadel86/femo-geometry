@@ -21,7 +21,8 @@ test('a cylindrical course has the volume of its annulus', () => {
 test('a course with no length is drawn, and says what it assumed', () => {
   const course = build('cylindrical_shell', { inside_diameter: 2000, thickness: 20 });
   assert.equal(course.height, 2000);
-  assert.match(course.notes[0], /Course length not stated/);
+  assert.match(course.notes[0].message, /Course length not stated/);
+  assert.equal(course.notes[0].symbol, 'course_length');
 });
 
 test('a conical course is the frustum between its two ends', () => {
