@@ -94,11 +94,12 @@ export const sphericallyDishedCover: RunBuilder = (component, context) => {
 };
 
 /**
- * §4.7 Types B and C — the dish on a bolting ring of bore `B`, outside diameter `A` and
- * thickness `T`. Type B has the dish butt welded into the ring; Type C seats it on the ring's
- * face. Bolt holes are drawn when the number of bolts is stated.
+ * §4.7 Types B, C and D — the dish on a bolting ring of bore `B`, outside diameter `A` and
+ * thickness `T`. Type B has the dish butt welded into the ring at mid-depth; Type C seats it on
+ * the ring's back face; Type D springs it from the bore at the joint face, the ring standing
+ * round it. Bolt holes are drawn when the number of bolts is stated.
  */
-function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
+function dishedCoverOnRing(type: 'B' | 'C' | 'D'): RunBuilder {
   return (component, context) => {
     const crown = requireDimension(component, Sym.CROWN_RADIUS);
     const thickness = requireDimension(component, Sym.THICKNESS);
@@ -113,10 +114,11 @@ function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
     ];
     const { kernel } = context;
 
-    let ringSolid: Solid = kernel.revolve({
+    const blank: Solid = kernel.revolve({
       start: [bore / 2, 0],
       steps: [line(outsideDiameter / 2, 0), line(outsideDiameter / 2, ring), line(bore / 2, ring)],
     });
+    let ringSolid = blank;
 
     const boltCircle = optionalDimension(component, Sym.BOLT_CIRCLE);
     const count = optionalDimension(component, Sym.BOLT_COUNT);
@@ -140,7 +142,7 @@ function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
 
     let built;
     try {
-      built = dish(context, crown, thickness, bore / 2, type === 'B' ? ring / 2 : ring);
+      built = dish(context, crown, thickness, bore / 2, type === 'B' ? ring / 2 : type === 'C' ? ring : 0);
     } catch (error) {
       throw new BuildError(component, `: ${(error as Error).message}`);
     }
@@ -153,7 +155,8 @@ function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
 
     return {
       solid: ringSolid,
-      extraSolids: [built.solid],
+      // Where the dish would run into the ring, the ring is what is there: two solids, apart.
+      extraSolids: [kernel.cut(built.solid, [blank])],
       height: Math.max(ring, built.top),
       lower: {
         insideDiameter: bore,
@@ -172,6 +175,7 @@ function dishedCoverOnRing(type: 'B' | 'C'): RunBuilder {
 
 export const dishedCoverTypeB = dishedCoverOnRing('B');
 export const dishedCoverTypeC = dishedCoverOnRing('C');
+export const dishedCoverTypeD = dishedCoverOnRing('D');
 
 /**
  * §4.8 — a quick-actuating closure, drawn as its door: a plate of thickness `t` over the

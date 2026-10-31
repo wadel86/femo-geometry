@@ -27,6 +27,7 @@ import type {
   Copies,
   HostFrame,
   HostSurface,
+  Idealisation,
   Junction,
   Landmark,
   MountedPart,
@@ -93,6 +94,8 @@ export interface BuiltPart {
   readonly meridian?: readonly Point2[];
   /** For a formed head: the height of its tangent line above its lower junction. */
   readonly tangentLine?: number;
+  /** Where the part is drawn as an idealisation of itself, and what that left out. */
+  readonly idealisations?: readonly Idealisation[];
   /** For a mounted part: its placement in its host's frame, mirrored when the host is turned over. */
   readonly localPlacement?: Placement;
   readonly neck?: Neck;
@@ -351,6 +354,7 @@ export class AssemblyBuilder {
         junctions: { lower: entry.part.lower, upper: entry.part.upper },
         meridian: entry.part.meridian,
         tangentLine: entry.part.tangentLine,
+        idealisations: entry.part.idealisations,
         notes,
       });
     });

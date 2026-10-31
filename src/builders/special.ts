@@ -96,6 +96,93 @@ export const rectangularVessel: RunBuilder = (component, context) => {
 };
 
 /**
+ * The outline of a convex polygon grown outwards by its own wall on each side: each edge pushed
+ * out along its normal by its thickness, each corner where two pushed edges meet.
+ */
+function grown(vertices: readonly [number, number][], thicknesses: readonly number[]): [number, number][] {
+  const n = vertices.length;
+  const shifted = vertices.map((v, i) => {
+    const w = vertices[(i + 1) % n];
+    const dx = w[0] - v[0];
+    const dy = w[1] - v[1];
+    const length = Math.hypot(dx, dy);
+    // Anticlockwise, the outside is to the right of travel.
+    const normal: [number, number] = [dy / length, -dx / length];
+    const d = thicknesses[i];
+    return { point: [v[0] + d * normal[0], v[1] + d * normal[1]] as [number, number], direction: [dx, dy] as [number, number] };
+  });
+  return shifted.map((edge, i) => {
+    const previous = shifted[(i - 1 + n) % n];
+    // Where the previous pushed edge meets this one.
+    const [px, py] = previous.point;
+    const [pdx, pdy] = previous.direction;
+    const [qx, qy] = edge.point;
+    const [qdx, qdy] = edge.direction;
+    const denominator = pdx * qdy - pdy * qdx;
+    const s = ((qx - px) * qdy - (qy - py) * qdx) / denominator;
+    return [px + s * pdx, py + s * pdy];
+  });
+}
+
+/**
+ * §4.12 Table 4.12.7 — a reinforced octagonal vessel: the rectangle of `2·L_3` by `2·L_4` its
+ * inside is cut from, the short sides running `L_1 + L_11` either side of centre on the flats
+ * at `±L_4`, the long sides `L_2 + L_21` on the flats at `±L_3`, and a chamfer joining them.
+ * The short sides are in plate `t_1`, the long ones in `t_2`, the chamfers in the thicker of
+ * the two; its reinforcing members are not drawn.
+ */
+export const octagonalVessel: RunBuilder = (component, context) => {
+  const halfWidth = requireDimension(component, Sym.OCTAGON_HALF_WIDTH);
+  const halfHeight = requireDimension(component, Sym.OCTAGON_HALF_HEIGHT);
+  const shortPlate = requireDimension(component, Sym.SHORT_SIDE_THICKNESS);
+  const longPlate = requireDimension(component, Sym.LONG_SIDE_THICKNESS);
+  const shortHalf =
+    requireDimension(component, Sym.SHORT_STIFFENER_HALF_LENGTH) + requireDimension(component, Sym.SHORT_BARE_HALF_LENGTH);
+  const longHalf =
+    requireDimension(component, Sym.LONG_STIFFENER_HALF_LENGTH) + requireDimension(component, Sym.LONG_BARE_HALF_LENGTH);
+  if (shortHalf > halfWidth || longHalf > halfHeight) {
+    throw new BuildError(component, 'has sides longer than the rectangle it is cut from');
+  }
+  const notes: Note[] = [];
+  const length = lengthOf(component, 2 * halfHeight, notes);
+  notes.push(note('Its reinforcing members are not drawn, and its chamfers are drawn in the thicker plate', Sym.STIFFENER_PITCH));
+
+  // Anticlockwise from the bottom short side; a chamfer of zero length is not an edge.
+  const chamfer = Math.max(shortPlate, longPlate);
+  const corners: { v: [number, number]; t: number }[] = [
+    { v: [-shortHalf, -halfHeight], t: shortPlate },
+    { v: [shortHalf, -halfHeight], t: chamfer },
+    { v: [halfWidth, -longHalf], t: longPlate },
+    { v: [halfWidth, longHalf], t: chamfer },
+    { v: [shortHalf, halfHeight], t: shortPlate },
+    { v: [-shortHalf, halfHeight], t: chamfer },
+    { v: [-halfWidth, longHalf], t: longPlate },
+    { v: [-halfWidth, -longHalf], t: chamfer },
+  ];
+  const edges = corners.filter((c, i) => {
+    const next = corners[(i + 1) % corners.length].v;
+    return Math.hypot(next[0] - c.v[0], next[1] - c.v[1]) > 1e-9;
+  });
+  const inside = edges.map((e) => e.v);
+  const outside = grown(inside, edges.map((e) => e.t));
+  const outline = (points: [number, number][]): Profile => ({
+    start: points[0],
+    steps: points.slice(1).map((p) => line(p[0], p[1])),
+  });
+
+  const { kernel } = context;
+  return {
+    solid: kernel.cut(kernel.extrude(outline(outside), 0, length), [kernel.extrude(outline(inside), -1, length + 1)]),
+    height: length,
+    lower: null,
+    upper: null,
+    landmarks: [],
+    meridian: [],
+    notes,
+  };
+};
+
+/**
  * §4.12 Types 9 to 11 — an obround vessel: two semi-cylinders of inside radius `R` and wall
  * `t_1`, joined by two flat sides `2·L_2` long in plate `t_2`. Where the two walls differ, the
  * outside steps at the junction, as the plates do.

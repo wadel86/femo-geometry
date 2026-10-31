@@ -113,8 +113,22 @@ export interface RunPart {
   readonly meridian: readonly Point2[];
   /** For a formed head: the height of its tangent line above its lower junction. */
   readonly tangentLine?: number;
+  readonly idealisations?: readonly Idealisation[];
   /** Assumptions the drawing had to make, which the user should see. */
   readonly notes: readonly Note[];
+}
+
+/**
+ * A part drawn as an idealisation of itself rather than as built — a tubesheet as a solid plate,
+ * a bellows' plies as one wall. Which idealisation an analysis uses is the analysis plan's
+ * choice, not the kernel's, so the drawing says what it did and carries what it left out as
+ * data, from which the real geometry can be drawn when a plan asks for it.
+ */
+export interface Idealisation {
+  readonly kind: 'equivalent_solid_plate' | 'plies_as_one_wall';
+  readonly message: string;
+  /** What the idealisation left out, in the part's own frame and millimetres. */
+  readonly data: Readonly<Record<string, number | string>>;
 }
 
 export interface RunContext {

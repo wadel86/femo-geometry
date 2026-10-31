@@ -35,6 +35,22 @@ export const Kind = {
   RECTANGULAR_VESSEL: 'rectangular_vessel',
   OBROUND_VESSEL: 'obround_vessel',
   HALF_PIPE_JACKET: 'half_pipe_jacket',
+  U_TUBE_TUBESHEET: 'u_tube_tubesheet',
+  FIXED_TUBESHEET: 'fixed_tubesheet',
+  FLOATING_TUBESHEET_IMMERSED: 'floating_tubesheet_immersed',
+  FLOATING_TUBESHEET_EXTERNALLY_SEALED: 'floating_tubesheet_externally_sealed',
+  FLOATING_TUBESHEET_INTERNALLY_SEALED: 'floating_tubesheet_internally_sealed',
+  U_SHAPED_BELLOWS_AS_FORMED: 'u_shaped_bellows_as_formed',
+  U_SHAPED_BELLOWS_ANNEALED: 'u_shaped_bellows_annealed',
+  U_SHAPED_REINFORCED_BELLOWS_AS_FORMED: 'u_shaped_reinforced_bellows_as_formed',
+  U_SHAPED_REINFORCED_BELLOWS_ANNEALED: 'u_shaped_reinforced_bellows_annealed',
+  TOROIDAL_BELLOWS: 'toroidal_bellows',
+  FLANGED_AND_FLUED_EXPANSION_JOINT: 'flanged_and_flued_expansion_joint',
+  CLAMPED_CONNECTION: 'clamped_connection',
+  DISHED_COVER_TYPE_D: 'dished_cover_type_d',
+  JACKET_CLOSURE: 'jacket_closure',
+  OCTAGONAL_VESSEL: 'octagonal_vessel',
+  PRESSURE_RELIEF_DEVICE: 'pressure_relief_device',
 } as const;
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -95,6 +111,49 @@ export const Sym = {
   INNER_FILLET_WELD_LEG: 'inner_fillet_weld_leg',
   NOZZLE_SPACING: 'nozzle_spacing',
   SUPPORT_TO_DISCONTINUITY: 'support_to_discontinuity',
+  // §4.18, the tubesheet and its bundle.
+  TUBE_PITCH: 'tube_pitch',
+  TUBE_OUTSIDE_DIAMETER: 'tube_outside_diameter',
+  TUBE_THICKNESS: 'tube_thickness',
+  TUBE_LIMIT_RADIUS: 'tube_limit_radius',
+  TUBE_LAYOUT_ANGLE: 'tube_layout_angle',
+  TUBE_LENGTH_OUTER: 'tube_length_outer',
+  TUBE_HOLE_DIAMETER: 'tube_hole_diameter',
+  SHELL_INSIDE_DIAMETER: 'shell_inside_diameter',
+  CHANNEL_INSIDE_DIAMETER: 'channel_inside_diameter',
+  // §4.19, bellows.
+  BELLOWS_INSIDE_DIAMETER: 'bellows_inside_diameter',
+  CONVOLUTION_HEIGHT: 'convolution_height',
+  CONVOLUTION_PITCH: 'convolution_pitch',
+  CONVOLUTION_COUNT: 'convolution_count',
+  PLY_COUNT: 'ply_count',
+  END_TANGENT_LENGTH: 'end_tangent_length',
+  TORUS_RADIUS: 'torus_radius',
+  TOROIDAL_RADIUS: 'toroidal_radius',
+  TOROIDAL_WELD_SPACING: 'toroidal_weld_spacing',
+  REINFORCING_RING_AREA: 'reinforcing_ring_area',
+  COLLAR_THICKNESS: 'collar_thickness',
+  COLLAR_LENGTH: 'collar_length',
+  // §4.17, clamp connections.
+  GASKET_CONTACT_DIAMETER: 'gasket_contact_diameter',
+  CLAMP_TAPER_ANGLE: 'clamp_taper_angle',
+  HUB_SHOULDER_THICKNESS: 'hub_shoulder_thickness',
+  HUB_NECK_OUTSIDE_DIAMETER: 'hub_neck_outside_diameter',
+  CLAMP_INSIDE_DIAMETER: 'clamp_inside_diameter',
+  CLAMP_WIDTH: 'clamp_width',
+  CLAMP_THICKNESS: 'clamp_thickness',
+  // §4.11, jacket closures.
+  JACKET_THICKNESS: 'jacket_thickness',
+  CLOSURE_THICKNESS: 'closure_thickness',
+  JACKET_INSIDE_RADIUS: 'jacket_inside_radius',
+  JACKET_SPACE: 'jacket_space',
+  // §4.12 Table 4.12.7, the reinforced octagon.
+  OCTAGON_HALF_WIDTH: 'octagon_half_width',
+  OCTAGON_HALF_HEIGHT: 'octagon_half_height',
+  SHORT_STIFFENER_HALF_LENGTH: 'short_stiffener_half_length',
+  SHORT_BARE_HALF_LENGTH: 'short_bare_half_length',
+  LONG_STIFFENER_HALF_LENGTH: 'long_stiffener_half_length',
+  LONG_BARE_HALF_LENGTH: 'long_bare_half_length',
 } as const;
 
 /**
@@ -188,6 +247,7 @@ export const RUN_KINDS_THAT_CLOSE: ReadonlySet<string> = new Set([
   Kind.DISHED_COVER_TYPE_C,
   Kind.QUICK_ACTUATING_CLOSURE,
   Kind.STAYED_SURFACE,
+  Kind.DISHED_COVER_TYPE_D,
 ]);
 
 /** Reads one dimension, or says which part lacks it. */

@@ -12,6 +12,7 @@ import {
   perpendicularNozzle,
   radialNozzle,
 } from './nozzles.ts';
+import { jacketClosure, pressureReliefDevice } from './fittings.ts';
 import { requireWithinHost } from './placing.ts';
 import { halfPipeJacket, lugSupport, saddleSupport, skirtSupport } from './supports.ts';
 import type { MountedBuilder } from './types.ts';
@@ -65,4 +66,6 @@ export const MOUNTED_BUILDERS: Readonly<Record<string, MountedBuilder>> = {
   skirt_support: skirtSupport,
   lug_support: lugSupport,
   half_pipe_jacket: halfPipeJacket,
+  jacket_closure: jacketClosure,
+  pressure_relief_device: pressureReliefDevice,
 };

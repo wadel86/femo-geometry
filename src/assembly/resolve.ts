@@ -8,6 +8,7 @@
 //   have spared it, because a mesh of an assumed length is an invented number; and a STEP file is
 //   only written when nothing is refused.
 import type { AssemblyDefinition, Note, Placement } from '../definition.ts';
+import type { Idealisation } from '../builders/types.ts';
 import type { Frame, GeometryKernel, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { derivePorts, type Joint, type Port } from '../ports/ports.ts';
 import {
@@ -60,6 +61,12 @@ export interface ResolvedPart {
   readonly placement?: Placement;
   /** The assumptions of the drawing — in analysis mode, those that are refusals too. */
   readonly notes: readonly Note[];
+  /**
+   * Where the part is drawn as an idealisation of itself — a solid plate for a drilled one —
+   * and, as data in its own frame, what was left out: which idealisation to mesh is the
+   * analysis plan's choice.
+   */
+  readonly idealisations: readonly Idealisation[];
   readonly ports: readonly Port[];
   readonly faces: readonly FaceDescriptor[];
   readonly edges: readonly EdgeDescriptor[];
@@ -190,6 +197,7 @@ export function resolveGeometry(
         : {}),
       ...(part.placement ? { placement: part.placement } : {}),
       notes: mode === 'analysis' ? part.notes : part.notes.filter((n) => !n.analysisOnly),
+      idealisations: part.idealisations ?? [],
       ports: ports.filter((p) => p.componentId === part.componentId),
       faces: described.faces,
       edges: described.edges,

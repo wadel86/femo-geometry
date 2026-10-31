@@ -18,11 +18,15 @@ import type { Point2, Profile, ProfileStep } from '../kernel/GeometryKernel.ts';
 import {
   dishedCoverTypeB,
   dishedCoverTypeC,
+  dishedCoverTypeD,
   quickActuatingClosure,
   sphericallyDishedCover,
   stayedSurface,
 } from './covers.ts';
-import { dividingPlates, obroundVessel, rectangularVessel } from './special.ts';
+import { clampedConnection } from './clamps.ts';
+import { CONVOLUTED_BUILDERS } from './convoluted.ts';
+import { TUBESHEET_BUILDERS } from './exchangers.ts';
+import { dividingPlates, obroundVessel, octagonalVessel, rectangularVessel } from './special.ts';
 import type {
   CourseShape,
   HostFrame,
@@ -851,6 +855,11 @@ export const RUN_BUILDERS: Readonly<Record<string, RunBuilder>> = {
   stayed_surface: stayedSurface,
   rectangular_vessel: rectangularVessel,
   obround_vessel: obroundVessel,
+  octagonal_vessel: octagonalVessel,
+  dished_cover_type_d: dishedCoverTypeD,
+  clamped_connection: clampedConnection,
+  ...CONVOLUTED_BUILDERS,
+  ...TUBESHEET_BUILDERS,
 };
 
 export function isRunKindDrawn(component: ComponentDefinition): boolean {
