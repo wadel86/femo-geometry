@@ -68,7 +68,9 @@ export interface Proximity {
   readonly distance: number;
   /** How it was measured: within one course, or across the run. */
   readonly basis: string;
-  /** Whether their zones overlap: the distance is less than ZONE_FACTOR times the mean √(R·t) of the facing walls. */
+  /** ZONE_FACTOR times the mean √(R·t) of the facing walls: the separation they are judged against. */
+  readonly threshold: number;
+  /** Whether their zones overlap: the distance is less than the threshold. */
   readonly overlap: boolean;
 }
 
@@ -481,13 +483,15 @@ function proximity(a: Discontinuity, b: Discontinuity): Proximity {
       ? lower.sqrtRt.above + upper.sqrtRt.below
       : Math.max(a.sqrtRt.below, a.sqrtRt.above) + Math.max(b.sqrtRt.below, b.sqrtRt.above)) / 2;
   const sameWall = a.componentId === b.componentId;
+  const threshold = ZONE_FACTOR * reach;
   return {
     between: [a.id, b.id],
     distance,
     basis: sameWall
       ? 'Developed surface of one part: along its meridian and round it'
       : 'Mid-surface meridians summed across the run, and round the smaller of the two radii',
-    overlap: distance < ZONE_FACTOR * reach,
+    threshold,
+    overlap: distance < threshold,
   };
 }
 

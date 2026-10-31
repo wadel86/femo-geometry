@@ -22,6 +22,7 @@ import {
 } from '../definition.ts';
 import { MOUNTED_BUILDERS } from '../builders/mounted.ts';
 import { RUN_BUILDERS } from '../builders/runParts.ts';
+import { cylinderSurface } from '../builders/walls.ts';
 import type {
   Attachment,
   Copies,
@@ -569,7 +570,8 @@ function taper(kernel: GeometryKernel, part: RunPart, end: 'lower' | 'upper', th
     [end]: {
       ...junction,
       outsideDiameter: 2 * thin,
-      wall: { ...junction.wall, thickness },
+      // The thinner wall's mid-surface too: the weld joins two equal walls on one radius.
+      wall: { ...junction.wall, surface: cylinderSurface(inside + thickness / 2), thickness },
     },
     landmarks: [
       ...part.landmarks.map((l) => (l.key === outside ? { ...l, diameter: 2 * thin } : l)),

@@ -49,6 +49,7 @@ export {
   type Proximity,
   type Zones,
 } from './ports/zones.ts';
+export { OUTLINE_FACTOR, zoneOutlines, type ZoneOutline } from './ports/zoneOutlines.ts';
 export {
   GEOMETRY_FORMAT_VERSION,
   RefusedError,

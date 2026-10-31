@@ -31,6 +31,8 @@ test('a thicker head is tapered 3:1 on the outside down to the shell it is welde
   assert.deepEqual(resolved.refusals, []);
   assert.deepEqual(resolved.errors, []);
   assert.ok(resolved.joints.every((j) => j.issues.length === 0), JSON.stringify(resolved.joints));
+  // Faired, the weld is a seam between equal walls on one radius: no junction discontinuity.
+  assert.deepEqual(resolved.discontinuities.filter((d) => d.kind === 'junction'), []);
 
   const H = stepped.parts.find((p) => p.componentId === 'H')!;
   assert.ok(kernel.isValid(H.solids[0]));
