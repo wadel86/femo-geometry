@@ -16,7 +16,10 @@ import { runOrder, toAssembly, type AssemblyModel, type BuiltPart } from '../ass
 import type { Point2, Vec3 } from '../kernel/GeometryKernel.ts';
 import type { Joint, Port } from './ports.ts';
 
-/** The multiple of √(R·t) the overlap flag uses: a zone each side of each discontinuity. */
+/**
+ * The multiple of √(R·t) the overlap flag uses: two discontinuities overlap when they are closer
+ * than 2.5·√(R·t), √(R·t) taken as the mean of the two facing walls' — §5.2.2.2.b.2's separation.
+ */
 export const ZONE_FACTOR = 2.5;
 
 /**
@@ -65,7 +68,7 @@ export interface Proximity {
   readonly distance: number;
   /** How it was measured: within one course, or across the run. */
   readonly basis: string;
-  /** Whether their zones overlap: the distance is less than ZONE_FACTOR·√(R·t) of each, facing. */
+  /** Whether their zones overlap: the distance is less than ZONE_FACTOR times the mean √(R·t) of the facing walls. */
   readonly overlap: boolean;
 }
 
@@ -471,10 +474,12 @@ function proximity(a: Discontinuity, b: Discontinuity): Proximity {
   }
   const distance = Math.hypot(gapAlong, gapRound);
   // Facing sides when one lies along the meridian from the other; the larger of each otherwise.
+  // §5.2.2.2.b.2 separates two regions by 1.25·√((R1+R2)(t1+t2)) — 2.5·√(R·t) for two equal
+  // walls, ONE zone between them and not one from each — so the factor applies to their mean.
   const reach =
-    gapAlong > 0
+    (gapAlong > 0
       ? lower.sqrtRt.above + upper.sqrtRt.below
-      : Math.max(a.sqrtRt.below, a.sqrtRt.above) + Math.max(b.sqrtRt.below, b.sqrtRt.above);
+      : Math.max(a.sqrtRt.below, a.sqrtRt.above) + Math.max(b.sqrtRt.below, b.sqrtRt.above)) / 2;
   const sameWall = a.componentId === b.componentId;
   return {
     between: [a.id, b.id],

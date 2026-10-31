@@ -39,7 +39,7 @@ test('two adjacent nozzles: their clear spacing is measured between the necks, a
 
   const pair = resolved.proximities.find((p) => p.between.includes('S:opening:N1') && p.between.includes('S:opening:N2'))!;
   close(pair.distance, (520 * 40 * Math.PI) / 180 - 2 * 115, 0.01);
-  assert.equal(pair.overlap, true, `${pair.distance} against 2.5·2·√(510·20)`);
+  assert.equal(pair.overlap, true, `${pair.distance} against 2.5·√(510·20)`);
 
   // A course butted to an equal one is a seam, not a discontinuity; the courses' ends are not either.
   assert.deepEqual(
