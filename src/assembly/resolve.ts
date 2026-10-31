@@ -21,11 +21,13 @@ import {
 import { describeGeometry, type EdgeDescriptor, type FaceDescriptor } from '../topology/descriptors.ts';
 import {
   assemblyBounds,
+  runOrder,
   solidToAssembly,
   tessellationTolerance,
   toAssembly,
   toAssemblyVector,
   type AssemblyModel,
+  type BuiltPart,
   type PartStatus,
 } from './buildAssembly.ts';
 
@@ -139,6 +141,24 @@ export function refusalsOf(definition: AssemblyDefinition, model: AssemblyModel,
     }
   }
   const names = new Map(model.parts.map((p) => [p.componentId, p.name]));
+  // Two neighbours in the run with no circular end between them are drawn one above the
+  // other and joined by nothing: a non-circular body has no end the kernel can weld a head to.
+  const built = new Map(model.parts.map((p) => [p.componentId, p]));
+  const run = runOrder(definition.components)
+    .map((c) => built.get(c.id))
+    .filter((p): p is BuiltPart => p?.status === 'drawn');
+  for (let i = 0; i + 1 < run.length; i++) {
+    const [below, above] = [run[i], run[i + 1]];
+    const up = below.junctions?.[below.transform.flipped ? 'lower' : 'upper'];
+    const down = above.junctions?.[above.transform.flipped ? 'upper' : 'lower'];
+    if (up && down) continue;
+    const without = [!up ? below.name : null, !down ? above.name : null].filter(Boolean).join(' and ');
+    refusals.push({
+      componentId: above.componentId,
+      name: above.name,
+      message: `${above.name} is not joined to ${below.name}: ${without} offers no circular end to weld to, so the two are only drawn one against the other`,
+    });
+  }
   const { ports, joints } = derivePorts(definition, model);
   for (const joint of joints) {
     const componentId = joint.ports[1].split('@').slice(1).join('@');

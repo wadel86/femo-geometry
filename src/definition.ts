@@ -60,6 +60,7 @@ export const Sym = {
   COURSE_LENGTH: 'course_length',
   CROWN_RADIUS: 'crown_radius',
   KNUCKLE_RADIUS: 'knuckle_radius',
+  FLARE_RADIUS: 'flare_radius',
   HEAD_HEIGHT: 'head_height',
   SMALL_END_DIAMETER: 'small_end_diameter',
   HALF_APEX_ANGLE: 'half_apex_angle',

@@ -33,7 +33,13 @@ function stayPlates(
   length: number
 ): { plates: Solid[]; note?: Note } {
   const thickness = optionalDimension(component, Sym.STAY_PLATE_THICKNESS);
-  if (thickness === undefined) return { plates: [] };
+  if (thickness === undefined) {
+    // Stays as rods — a pitch and a diameter — are read by the rules and not drawn.
+    const pitch = optionalDimension(component, Sym.STAY_PITCH);
+    return pitch === undefined
+      ? { plates: [] }
+      : { plates: [], note: note(`Stays at a ${mm(pitch)} pitch are stated and not drawn`, Sym.STAY_PITCH) };
+  }
   const planes = Math.max(1, Math.round(optionalDimension(component, Sym.STAY_PLANES) ?? 1));
   const plates = Array.from({ length: planes }, (_, k) => {
     const x = -span + ((k + 1) * 2 * span) / (planes + 1);

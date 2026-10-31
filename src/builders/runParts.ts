@@ -353,6 +353,16 @@ export const conicalShell: RunBuilder = (component, context) => {
   if (smallEnd <= 0) {
     throw new BuildError(component, `closes to a point before its ${mm(length)} length`);
   }
+  // §4.3.12 reads them; the drawing does not have them yet, and must not pretend otherwise.
+  for (const [symbol, end] of [
+    [Sym.KNUCKLE_RADIUS, 'knuckle at the large end'],
+    [Sym.FLARE_RADIUS, 'flare at the small end'],
+  ] as const) {
+    const radius = optionalDimension(component, symbol);
+    if (radius !== undefined) {
+      notes.push(note(`A ${end} of ${mm(radius)} is stated and not drawn: the cone meets its neighbour at a sharp corner`, symbol));
+    }
+  }
 
   const a0 = diameter / 2;
   const a1 = smallEnd / 2;
