@@ -10,9 +10,10 @@ import {
   BuildError,
   Kind,
   Sym,
-  note,
   optionalDimension,
+  representedNote,
   requireDimension,
+  scope,
   type Note,
 } from '../definition.ts';
 import type { Solid, Vec3 } from '../kernel/GeometryKernel.ts';
@@ -62,17 +63,36 @@ export const tubesheet: RunBuilder = (component, context) => {
   const limit = requireDimension(component, Sym.TUBE_LIMIT_RADIUS);
   const angle = requireDimension(component, Sym.TUBE_LAYOUT_ANGLE);
   if (![30, 45, 60, 90].some((a) => Math.abs(angle - a) < 1)) {
-    throw new BuildError(component, `has a tube layout of ${angle}°, which is none of §4.18.4.a's patterns`);
+    throw new BuildError(
+      component,
+      `has a tube layout of ${angle}°, which is none of §4.18.4.a's patterns`,
+      scope('out_of_scope', Sym.TUBE_LAYOUT_ANGLE, '30°, 45°, 60° or 90°', `${angle}°`)
+    );
   }
-  if (pitch <= tube) throw new BuildError(component, `has its tubes (${mm(tube)}) no narrower than their pitch`);
+  if (pitch <= tube) {
+    throw new BuildError(
+      component,
+      `has its tubes (${mm(tube)}) no narrower than their pitch`,
+      scope('out_of_scope', Sym.TUBE_PITCH, `> ${mm(tube)}, the tube diameter`, mm(pitch))
+    );
+  }
   if (limit + tube / 2 > outside / 2) {
-    throw new BuildError(component, `places tubes out to ${mm(limit + tube / 2)}, past its own rim`);
+    throw new BuildError(
+      component,
+      `places tubes out to ${mm(limit + tube / 2)}, past its own rim`,
+      scope('out_of_scope', `${Sym.TUBE_LIMIT_RADIUS} plus half a tube`, `≤ ${mm(outside / 2)}, the plate's rim`, mm(limit + tube / 2))
+    );
   }
   const { kernel } = context;
   const hole = optionalDimension(component, Sym.TUBE_HOLE_DIAMETER) ?? tube;
   const pattern = tubePattern(pitch, limit, angle);
   const notes: Note[] = [
-    note('Idealised as §4.18.6.4.b\'s equivalent solid plate: the tube holes are carried as data, not drilled'),
+    representedNote(
+      'Idealised as §4.18.6.4.b\'s equivalent solid plate: the tube holes are carried as data, not drilled',
+      'tube holes',
+      `${pattern.length} holes drilled`,
+      '§4.18.6.4.b\'s equivalent solid plate'
+    ),
   ];
   const idealisation: Idealisation = {
     kind: 'equivalent_solid_plate',
@@ -93,12 +113,21 @@ export const tubesheet: RunBuilder = (component, context) => {
   let centres = pattern;
   if (centres.length > MOST_TUBES) {
     const kept = centres.filter((c) => Math.hypot(c[0], c[1]) > limit - 3 * pitch);
-    notes.push(note(`${centres.length} tubes on the pattern; the outer ${kept.length} drawn`));
+    notes.push(
+      representedNote(`${centres.length} tubes on the pattern; the outer ${kept.length} drawn`, 'tubes drawn', `all ${centres.length}`, `the outer ${kept.length}`)
+    );
     centres = kept;
   }
   const stated = optionalDimension(component, Sym.TUBE_LENGTH_OUTER);
   const stub = Math.min(4 * pitch, stated ?? Infinity);
-  notes.push(note(`${centres.length} tubes on a ${angle}° pattern, drawn as ${mm(stub)} stubs from the shell-side face`));
+  notes.push(
+    representedNote(
+      `${centres.length} tubes on a ${angle}° pattern, drawn as ${mm(stub)} stubs from the shell-side face`,
+      'tube length',
+      stated === undefined ? 'the bundle, U-bends included' : `${mm(stated)} between the plates`,
+      `${mm(stub)} stubs`
+    )
+  );
 
   const r = outside / 2;
   const plate = kernel.revolve({

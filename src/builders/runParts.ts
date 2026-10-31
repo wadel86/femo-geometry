@@ -7,9 +7,13 @@ import {
   BuildError,
   Sym,
   analysisNote,
+  assumedNote,
+  notBuiltNote,
   note,
   optionalDimension,
+  representedNote,
   requireDimension,
+  scope,
   signedDimension,
   type ComponentDefinition,
   type Note,
@@ -127,7 +131,11 @@ interface HeadShape {
 function formedHead(component: ComponentDefinition, context: RunContext, a: number, t: number, shape: HeadShape) {
   const flange = signedDimension(component, Sym.STRAIGHT_FLANGE_LENGTH);
   if (flange !== undefined && flange < 0) {
-    throw new BuildError(component, `has a straight flange of ${mm(flange)}`);
+    throw new BuildError(
+      component,
+      `has a straight flange of ${mm(flange)}`,
+      scope('out_of_scope', Sym.STRAIGHT_FLANGE_LENGTH, '≥ 0', mm(flange))
+    );
   }
   const sf = flange ?? 0;
   const notes: Note[] = [...shape.notes];
@@ -135,7 +143,8 @@ function formedHead(component: ComponentDefinition, context: RunContext, a: numb
     notes.push(
       analysisNote(
         'Straight flange length not stated — drawn without one, so the head-to-shell weld sits on the tangent line',
-        Sym.STRAIGHT_FLANGE_LENGTH
+        Sym.STRAIGHT_FLANGE_LENGTH,
+        scope('assumed', Sym.STRAIGHT_FLANGE_LENGTH, 'stated', 'not stated — drawn 0 mm, the weld on the tangent line')
       )
     );
   }
@@ -252,7 +261,7 @@ export const cylindricalShell: RunBuilder = (component, context) => {
   let length = optionalDimension(component, Sym.COURSE_LENGTH);
   if (length === undefined) {
     length = diameter;
-    notes.push(note(`Course length not stated — drawn ${mm(length)} long`, Sym.COURSE_LENGTH));
+    notes.push(assumedNote(`Course length not stated — drawn ${mm(length)} long`, Sym.COURSE_LENGTH, mm(length)));
   }
 
   const a = diameter / 2;
@@ -323,7 +332,11 @@ export const conicalShell: RunBuilder = (component, context) => {
   const thickness = requireDimension(component, Sym.THICKNESS);
   const alpha = requireDimension(component, Sym.HALF_APEX_ANGLE);
   if (alpha >= 90) {
-    throw new BuildError(component, `has a half-apex angle of ${alpha}°, a cone needs less than 90°`);
+    throw new BuildError(
+      component,
+      `has a half-apex angle of ${alpha}°, a cone needs less than 90°`,
+      scope('out_of_scope', Sym.HALF_APEX_ANGLE, '< 90°', `${alpha}°`)
+    );
   }
   const tan = Math.tan(alpha * DEG);
   const notes: Note[] = [];
@@ -338,7 +351,8 @@ export const conicalShell: RunBuilder = (component, context) => {
       notes.push(
         note(
           `Small end stated as ${mm(statedSmallEnd)} but D, α and Lc give ${mm(derived)} — drawn from Lc`,
-          Sym.SMALL_END_DIAMETER
+          Sym.SMALL_END_DIAMETER,
+          scope('mismatch', Sym.SMALL_END_DIAMETER, `${mm(derived)}, from D, α and Lc within 0.5 mm`, `stated ${mm(statedSmallEnd)}`)
         )
       );
     }
@@ -346,12 +360,18 @@ export const conicalShell: RunBuilder = (component, context) => {
     length = (diameter - statedSmallEnd) / (2 * tan);
   } else {
     length = diameter / 2;
-    notes.push(note(`Neither course length nor small end diameter stated — drawn ${mm(length)} long`, Sym.COURSE_LENGTH));
+    notes.push(
+      assumedNote(`Neither course length nor small end diameter stated — drawn ${mm(length)} long`, Sym.COURSE_LENGTH, mm(length))
+    );
   }
 
   const smallEnd = diameter - 2 * length * tan;
   if (smallEnd <= 0) {
-    throw new BuildError(component, `closes to a point before its ${mm(length)} length`);
+    throw new BuildError(
+      component,
+      `closes to a point before its ${mm(length)} length`,
+      scope('out_of_scope', Sym.COURSE_LENGTH, `< ${mm(diameter / (2 * tan))}, where it closes`, mm(length))
+    );
   }
   // §4.3.12 reads them; the drawing does not have them yet, and must not pretend otherwise.
   for (const [symbol, end] of [
@@ -360,7 +380,14 @@ export const conicalShell: RunBuilder = (component, context) => {
   ] as const) {
     const radius = optionalDimension(component, symbol);
     if (radius !== undefined) {
-      notes.push(note(`A ${end} of ${mm(radius)} is stated and not drawn: the cone meets its neighbour at a sharp corner`, symbol));
+      notes.push(
+        notBuiltNote(
+          `A ${end} of ${mm(radius)} is stated and not drawn: the cone meets its neighbour at a sharp corner`,
+          symbol,
+          mm(radius),
+          'conical_shell: a sharp corner only'
+        )
+      );
     }
   }
 
@@ -462,7 +489,8 @@ export const sphericalShell: RunBuilder = (component, context) => {
     if (stated / 2 >= a) {
       throw new BuildError(
         component,
-        `cannot meet the ${mm(stated)} opening ${where} it: a sphere of ${mm(diameter)} inside is no wider`
+        `cannot meet the ${mm(stated)} opening ${where} it: a sphere of ${mm(diameter)} inside is no wider`,
+        scope('out_of_scope', `inside diameter of the part ${where}`, `< ${mm(diameter)}, the sphere's`, mm(stated))
       );
     }
     return stated / 2;
@@ -603,12 +631,17 @@ export const torisphericalHead: RunBuilder = (component, context) => {
   const a = diameter / 2;
 
   if (knuckle >= a) {
-    throw new BuildError(component, `has a knuckle radius (${mm(knuckle)}) as large as its radius`);
+    throw new BuildError(
+      component,
+      `has a knuckle radius (${mm(knuckle)}) as large as its radius`,
+      scope('out_of_scope', Sym.KNUCKLE_RADIUS, `< ${mm(a)}, the inside radius`, mm(knuckle))
+    );
   }
   if (crown <= a) {
     throw new BuildError(
       component,
-      `has a crown radius (${mm(crown)}) no larger than its radius (${mm(a)}) — no crown meets the knuckle`
+      `has a crown radius (${mm(crown)}) no larger than its radius (${mm(a)}) — no crown meets the knuckle`,
+      scope('out_of_scope', Sym.CROWN_RADIUS, `> ${mm(a)}, the inside radius`, mm(crown))
     );
   }
 
@@ -703,7 +736,14 @@ export const ellipsoidalHead: RunBuilder = (component, context) => {
   }
   const notes: Note[] =
     fit.error > tolerance
-      ? [note(`Outside surface drawn within ${mm(fit.error)} of the true offset of the inside`)]
+      ? [
+          representedNote(
+            `Outside surface drawn within ${mm(fit.error)} of the true offset of the inside`,
+            'outside surface',
+            `the true offset of the inside, within ${mm(tolerance)}`,
+            `a Bézier fit within ${mm(fit.error)}`
+          ),
+        ]
       : [];
 
   // On the inside ellipse x = a·cos u, z = h·sin u the principal radii are
@@ -781,7 +821,11 @@ export const flange: RunBuilder = (component, context) => {
   const outsideDiameter = requireDimension(component, Sym.FLANGE_OUTSIDE_DIAMETER);
   const thickness = requireDimension(component, Sym.THICKNESS);
   if (outsideDiameter <= bore) {
-    throw new BuildError(component, `has an outside diameter no larger than its bore`);
+    throw new BuildError(
+      component,
+      `has an outside diameter no larger than its bore`,
+      scope('out_of_scope', Sym.FLANGE_OUTSIDE_DIAMETER, `> ${mm(bore)}, the bore`, mm(outsideDiameter))
+    );
   }
   const hubLarge = optionalDimension(component, Sym.HUB_LARGE_END_THICKNESS);
   const hubLength = optionalDimension(component, Sym.HUB_LENGTH);
@@ -824,10 +868,12 @@ export const flange: RunBuilder = (component, context) => {
 
   const notes: Note[] = [];
   if (!hasHub && component.kind === 'integral_flange') {
-    notes.push(note('No hub stated — drawn as a plain ring', Sym.HUB_LARGE_END_THICKNESS));
+    notes.push(assumedNote('No hub stated — drawn as a plain ring', Sym.HUB_LARGE_END_THICKNESS, 'no hub, a plain ring'));
   }
   if (component.dimensions[Sym.BOLT_COUNT] !== undefined) {
-    notes.push(analysisNote('Its bolt holes are not drawn', Sym.BOLT_COUNT));
+    notes.push(
+      notBuiltNote('Its bolt holes are not drawn', Sym.BOLT_COUNT, `${component.dimensions[Sym.BOLT_COUNT]} bolts`, component.kind, true)
+    );
   }
 
   return {

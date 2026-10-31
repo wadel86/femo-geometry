@@ -9,8 +9,10 @@
 // Everything is in millimetres, in the assembly's frame, Z being the vessel axis.
 import {
   Sym,
+  scope,
   type AssemblyDefinition,
   type ComponentDefinition,
+  type Scope,
 } from '../definition.ts';
 import {
   runOrder,
@@ -89,6 +91,8 @@ export interface Joint {
   readonly weld?: Readonly<Record<string, number>>;
   /** Where the two ports do not agree: a step in the mean radius, in the thickness. */
   readonly issues: readonly string[];
+  /** The same issues, parallel to them, each as the parameter, the limit and the value seen. */
+  readonly findings: readonly Scope[];
 }
 
 export interface PortsAndJoints {
@@ -139,7 +143,7 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
       kind: up.kind === 'flange_face' && down.kind === 'flange_face' ? 'bolted' : 'butt_weld',
       ports: [up.id, down.id],
       sourceRule: 'run adjacency',
-      issues: mismatches(up, down),
+      ...mismatches(up, down),
     });
   }
 
@@ -213,6 +217,7 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
         sourceRule: 'host',
         ...weldOf(component, [Sym.OUTER_FILLET_WELD_LEG, Sym.INNER_FILLET_WELD_LEG]),
         issues: [],
+        findings: [],
       });
 
       if (neck.pad) {
@@ -240,6 +245,7 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
           sourceRule: 'host',
           ...weldOf(component, [Sym.PAD_FILLET_WELD_LEG]),
           issues: [],
+          findings: [],
         });
       }
       continue;
@@ -269,6 +275,7 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
         ports: [patchOnHost.id, bearing.id],
         sourceRule: 'host',
         issues: [],
+        findings: [],
       });
     }
   }
@@ -309,18 +316,27 @@ function junctionPort(part: BuiltPart, side: 'lower' | 'upper', junction: Juncti
  * in thickness between two walls is a taper someone has to draw. A plate meeting a wall has a
  * thickness of its own and no step.
  */
-function mismatches(a: Port, b: Port): string[] {
+function mismatches(a: Port, b: Port): { issues: string[]; findings: Scope[] } {
   const issues: string[] = [];
+  const findings: Scope[] = [];
   const ra = a.meanRadius ?? 0;
   const rb = b.meanRadius ?? 0;
-  if (Math.abs(ra - rb) > Math.max(1e-3 * Math.max(ra, rb), 1e-6)) {
+  const tolerance = Math.max(1e-3 * Math.max(ra, rb), 1e-6);
+  if (Math.abs(ra - rb) > tolerance) {
     issues.push(`Mean radii differ: ${mm(ra)} against ${mm(rb)}`);
+    findings.push(
+      scope('mismatch', 'mean radius at the joint, in its plane', `equal within ${mm(tolerance)}`, `${mm(ra)} against ${mm(rb)}`)
+    );
   }
   const walls = a.kind === 'axial_edge' && b.kind === 'axial_edge' && a.surface.kind !== 'plane' && b.surface.kind !== 'plane';
   if (walls && Math.abs(a.thickness - b.thickness) > 1e-6) {
     issues.push(`Thickness steps from ${mm(a.thickness)} to ${mm(b.thickness)} — a taper is not drawn`);
+    // The taper is drawn only on a cylinder long enough for it: anything else keeps the step.
+    findings.push(
+      scope('out_of_scope', 'thickness step', 'faired 3:1 on a cylindrical end long enough for it', `${mm(a.thickness)} to ${mm(b.thickness)}, not faired`)
+    );
   }
-  return issues;
+  return { issues, findings };
 }
 
 /** The patch a pad covers: its width along the offset, and the angle it subtends round a course. */

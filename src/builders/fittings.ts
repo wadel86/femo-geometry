@@ -2,9 +2,11 @@
 import {
   NotDrawnError,
   Sym,
-  note,
+  assumedNote,
   optionalDimension,
+  representedNote,
   requireDimension,
+  scope,
   type Note,
 } from '../definition.ts';
 import type { Solid, Vec3 } from '../kernel/GeometryKernel.ts';
@@ -22,7 +24,11 @@ export const jacketClosure: MountedBuilder = (component, context) => {
   const { kernel, placement, hostSurface, host } = context;
   const course = hostSurface.course;
   if (!course || course.halfApexAngle !== 0) {
-    throw new NotDrawnError(component, `a jacket closure is drawn on a cylindrical course, and ${host.name} is not one`);
+    throw new NotDrawnError(
+      component,
+      `a jacket closure is drawn on a cylindrical course, and ${host.name} is not one`,
+      scope('out_of_scope', 'host', 'a cylindrical course', course ? `a cone of ${course.halfApexAngle}°` : host.kind)
+    );
   }
   const jacket = requireDimension(component, Sym.JACKET_THICKNESS);
   const bar = requireDimension(component, Sym.CLOSURE_THICKNESS);
@@ -35,12 +41,16 @@ export const jacketClosure: MountedBuilder = (component, context) => {
   if (radius === undefined) {
     const space = optionalDimension(component, Sym.JACKET_SPACE) ?? Math.max(40, 0.05 * vessel);
     if (optionalDimension(component, Sym.JACKET_SPACE) === undefined) {
-      notes.push(note(`Jacket space not stated — drawn ${mm(space)}`, Sym.JACKET_SPACE));
+      notes.push(assumedNote(`Jacket space not stated — drawn ${mm(space)}`, Sym.JACKET_SPACE, mm(space)));
     }
     radius = vessel + space;
   }
   if (radius <= vessel) {
-    throw new NotDrawnError(component, `a jacket of radius ${mm(radius)} does not clear ${host.name}`);
+    throw new NotDrawnError(
+      component,
+      `a jacket of radius ${mm(radius)} does not clear ${host.name}`,
+      scope('out_of_scope', Sym.JACKET_INSIDE_RADIUS, `> ${mm(vessel)}, the outside radius of ${host.name}`, mm(radius))
+    );
   }
 
   // The jacket runs from the bar towards the middle of the course.
@@ -48,7 +58,14 @@ export const jacketClosure: MountedBuilder = (component, context) => {
   const direction = z <= (low + high) / 2 ? 1 : -1;
   const room = direction > 0 ? high - z - bar : z - bar - low;
   const run = Math.max(0, Math.min(room, Math.max(3 * (radius - vessel), 0.4 * vessel)));
-  notes.push(note(`Drawn as a closure bar with ${mm(run)} of the jacket it closes; the closure detail is not distinguished`));
+  notes.push(
+    representedNote(
+      `Drawn as a closure bar with ${mm(run)} of the jacket it closes; the closure detail is not distinguished`,
+      'closure detail',
+      'one of Table 4.11.1\'s eight details',
+      `a plain bar with ${mm(run)} of jacket`
+    )
+  );
 
   const ring = (inner: number, outer: number, z0: number, z1: number): Solid =>
     kernel.revolve({
@@ -106,6 +123,13 @@ export const pressureReliefDevice: MountedBuilder = (component, context) => {
     solids,
     footprint: inlet,
     attachment: { axial: 2 * inlet, circumferentialDeg: reach > 0 ? ((2 * inlet) / reach) * (180 / Math.PI) : 0, thickness: inlet },
-    notes: [note('Drawn as a symbol: Part 9 states what the device is set at, not its size')],
+    notes: [
+      representedNote(
+        'Drawn as a symbol: Part 9 states what the device is set at, not its size',
+        'relief device body',
+        'its real size',
+        `a symbol scaled on a ${mm(2 * inlet)} inlet`
+      ),
+    ],
   };
 };

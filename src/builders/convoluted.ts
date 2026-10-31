@@ -10,9 +10,12 @@ import {
   Kind,
   Sym,
   analysisNote,
+  assumedNote,
   note,
   optionalDimension,
+  representedNote,
   requireDimension,
+  scope,
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
@@ -206,7 +209,8 @@ function bellowsWall(component: ComponentDefinition): { thickness: number; notes
     notes: [
       analysisNote(
         `Idealised as one wall of ${mm(ply * plies)} for ${plies} plies of ${mm(ply)}: plies slide, so it is about ${plies * plies} times too stiff in bending`,
-        Sym.PLY_COUNT
+        Sym.PLY_COUNT,
+        scope('represented', 'plies', `${plies} plies of ${mm(ply)} that slide`, `one wall of ${mm(ply * plies)}, about ${plies * plies}× too stiff in bending`)
       ),
     ],
     idealisations: [
@@ -254,14 +258,28 @@ function uShapedBellows(reinforced: boolean): RunBuilder {
     const torus = pitch / 4;
     const stated = optionalDimension(component, Sym.TORUS_RADIUS);
     if (stated !== undefined && Math.abs(stated - torus) > 0.5) {
-      notes.push(note(`Torus radius of ${mm(stated)} stated; drawn as q/4 = ${mm(torus)}, its sidewalls square to the axis`, Sym.TORUS_RADIUS));
+      notes.push(
+        note(
+          `Torus radius of ${mm(stated)} stated; drawn as q/4 = ${mm(torus)}, its sidewalls square to the axis`,
+          Sym.TORUS_RADIUS,
+          scope('out_of_scope', Sym.TORUS_RADIUS, `q/4 = ${mm(torus)}, the only one drawn`, `stated ${mm(stated)}`)
+        )
+      );
     }
     const sidewall = height - thickness - 2 * torus;
     if (sidewall < 0) {
-      throw new BuildError(component, `is ${mm(height)} high on a ${mm(pitch)} pitch: too shallow for a U-shaped convolution`);
+      throw new BuildError(
+        component,
+        `is ${mm(height)} high on a ${mm(pitch)} pitch: too shallow for a U-shaped convolution`,
+        scope('out_of_scope', Sym.CONVOLUTION_HEIGHT, `≥ ${mm(thickness + 2 * torus)}, the wall and two tori`, mm(height))
+      );
     }
     if (thickness / 2 >= torus) {
-      throw new BuildError(component, `has a wall of ${mm(thickness)}, too thick to fold on a ${mm(pitch)} pitch`);
+      throw new BuildError(
+        component,
+        `has a wall of ${mm(thickness)}, too thick to fold on a ${mm(pitch)} pitch`,
+        scope('out_of_scope', 'wall thickness', `< ${mm(2 * torus)}, twice the torus radius`, mm(thickness))
+      );
     }
 
     const meanRoot = bore / 2 + thickness / 2;
@@ -289,7 +307,14 @@ function uShapedBellows(reinforced: boolean): RunBuilder {
           })
         );
         copies = [...copies, rootCentres.slice(1).map((c): Vec3 => [0, 0, c - z])];
-        notes.push(note(`Reinforcing rings drawn as rectangles of ${mm(width)} by ${mm(depth)} in the ${rootCentres.length} roots between convolutions`));
+        notes.push(
+          representedNote(
+            `Reinforcing rings drawn as rectangles of ${mm(width)} by ${mm(depth)} in the ${rootCentres.length} roots between convolutions`,
+            'reinforcing ring section',
+            'as fabricated',
+            `a ${mm(width)} by ${mm(depth)} rectangle`
+          )
+        );
       }
     }
     return foldedPart(context, line, meanRoot, thickness, { solids, copies, notes, idealisations, role: 'Bellows tangent' });
@@ -308,22 +333,38 @@ export const toroidalBellows: RunBuilder = (component, context) => {
   const count = Math.max(1, Math.round(requireDimension(component, Sym.CONVOLUTION_COUNT)));
   const { thickness, notes, idealisations } = bellowsWall(component);
   if (thickness / 2 >= radius) {
-    throw new BuildError(component, `has a wall of ${mm(thickness)}, too thick for a torus of ${mm(radius)}`);
+    throw new BuildError(
+      component,
+      `has a wall of ${mm(thickness)}, too thick for a torus of ${mm(radius)}`,
+      scope('out_of_scope', 'wall thickness', `< ${mm(2 * radius)}, twice the torus radius`, mm(thickness))
+    );
   }
 
   let root = pitch / 2 - radius;
   if (root < thickness) {
     root = thickness;
-    notes.push(note(`A pitch of ${mm(pitch)} leaves no root between tori of ${mm(radius)}; drawn at ${mm(2 * (radius + root))}`, Sym.CONVOLUTION_PITCH));
+    notes.push(
+      note(
+        `A pitch of ${mm(pitch)} leaves no root between tori of ${mm(radius)}; drawn at ${mm(2 * (radius + root))}`,
+        Sym.CONVOLUTION_PITCH,
+        scope('out_of_scope', Sym.CONVOLUTION_PITCH, `≥ ${mm(2 * (radius + thickness))}, two tori and a root`, `stated ${mm(pitch)}`)
+      )
+    );
   }
   const spacing = optionalDimension(component, Sym.TOROIDAL_WELD_SPACING);
   const drawnPitch = 2 * (radius + root);
   let tangent = spacing !== undefined ? (spacing - count * drawnPitch) / 2 : pitch / 2;
   if (spacing === undefined || tangent <= 0) {
     tangent = Math.max(tangent, pitch / 2);
-    notes.push(note(`End tangents drawn ${mm(tangent)} long`, Sym.TOROIDAL_WELD_SPACING));
+    notes.push(assumedNote(`End tangents drawn ${mm(tangent)} long`, Sym.TOROIDAL_WELD_SPACING, `${mm(tangent)} tangents`));
   }
-  notes.push(note(`Each torus drawn on a sidewall of ${mm(radius)}: §4.19.7 does not state how far it stands out`));
+  notes.push(
+    note(
+      `Each torus drawn on a sidewall of ${mm(radius)}: §4.19.7 does not state how far it stands out`,
+      undefined,
+      scope('assumed', 'torus stand-out', 'stated', `not stated — a sidewall of ${mm(radius)}`)
+    )
+  );
 
   const meanRoot = bore / 2 + thickness / 2;
   const { line } = convolutions(meanRoot, tangent, count, root, radius, radius);
@@ -360,7 +401,9 @@ export const flangedAndFluedJoint: RunBuilder = (component, context) => {
   return foldedPart(context, line, mean, thickness, {
     notes: [
       note(
-        `Drawn to assumed proportions — tori of ${mm(torus)}, flanges standing ${mm(reach)} out, an outer cylinder of ${mm(outer)}: the catalogue carries D and t alone`
+        `Drawn to assumed proportions — tori of ${mm(torus)}, flanges standing ${mm(reach)} out, an outer cylinder of ${mm(outer)}: the catalogue carries D and t alone`,
+        undefined,
+        scope('assumed', 'joint proportions', 'stated', `not stated — tori ${mm(torus)}, flanges ${mm(reach)}, outer cylinder ${mm(outer)}`)
       ),
     ],
     role: 'Joint',

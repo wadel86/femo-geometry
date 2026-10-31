@@ -9,10 +9,11 @@ import {
   BuildError,
   NotDrawnError,
   Sym,
-  analysisNote,
-  note,
+  assumedNote,
+  notBuiltNote,
   optionalDimension,
   requireDimension,
+  scope,
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
@@ -35,7 +36,11 @@ type Aimer = (component: ComponentDefinition, context: MountedContext, outside: 
 function courseOf(component: ComponentDefinition, context: MountedContext, what: string): CourseShape {
   const course = context.hostSurface.course;
   if (!course) {
-    throw new NotDrawnError(component, `${what} is drawn in a course, and ${context.host.name} is not one`);
+    throw new NotDrawnError(
+      component,
+      `${what} is drawn in a course, and ${context.host.name} is not one`,
+      scope('out_of_scope', 'host', 'a cylindrical or conical course', context.host.kind)
+    );
   }
   return course;
 }
@@ -50,20 +55,24 @@ function nozzle(aimer: Aimer): MountedBuilder {
     let outward = optionalDimension(component, Sym.NOZZLE_OUTWARD_PROJECTION);
     if (outward === undefined) {
       outward = Math.max(150, 2 * outside);
-      notes.push(note(`Outward projection not stated — drawn ${mm(outward)}`, Sym.NOZZLE_OUTWARD_PROJECTION));
+      notes.push(assumedNote(`Outward projection not stated — drawn ${mm(outward)}`, Sym.NOZZLE_OUTWARD_PROJECTION, mm(outward)));
     }
     // The kernel invents no weld: a stated leg is carried on the joint, and not drawn yet.
     for (const leg of [Sym.OUTER_FILLET_WELD_LEG, Sym.INNER_FILLET_WELD_LEG, Sym.PAD_FILLET_WELD_LEG]) {
       const value = optionalDimension(component, leg);
       if (value !== undefined) {
-        notes.push(analysisNote(`A ${leg.replace(/_/g, ' ')} of ${mm(value)} is stated but not drawn`, leg));
+        notes.push(notBuiltNote(`A ${leg.replace(/_/g, ' ')} of ${mm(value)} is stated but not drawn`, leg, mm(value), 'any entry: the kernel draws no weld', true));
       }
     }
     const inward = optionalDimension(component, Sym.NOZZLE_INWARD_PROJECTION) ?? 0;
 
     const { frame, footprint, padAllowed } = aimer(component, context, outside);
     if (!frame.origin.every(Number.isFinite) || !(frame.wall > 0)) {
-      throw new AnchorError(component, `no surface of ${host.name} where it is placed`);
+      throw new AnchorError(
+        component,
+        `no surface of ${host.name} where it is placed`,
+        scope('out_of_scope', 'placement', `on the surface of ${host.name}`, `${mm(context.placement.axialOffset)}, ${context.placement.azimuth}°`)
+      );
     }
 
     // Deep enough to cross the wall all round the neck, where a curved or sloping host falls
@@ -81,7 +90,16 @@ function nozzle(aimer: Aimer): MountedBuilder {
     if (padWidth !== undefined && padThickness !== undefined) {
       const radius = hostSurface.outsideRadius;
       if (radius === undefined || !padAllowed) {
-        notes.push(note('Reinforcing pad not drawn on this geometry yet', Sym.PAD_WIDTH));
+        // A pad is a band of a cylinder: one that has to conform to a doubly curved surface, or
+        // follow a neck that is not normal to the wall, is not built.
+        notes.push(
+          notBuiltNote(
+            'Reinforcing pad not drawn on this geometry yet',
+            Sym.PAD_WIDTH,
+            `${mm(padWidth)} × ${mm(padThickness)} on ${host.kind}`,
+            `${component.kind} except normal to a cylindrical course`
+          )
+        );
       } else {
         pad = { reach: outside + padWidth, thickness: padThickness };
         const reach = outside + padWidth;
@@ -105,6 +123,7 @@ function nozzle(aimer: Aimer): MountedBuilder {
         tool: kernel.tube(frame, 0, outside, -through, 2 * footprint + 10),
         frame,
         radius: outside,
+        depth: through,
       },
       footprint,
       neck: { insideRadius: inside, outsideRadius: outside, outward, inward, pad },
@@ -131,7 +150,11 @@ const radial: Aimer = (component, context, outside) => {
 const hillside: Aimer = (component, context, outside) => {
   const course = courseOf(component, context, 'a hillside nozzle');
   if (course.halfApexAngle !== 0) {
-    throw new NotDrawnError(component, `a hillside nozzle is drawn in a cylinder, and ${context.host.name} is a cone`);
+    throw new NotDrawnError(
+      component,
+      `a hillside nozzle is drawn in a cylinder, and ${context.host.name} is a cone`,
+      scope('out_of_scope', 'host half-apex angle', '0° (a cylinder)', `${course.halfApexAngle}°`)
+    );
   }
   const offset = requireDimension(component, Sym.NOZZLE_OFFSET);
   requireWithinHost(component, context, outside);
@@ -142,7 +165,8 @@ const hillside: Aimer = (component, context, outside) => {
   if (offset + outside >= a) {
     throw new AnchorError(
       component,
-      `offset ${mm(offset)} from the axis, its ${mm(2 * outside)} neck no longer meets the inside of ${context.host.name} (radius ${mm(a)})`
+      `offset ${mm(offset)} from the axis, its ${mm(2 * outside)} neck no longer meets the inside of ${context.host.name} (radius ${mm(a)})`,
+      scope('out_of_scope', `${Sym.NOZZLE_OFFSET} plus the neck's outside radius`, `< ${mm(a)}, the inside radius`, mm(offset + outside))
     );
   }
 
@@ -169,11 +193,19 @@ const hillside: Aimer = (component, context, outside) => {
 const angled: Aimer = (component, context, outside) => {
   const course = courseOf(component, context, 'a nozzle at an angle');
   if (course.halfApexAngle !== 0) {
-    throw new NotDrawnError(component, `a nozzle at an angle is drawn in a cylinder, and ${context.host.name} is a cone`);
+    throw new NotDrawnError(
+      component,
+      `a nozzle at an angle is drawn in a cylinder, and ${context.host.name} is a cone`,
+      scope('out_of_scope', 'host half-apex angle', '0° (a cylinder, §4.5.7)', `${course.halfApexAngle}°`)
+    );
   }
   const theta = requireDimension(component, Sym.NOZZLE_ANGLE);
   if (theta >= 180) {
-    throw new BuildError(component, `leans at ${theta}°, which is not an angle to the axis`);
+    throw new BuildError(
+      component,
+      `leans at ${theta}°, which is not an angle to the axis`,
+      scope('out_of_scope', Sym.NOZZLE_ANGLE, '< 180°', `${theta}°`)
+    );
   }
   const sin = Math.sin(theta * DEG);
   const footprint = outside / sin;
@@ -221,7 +253,11 @@ const axial: Aimer = (component, context, outside) => {
   const course = courseOf(component, context, 'a nozzle parallel to the axis');
   const alpha = course.halfApexAngle;
   if (alpha <= 0) {
-    throw new NotDrawnError(component, `a nozzle parallel to the axis never meets the wall of a cylinder`);
+    throw new NotDrawnError(
+      component,
+      `a nozzle parallel to the axis never meets the wall of a cylinder`,
+      scope('out_of_scope', 'host half-apex angle', '> 0° (a cone, §4.5.9.2)', `${alpha}°`)
+    );
   }
   const footprint = outside / Math.tan(alpha * DEG);
   requireWithinHost(component, context, footprint);

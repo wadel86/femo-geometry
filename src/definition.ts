@@ -182,12 +182,63 @@ export interface Note {
   /** A `CodeSymbol` wire value. */
   readonly symbol?: string;
   readonly analysisOnly?: boolean;
+  /** What it refuses, in the terms a refusal must name. */
+  readonly scope?: Scope;
 }
 
-export const note = (message: string, symbol?: string): Note => (symbol ? { message, symbol } : { message });
+/**
+ * Why something is refused for analysis. The first four leave the equipment as specified; only
+ * `assumed` puts something into it that nobody specified.
+ *
+ * - `out_of_scope` — a parameter outside the range the entry draws.
+ * - `not_built` — a feature the specification states and the entry does not build.
+ * - `represented` — the same equipment, drawn as an approximation of itself.
+ * - `mismatch` — two statements, or two parts, that disagree.
+ * - `assumed` — a value the specification is silent on, which the drawing had to choose.
+ */
+export type RefusalReason = 'out_of_scope' | 'not_built' | 'represented' | 'mismatch' | 'assumed';
 
-export const analysisNote = (message: string, symbol?: string): Note =>
-  symbol ? { message, symbol, analysisOnly: true } : { message, analysisOnly: true };
+/**
+ * What a refusal names, as the Build Directives require: the parameter that fell outside, the
+ * limit, and the value seen. Each as it reads, units included.
+ */
+export interface Scope {
+  readonly reason: RefusalReason;
+  readonly parameter: string;
+  readonly limit: string;
+  readonly value: string;
+}
+
+export const scope = (reason: RefusalReason, parameter: string, limit: string, value: string): Scope => ({
+  reason,
+  parameter,
+  limit,
+  value,
+});
+
+// The scope is required: a refusal that names no parameter, limit and value cannot be judged.
+export const note = (message: string, symbol: string | undefined, scoped: Scope): Note => ({
+  message,
+  ...(symbol ? { symbol } : {}),
+  scope: scoped,
+});
+
+export const analysisNote = (message: string, symbol: string | undefined, scoped: Scope): Note => ({
+  ...note(message, symbol, scoped),
+  analysisOnly: true,
+});
+
+/** A dimension the drawing had to choose: stated nowhere, drawn at `drawn`. */
+export const assumedNote = (message: string, symbol: string, drawn: string): Note =>
+  note(message, symbol, scope('assumed', symbol, 'stated', `not stated — drawn ${drawn}`));
+
+/** A feature stated and not built: the entry's scope stops short of it. */
+export const notBuiltNote = (message: string, symbol: string, stated: string, entry: string, analysisOnly = false): Note =>
+  (analysisOnly ? analysisNote : note)(message, symbol, scope('not_built', symbol, `not built by ${entry}`, stated));
+
+/** The same equipment, drawn as an approximation of itself. */
+export const representedNote = (message: string, parameter: string, specified: string, drawn: string, analysisOnly = false): Note =>
+  (analysisOnly ? analysisNote : note)(message, undefined, scope('represented', parameter, specified, drawn));
 
 /** One part, as the platform stores it. */
 export interface ComponentDefinition {
@@ -255,10 +306,10 @@ export const RUN_KINDS_THAT_CLOSE: ReadonlySet<string> = new Set([
 export function requireDimension(component: ComponentDefinition, symbol: string): number {
   const value = component.dimensions[symbol];
   if (value === undefined || !Number.isFinite(value)) {
-    throw new BuildError(component, `has no ${symbol.replace(/_/g, ' ')}`);
+    throw new BuildError(component, `has no ${symbol.replace(/_/g, ' ')}`, scope('out_of_scope', symbol, 'required', 'not stated'));
   }
   if (value <= 0) {
-    throw new BuildError(component, `has a ${symbol.replace(/_/g, ' ')} of ${value}`);
+    throw new BuildError(component, `has a ${symbol.replace(/_/g, ' ')} of ${value}`, scope('out_of_scope', symbol, '> 0', `${value}`));
   }
   return value;
 }
@@ -280,11 +331,13 @@ export function optionalDimension(
 /** A part whose own dimensions do not describe a solid. */
 export class BuildError extends Error {
   readonly componentId: string;
+  readonly scope: Scope;
 
-  constructor(component: Pick<ComponentDefinition, 'id' | 'name'>, message: string) {
+  constructor(component: Pick<ComponentDefinition, 'id' | 'name'>, message: string, scoped: Scope) {
     super(`${component.name} ${message}`);
     this.name = 'BuildError';
     this.componentId = component.id;
+    this.scope = scoped;
   }
 }
 
@@ -294,11 +347,13 @@ export class BuildError extends Error {
  */
 export class NotDrawnError extends Error {
   readonly componentId: string;
+  readonly scope: Scope;
 
-  constructor(component: Pick<ComponentDefinition, 'id' | 'name'>, message: string) {
+  constructor(component: Pick<ComponentDefinition, 'id' | 'name'>, message: string, scoped: Scope) {
     super(`${component.name}: ${message}`);
     this.name = 'NotDrawnError';
     this.componentId = component.id;
+    this.scope = scoped;
   }
 }
 
@@ -308,10 +363,12 @@ export class NotDrawnError extends Error {
  */
 export class AnchorError extends Error {
   readonly componentId: string;
+  readonly scope: Scope;
 
-  constructor(component: Pick<ComponentDefinition, 'id' | 'name'>, message: string) {
+  constructor(component: Pick<ComponentDefinition, 'id' | 'name'>, message: string, scoped: Scope) {
     super(`${component.name}: ${message}`);
     this.name = 'AnchorError';
     this.componentId = component.id;
+    this.scope = scoped;
   }
 }

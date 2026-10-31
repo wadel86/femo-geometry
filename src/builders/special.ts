@@ -3,9 +3,13 @@
 import {
   BuildError,
   Sym,
+  assumedNote,
+  notBuiltNote,
   note,
   optionalDimension,
+  representedNote,
   requireDimension,
+  scope,
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
@@ -38,7 +42,15 @@ function stayPlates(
     const pitch = optionalDimension(component, Sym.STAY_PITCH);
     return pitch === undefined
       ? { plates: [] }
-      : { plates: [], note: note(`Stays at a ${mm(pitch)} pitch are stated and not drawn`, Sym.STAY_PITCH) };
+      : {
+          plates: [],
+          note: notBuiltNote(
+            `Stays at a ${mm(pitch)} pitch are stated and not drawn`,
+            Sym.STAY_PITCH,
+            `stays at ${mm(pitch)}`,
+            `${component.kind}: stay plates only`
+          ),
+        };
   }
   const planes = Math.max(1, Math.round(optionalDimension(component, Sym.STAY_PLANES) ?? 1));
   const plates = Array.from({ length: planes }, (_, k) => {
@@ -52,14 +64,23 @@ function stayPlates(
   // Where they stand is assumed: the tables read only how many and how thick.
   return {
     plates,
-    note: note(`${planes} stay plate${planes > 1 ? 's' : ''} of ${mm(thickness)}, evenly spaced`, Sym.STAY_PLANES),
+    note: note(
+      `${planes} stay plate${planes > 1 ? 's' : ''} of ${mm(thickness)}, evenly spaced`,
+      Sym.STAY_PLANES,
+      scope('assumed', 'stay plate positions', 'stated', `not stated — ${planes} evenly spaced`)
+    ),
   };
+}
+
+/** Reinforcing members on a pitch: read by §4.12, not built here. */
+function stiffenersNotDrawn(component: ComponentDefinition, message: string): Note {
+  return notBuiltNote(message, Sym.STIFFENER_PITCH, `members at ${mm(component.dimensions[Sym.STIFFENER_PITCH])}`, component.kind);
 }
 
 function lengthOf(component: ComponentDefinition, fallback: number, notes: Note[]): number {
   const stated = optionalDimension(component, Sym.COURSE_LENGTH);
   if (stated !== undefined) return stated;
-  notes.push(note(`Length not stated — drawn ${mm(fallback)} long`, Sym.COURSE_LENGTH));
+  notes.push(assumedNote(`Length not stated — drawn ${mm(fallback)} long`, Sym.COURSE_LENGTH, mm(fallback)));
   return fallback;
 }
 
@@ -74,12 +95,16 @@ export const rectangularVessel: RunBuilder = (component, context) => {
   const shortPlate = requireDimension(component, Sym.SHORT_SIDE_THICKNESS);
   const longPlate = requireDimension(component, Sym.LONG_SIDE_THICKNESS);
   if (short > long) {
-    throw new BuildError(component, `has a short side (${mm(short)}) longer than its long side (${mm(long)})`);
+    throw new BuildError(
+      component,
+      `has a short side (${mm(short)}) longer than its long side (${mm(long)})`,
+      scope('out_of_scope', Sym.SHORT_SIDE, `≤ ${mm(long)}, the long side`, mm(short))
+    );
   }
   const notes: Note[] = [];
   const length = lengthOf(component, long, notes);
   if (component.dimensions[Sym.STIFFENER_PITCH] !== undefined) {
-    notes.push(note('Its stiffeners are not drawn', Sym.STIFFENER_PITCH));
+    notes.push(stiffenersNotDrawn(component, 'Its stiffeners are not drawn'));
   }
 
   const { kernel } = context;
@@ -147,11 +172,22 @@ export const octagonalVessel: RunBuilder = (component, context) => {
   const longHalf =
     requireDimension(component, Sym.LONG_STIFFENER_HALF_LENGTH) + requireDimension(component, Sym.LONG_BARE_HALF_LENGTH);
   if (shortHalf > halfWidth || longHalf > halfHeight) {
-    throw new BuildError(component, 'has sides longer than the rectangle it is cut from');
+    throw new BuildError(
+      component,
+      'has sides longer than the rectangle it is cut from',
+      scope('out_of_scope', 'side lengths', 'within the rectangle they are cut from', `${mm(2 * shortHalf)} by ${mm(2 * longHalf)}`)
+    );
   }
   const notes: Note[] = [];
   const length = lengthOf(component, 2 * halfHeight, notes);
-  notes.push(note('Its reinforcing members are not drawn, and its chamfers are drawn in the thicker plate', Sym.STIFFENER_PITCH));
+  notes.push(
+    representedNote(
+      'Its reinforcing members are not drawn, and its chamfers are drawn in the thicker plate',
+      'reinforcing members and chamfers',
+      'reinforced, chamfers in their own plate',
+      `unreinforced, chamfers in ${mm(Math.max(shortPlate, longPlate))} plate`
+    )
+  );
 
   // Anticlockwise from the bottom short side; a chamfer of zero length is not an edge.
   const chamfer = Math.max(shortPlate, longPlate);
@@ -201,7 +237,7 @@ export const obroundVessel: RunBuilder = (component, context) => {
   const notes: Note[] = [];
   const length = lengthOf(component, 2 * (radius + half), notes);
   if (component.dimensions[Sym.STIFFENER_PITCH] !== undefined) {
-    notes.push(note('Its reinforcing members are not drawn', Sym.STIFFENER_PITCH));
+    notes.push(stiffenersNotDrawn(component, 'Its reinforcing members are not drawn'));
   }
 
   const { kernel } = context;

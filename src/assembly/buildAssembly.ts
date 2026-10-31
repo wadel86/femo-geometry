@@ -14,11 +14,13 @@ import {
   RUN_KINDS_THAT_CLOSE,
   Sym,
   note,
+  scope,
   type AssemblyDefinition,
   type ComponentDefinition,
   type Note,
   type Placement,
   type PlacementAnchor,
+  type Scope,
 } from '../definition.ts';
 import { MOUNTED_BUILDERS } from '../builders/mounted.ts';
 import { RUN_BUILDERS } from '../builders/runParts.ts';
@@ -56,6 +58,8 @@ export interface Opening {
   readonly name: string;
   readonly frame: HostFrame;
   readonly radius: number;
+  /** How far into the host, along the axis from the frame's origin, the opening was cut. */
+  readonly depth: number;
   /** Which surface of the host a point of the opening lies on. */
   readonly sideOf: (point: Vec3) => 'inside' | 'outside';
 }
@@ -102,6 +106,8 @@ export interface BuiltPart {
   readonly neck?: Neck;
   readonly attachment?: Attachment;
   readonly notes: readonly Note[];
+  /** Why a part is not drawn, or failed: the parameter, the limit and the value seen. */
+  readonly scope?: Scope;
 }
 
 export interface AssemblyModel {
@@ -214,13 +220,20 @@ export class AssemblyBuilder {
       const hostComponent = byId.get(component.hostId);
       const host = runParts.get(component.hostId);
       if (!hostComponent) {
-        results.set(component.id, failed(component, new AnchorError(component, 'its host is not in the assembly')));
+        results.set(
+          component.id,
+          failed(
+            component,
+            new AnchorError(component, 'its host is not in the assembly', scope('mismatch', 'host', 'a part of this assembly', component.hostId))
+          )
+        );
         continue;
       }
       if (!host) {
         results.set(component.id, {
           ...notDrawn(component),
           message: `${component.name}: ${hostComponent.name} is not drawn, so nothing is drawn on it`,
+          scope: scope('out_of_scope', 'host', 'a drawn part', `${hostComponent.name}, not drawn`),
         });
         continue;
       }
@@ -229,6 +242,9 @@ export class AssemblyBuilder {
           ...notDrawn(component),
           transform: host.transform,
           message: `${component.name}: nothing is drawn on a ${hostComponent.kind.replace(/_/g, ' ')} yet`,
+          // Placement is an offset along an axis and an angle round it: a body that is not of
+          // revolution offers neither.
+          scope: scope('out_of_scope', 'host', 'a host with a placement surface (a body of revolution)', hostComponent.kind),
         });
         continue;
       }
@@ -282,7 +298,7 @@ export class AssemblyBuilder {
         results.set(
           component.id,
           error instanceof NotDrawnError
-            ? { ...notDrawn(component), message: error.message, transform: host.transform, placement }
+            ? { ...notDrawn(component), message: error.message, scope: error.scope, transform: host.transform, placement }
             : { ...failed(component, error), transform: host.transform, placement }
         );
         continue;
@@ -300,6 +316,7 @@ export class AssemblyBuilder {
             name: component.name,
             frame: mounted.opening.frame,
             radius: mounted.opening.radius,
+            depth: mounted.opening.depth,
             sideOf: host.part.host.sideOf,
           },
           tool: mounted.opening.tool,
@@ -327,7 +344,14 @@ export class AssemblyBuilder {
         attachment: mounted.attachment,
         notes: stated
           ? mounted.notes
-          : [...mounted.notes, note('Not placed yet — drawn at a default position')],
+          : [
+              ...mounted.notes,
+              note(
+                'Not placed yet — drawn at a default position',
+                undefined,
+                scope('assumed', 'placement', 'stated', `not stated — drawn at ${Number(placement.axialOffset.toPrecision(5))} mm, ${Number(placement.azimuth.toPrecision(4))}°`)
+              ),
+            ],
       });
     }
 
@@ -341,6 +365,7 @@ export class AssemblyBuilder {
       let solid = entry.part.solid;
       let status: PartStatus = 'drawn';
       let message: string | undefined;
+      let failure: Scope | undefined;
 
       if (openings.length > 0) {
         const key = stableStringify({ host: entry.key, openings: openings.map((o) => o.key) });
@@ -351,6 +376,7 @@ export class AssemblyBuilder {
         } catch (error) {
           status = 'failed';
           message = `The openings could not be cut: ${errorMessage(error)}`;
+          failure = scope('out_of_scope', 'openings', 'cut by the kernel', `${openings.length} failed: ${errorMessage(error)}`);
         }
       }
 
@@ -361,6 +387,7 @@ export class AssemblyBuilder {
         hostId: null,
         status,
         message,
+        ...(failure ? { scope: failure } : {}),
         transform: entry.transform,
         solids: [solid, ...(entry.part.extraSolids ?? [])],
         copies: entry.part.copies,
@@ -616,6 +643,7 @@ function notDrawn(component: ComponentDefinition): BuiltPart {
     hostId: component.hostId,
     status: 'not_drawn',
     message: `A ${component.kind.replace(/_/g, ' ')} is not drawn by the modeller yet`,
+    scope: scope('not_built', 'kind', 'a kind the modeller draws', component.kind),
     transform: IDENTITY,
     solids: [],
     landmarks: [],
@@ -625,13 +653,13 @@ function notDrawn(component: ComponentDefinition): BuiltPart {
 }
 
 function failed(component: ComponentDefinition, error: unknown): BuiltPart {
+  const named = error instanceof BuildError || error instanceof AnchorError;
   return {
     ...notDrawn(component),
     status: 'failed',
-    message:
-      error instanceof BuildError || error instanceof AnchorError
-        ? error.message
-        : `${component.name} could not be built: ${errorMessage(error)}`,
+    message: named ? error.message : `${component.name} could not be built: ${errorMessage(error)}`,
+    // A kernel exception is the entry failing inside its own range: no parameter to blame.
+    scope: (named && error.scope) || scope('out_of_scope', 'geometry', 'built by the kernel', errorMessage(error)),
   };
 }
 

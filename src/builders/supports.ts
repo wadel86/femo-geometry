@@ -6,9 +6,12 @@ import {
   BuildError,
   NotDrawnError,
   Sym,
+  assumedNote,
   note,
   optionalDimension,
+  representedNote,
   requireDimension,
+  scope,
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
@@ -21,7 +24,11 @@ const DEG = Math.PI / 180;
 function cylinderOf(component: ComponentDefinition, context: MountedContext, what: string): CourseShape {
   const course = context.hostSurface.course;
   if (!course || course.halfApexAngle !== 0) {
-    throw new NotDrawnError(component, `${what} is drawn on a cylindrical course, and ${context.host.name} is not one`);
+    throw new NotDrawnError(
+      component,
+      `${what} is drawn on a cylindrical course, and ${context.host.name} is not one`,
+      scope('out_of_scope', 'host', 'a cylindrical course', course ? `a cone of ${course.halfApexAngle}°` : context.host.kind)
+    );
   }
   return course;
 }
@@ -59,7 +66,7 @@ export const saddleSupport: MountedBuilder = (component, context) => {
   let width = optionalDimension(component, Sym.SADDLE_WIDTH);
   if (width === undefined) {
     width = Math.max(150, 0.12 * outside);
-    notes.push(note(`Saddle width not stated — drawn ${mm(width)}`, Sym.SADDLE_WIDTH));
+    notes.push(assumedNote(`Saddle width not stated — drawn ${mm(width)}`, Sym.SADDLE_WIDTH, mm(width)));
   }
   const plateWidth =
     plate === undefined ? width : width + 1.56 * Math.sqrt(((inside + outside) / 2) * course.thickness);
@@ -70,7 +77,16 @@ export const saddleSupport: MountedBuilder = (component, context) => {
   const [low, high] = context.tangentLines ?? hostSurface.offsetRange;
   if (distance !== undefined && Math.abs(z - low - distance) > 1 && Math.abs(high - z - distance) > 1) {
     notes.push(
-      note(`Drawn at ${mm(z)}, but its a = ${mm(distance)} puts it that far from a tangent line`, Sym.SADDLE_DISTANCE)
+      note(
+        `Drawn at ${mm(z)}, but its a = ${mm(distance)} puts it that far from a tangent line`,
+        Sym.SADDLE_DISTANCE,
+        scope(
+          'mismatch',
+          Sym.SADDLE_DISTANCE,
+          `the layout's ${mm(z - low)} or ${mm(high - z)} from the tangent lines of its course`,
+          `stated ${mm(distance)}`
+        )
+      )
     );
   }
 
@@ -115,7 +131,7 @@ export const saddleSupport: MountedBuilder = (component, context) => {
     );
   }
 
-  notes.push(note('Drawn as a solid block; its web and ribs are not modelled'));
+  notes.push(representedNote('Drawn as a solid block; its web and ribs are not modelled', 'saddle section', 'web, ribs and base plate', 'a solid block'));
   return {
     solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
     footprint: plateWidth / 2,
@@ -156,7 +172,14 @@ export const skirtSupport: MountedBuilder = (component, context) => {
     ],
     footprint: 0,
     attachment: { axial: thickness, circumferentialDeg: 360, thickness },
-    notes: [note('Drawn from its placement on the course downwards, not welded to a knuckle')],
+    notes: [
+      representedNote(
+        'Drawn from its placement on the course downwards, not welded to a knuckle',
+        'skirt top',
+        'cut to the surface it is welded to',
+        'square, from its placement downwards'
+      ),
+    ],
   };
 };
 
@@ -173,7 +196,11 @@ function skirtOnHead(component: ComponentDefinition, context: MountedContext): M
   const thickness = requireDimension(component, Sym.THICKNESS);
   const length = requireDimension(component, Sym.COURSE_LENGTH);
   if (!context.hostSolid) {
-    throw new NotDrawnError(component, `${host.name} offers no surface to cut the skirt to`);
+    throw new NotDrawnError(
+      component,
+      `${host.name} offers no surface to cut the skirt to`,
+      scope('out_of_scope', 'host', 'a drawn head', `${host.name}, no solid`)
+    );
   }
 
   const inner = diameter / 2;
@@ -186,10 +213,11 @@ function skirtOnHead(component: ComponentDefinition, context: MountedContext): M
   if (outer >= headOutsideRadius) {
     throw new NotDrawnError(
       component,
-      `as wide as ${host.name} or wider, the skirt meets its shell rather than its knuckle — host it on the course`
+      `as wide as ${host.name} or wider, the skirt meets its shell rather than its knuckle — host it on the course`,
+      scope('out_of_scope', 'skirt outside radius', `< ${mm(headOutsideRadius)}, the outside radius of ${host.name}`, mm(outer))
     );
   }
-  if (inner <= 0) throw new BuildError(component, 'has no inside radius');
+  if (inner <= 0) throw new BuildError(component, 'has no inside radius', scope('out_of_scope', Sym.INSIDE_DIAMETER, '> 0', mm(diameter)));
 
   // The head's outside surface is stated out to its own outside radius, past the inside one.
   const weld = hostSurface.frameAt(middle, 0).origin[2];
@@ -218,7 +246,7 @@ export const lugSupport: MountedBuilder = (component, context) => {
   const stated = (symbol: string, label: string, assumed: number): number => {
     const value = optionalDimension(component, symbol);
     if (value !== undefined) return value;
-    notes.push(note(`${label} not stated — drawn ${mm(assumed)}`, symbol));
+    notes.push(assumedNote(`${label} not stated — drawn ${mm(assumed)}`, symbol, mm(assumed)));
     return assumed;
   };
 
@@ -229,7 +257,11 @@ export const lugSupport: MountedBuilder = (component, context) => {
   const plate = stated(Sym.SUPPORT_LUG_GUSSET_THICKNESS, 'Gusset thickness', assumedPlate);
   const base = stated(Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS, 'Base plate thickness', assumedPlate);
   if (gap <= plate) {
-    throw new BuildError(component, `has gussets ${mm(plate)} thick only ${mm(gap)} apart`);
+    throw new BuildError(
+      component,
+      `has gussets ${mm(plate)} thick only ${mm(gap)} apart`,
+      scope('out_of_scope', Sym.SUPPORT_LUG_GUSSET_SPACING, `> ${mm(plate)}, the gusset thickness`, mm(gap))
+    );
   }
   requireWithinHost(component, context, height / 2 + base);
 
@@ -270,7 +302,11 @@ export const halfPipeJacket: MountedBuilder = (component, context) => {
   const margin = reach + 20;
   const turns = Math.min(60, Math.floor((high - low - 2 * margin) / pitch) + 1);
   if (turns < 1) {
-    throw new NotDrawnError(component, `${context.host.name} is too short for a turn of half-pipe`);
+    throw new NotDrawnError(
+      component,
+      `${context.host.name} is too short for a turn of half-pipe`,
+      scope('out_of_scope', 'course length', `≥ ${mm(2 * margin)}, one turn and its margins`, mm(high - low))
+    );
   }
 
   // One turn, built and meshed once, repeated up the course.
@@ -289,6 +325,20 @@ export const halfPipeJacket: MountedBuilder = (component, context) => {
     copies: [Array.from({ length: turns - 1 }, (_, k): Vec3 => [0, 0, (k + 1) * pitch])],
     footprint: 0,
     attachment: { axial: (turns - 1) * pitch + 2 * reach, circumferentialDeg: 360, thickness },
-    notes: [note(`Drawn as ${turns} closed turns at a ${mm(pitch)} pitch over the whole course — the helix is not modelled`)],
+    // Two different things: the coil drawn as rings is the same jacket approximated; its pitch
+    // and its extent are chosen here, the type carrying neither.
+    notes: [
+      representedNote(
+        `Drawn as ${turns} closed turns — the helix is not modelled`,
+        'coil',
+        'a helix',
+        `${turns} closed circumferential turns`
+      ),
+      note(
+        `Pitch and extent not stated — drawn at a ${mm(pitch)} pitch over the whole course`,
+        undefined,
+        scope('assumed', 'pitch and jacketed length', 'stated', `not stated — drawn ${mm(pitch)} over ${mm(high - low)}`)
+      ),
+    ],
   };
 };

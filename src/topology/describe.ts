@@ -134,10 +134,16 @@ export function describePart(
   }
   for (const edge of tessellation.edges) {
     if (hiddenIds.has(edge.id)) continue;
+    // On the opening's cylinder AND within the depth its tool cut: two necks on one line — at
+    // 0° and 180° on one course — share an axis, and only the depth tells their edges apart.
     const matches = part.openings.filter((opening) =>
-      [edge.start, edge.middle, edge.end].every(
-        (point) => Math.abs(distanceToAxis(point, opening.frame.origin, opening.frame.axis) - opening.radius) < epsilon
-      )
+      [edge.start, edge.middle, edge.end].every((point) => {
+        const along = dot(sub(point, opening.frame.origin), opening.frame.axis);
+        return (
+          along > -opening.depth - epsilon &&
+          Math.abs(distanceToAxis(point, opening.frame.origin, opening.frame.axis) - opening.radius) < epsilon
+        );
+      })
     );
     if (matches.length > 1) {
       errors.push(

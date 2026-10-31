@@ -154,6 +154,8 @@ export interface MountedPart {
     readonly tool: Solid;
     readonly frame: HostFrame;
     readonly radius: number;
+    /** How far into the host, along the axis from the frame's origin, the tool cuts. */
+    readonly depth: number;
   };
   /** Half the part's extent along the host's offset: what must stay on the host. */
   readonly footprint: number;

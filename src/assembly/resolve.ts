@@ -7,7 +7,7 @@
 // - `analysis` is what may be meshed. Every assumption is a refusal naming the symbol that would
 //   have spared it, because a mesh of an assumed length is an invented number; and a STEP file is
 //   only written when nothing is refused.
-import type { AssemblyDefinition, Note, Placement } from '../definition.ts';
+import type { AssemblyDefinition, Note, Placement, RefusalReason, Scope } from '../definition.ts';
 import type { Idealisation } from '../builders/types.ts';
 import type { Frame, GeometryKernel, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { derivePorts, type Joint, type Port } from '../ports/ports.ts';
@@ -37,9 +37,19 @@ export type GeometryMode = 'display' | 'analysis';
 export const GEOMETRY_FORMAT_VERSION = 2;
 
 /** Why a part cannot go to analysis as it is. */
+/**
+ * A declared outcome, not an exception (Build Directives, §Scope and refusal): it names the
+ * entry, the parameter that fell outside, the limit and the value seen.
+ */
 export interface Refusal {
   readonly componentId: string;
   readonly name: string;
+  /** The catalogue entry refusing: the part's `ComponentType` wire value. */
+  readonly entry: string;
+  readonly reason: RefusalReason;
+  readonly parameter: string;
+  readonly limit: string;
+  readonly value: string;
   /** The `CodeSymbol` that would answer it, when one would. */
   readonly symbol?: string;
   readonly message: string;
@@ -129,21 +139,32 @@ export function namingTolerance(model: AssemblyModel, kernel: GeometryKernel): n
 export function refusalsOf(definition: AssemblyDefinition, model: AssemblyModel, mode: GeometryMode): Refusal[] {
   if (mode !== 'analysis') return [];
   const refusals: Refusal[] = [];
+  const built = new Map(model.parts.map((p) => [p.componentId, p]));
+  const who = (componentId: string) => {
+    const part = built.get(componentId);
+    return { componentId, name: part?.name ?? componentId, entry: part?.kind ?? 'unknown' };
+  };
   for (const part of model.parts) {
-    const who = { componentId: part.componentId, name: part.name };
     if (part.status === 'analysis') continue;
     if (part.status !== 'drawn') {
-      refusals.push({ ...who, message: part.message ?? `${part.name} is not drawn` });
+      refusals.push({
+        ...who(part.componentId),
+        ...(part.scope ?? UNSTATED),
+        message: part.message ?? `${part.name} is not drawn`,
+      });
       continue;
     }
     for (const n of part.notes) {
-      refusals.push({ ...who, ...(n.symbol ? { symbol: n.symbol } : {}), message: n.message });
+      refusals.push({
+        ...who(part.componentId),
+        ...(n.scope ?? UNSTATED),
+        ...(n.symbol ? { symbol: n.symbol } : {}),
+        message: n.message,
+      });
     }
   }
-  const names = new Map(model.parts.map((p) => [p.componentId, p.name]));
   // Two neighbours in the run with no circular end between them are drawn one above the
   // other and joined by nothing: a non-circular body has no end the kernel can weld a head to.
-  const built = new Map(model.parts.map((p) => [p.componentId, p]));
   const run = runOrder(definition.components)
     .map((c) => built.get(c.id))
     .filter((p): p is BuiltPart => p?.status === 'drawn');
@@ -152,31 +173,50 @@ export function refusalsOf(definition: AssemblyDefinition, model: AssemblyModel,
     const up = below.junctions?.[below.transform.flipped ? 'lower' : 'upper'];
     const down = above.junctions?.[above.transform.flipped ? 'upper' : 'lower'];
     if (up && down) continue;
-    const without = [!up ? below.name : null, !down ? above.name : null].filter(Boolean).join(' and ');
+    const without = [!up ? below : null, !down ? above : null].filter((p): p is BuiltPart => p !== null);
     refusals.push({
-      componentId: above.componentId,
-      name: above.name,
-      message: `${above.name} is not joined to ${below.name}: ${without} offers no circular end to weld to, so the two are only drawn one against the other`,
+      ...who(above.componentId),
+      reason: 'mismatch',
+      parameter: `end facing ${below.name}`,
+      limit: 'a circular end on both sides of the joint',
+      value: `none on ${without.map((p) => `${p.name} (${p.kind})`).join(' and ')}`,
+      message: `${above.name} is not joined to ${below.name}: ${without.map((p) => p.name).join(' and ')} offers no circular end to weld to, so the two are only drawn one against the other`,
     });
   }
   const { ports, joints } = derivePorts(definition, model);
+  const portsById = new Map(ports.map((p) => [p.id, p]));
   for (const joint of joints) {
-    const componentId = joint.ports[1].split('@').slice(1).join('@');
-    for (const issue of joint.issues) {
-      refusals.push({ componentId, name: names.get(componentId) ?? componentId, message: `${joint.id}: ${issue}` });
-    }
+    const [a, b] = joint.ports.map((id) => portsById.get(id));
+    if (!a || !b) continue;
+    const between = `${who(a.componentId).name} / ${who(b.componentId).name}`;
+    joint.issues.forEach((issue, index) => {
+      refusals.push({
+        ...who(b.componentId),
+        ...(joint.findings[index] ?? UNSTATED),
+        message: `${between}: ${issue}`,
+      });
+    });
   }
   // A dimension the layout contradicts is two models of one vessel: neither may be meshed.
   for (const issue of deriveZones(definition, model, ports, joints).issues) {
     refusals.push({
-      componentId: issue.componentId,
-      name: names.get(issue.componentId) ?? issue.componentId,
+      ...who(issue.componentId),
+      reason: 'mismatch',
+      parameter: issue.symbol,
+      limit: `the layout's ${Number(issue.measured.toPrecision(5))} mm`,
+      value: `stated ${Number(issue.stated.toPrecision(5))} mm`,
       symbol: issue.symbol,
       message: issue.message,
     });
   }
   return refusals;
 }
+
+/**
+ * What a refusal from a source that names nothing carries. Every source in the kernel names its
+ * parameter; a test holds that, and this is only what a new one would show until it does.
+ */
+const UNSTATED: Scope = { reason: 'out_of_scope', parameter: 'unstated', limit: 'unstated', value: 'unstated' };
 
 /** Resolves a built assembly: frames, ports, joints, descriptors and, in analysis, refusals. */
 export function resolveGeometry(

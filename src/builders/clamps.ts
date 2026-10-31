@@ -5,7 +5,16 @@
 // must get right is the shoulder's back face, inclined at the clamp angle φ, and the clamp's
 // lips bearing on it. The clamp is drawn as a whole ring; a real one is split into segments
 // drawn together by bolts, which are not modelled.
-import { BuildError, Sym, note, optionalDimension, requireDimension, type Note } from '../definition.ts';
+import {
+  BuildError,
+  Sym,
+  assumedNote,
+  optionalDimension,
+  representedNote,
+  requireDimension,
+  scope,
+  type Note,
+} from '../definition.ts';
 import type { Point2, ProfileStep } from '../kernel/GeometryKernel.ts';
 import { mm } from './placing.ts';
 import type { RunBuilder } from './types.ts';
@@ -17,12 +26,14 @@ export const clampedConnection: RunBuilder = (component, context) => {
   const bore = requireDimension(component, Sym.FLANGE_BORE);
   const gasket = requireDimension(component, Sym.GASKET_CONTACT_DIAMETER);
   const phi = requireDimension(component, Sym.CLAMP_TAPER_ANGLE);
-  if (phi <= 0 || phi >= 60) throw new BuildError(component, `has a clamp angle of ${phi}°`);
+  if (phi <= 0 || phi >= 60) {
+    throw new BuildError(component, `has a clamp angle of ${phi}°`, scope('out_of_scope', Sym.CLAMP_TAPER_ANGLE, '0° < φ < 60°', `${phi}°`));
+  }
   const notes: Note[] = [];
   const assumed = (symbol: string, label: string, value: number): number => {
     const stated = optionalDimension(component, symbol);
     if (stated !== undefined) return stated;
-    notes.push(note(`${label} not stated — drawn ${mm(value)}`, symbol));
+    notes.push(assumedNote(`${label} not stated — drawn ${mm(value)}`, symbol, mm(value)));
     return value;
   };
 
@@ -34,7 +45,11 @@ export const clampedConnection: RunBuilder = (component, context) => {
   const clampInside = assumed(Sym.CLAMP_INSIDE_DIAMETER, 'Clamp inside diameter', 2 * rim + 2) / 2;
   const clampWall = assumed(Sym.CLAMP_THICKNESS, 'Clamp thickness', Math.max(15, 0.08 * bore));
   if (!(b < neck && neck < rim && rim < clampInside)) {
-    throw new BuildError(component, `has bore, neck, hub and clamp diameters out of order`);
+    throw new BuildError(
+      component,
+      `has bore, neck, hub and clamp diameters out of order`,
+      scope('out_of_scope', 'diameters', 'bore < neck < hub < clamp', `${mm(2 * b)}, ${mm(2 * neck)}, ${mm(2 * rim)}, ${mm(2 * clampInside)}`)
+    );
   }
 
   // The shoulder's back face climbs from the neck to the rim at φ to the joint face.
@@ -79,7 +94,7 @@ export const clampedConnection: RunBuilder = (component, context) => {
       ] as Point2[]
     ).map((to): ProfileStep => ({ kind: 'line', to })),
   });
-  notes.push(note('The clamp is drawn as one ring; its segments and their bolts are not modelled'));
+  notes.push(representedNote('The clamp is drawn as one ring; its segments and their bolts are not modelled', 'clamp', 'segments and their bolts', 'one whole ring'));
 
   const surface = cylinderSurface((b + neck) / 2);
   const end = (meridian: Point2) => ({

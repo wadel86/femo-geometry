@@ -65,6 +65,7 @@ test('the check case resolves ready for analysis, with its ports and its one joi
       ports: ['opening:N@S', 'neck:host-end@N'],
       sourceRule: 'host',
       issues: [],
+      findings: [],
     },
   ]);
 
@@ -259,4 +260,19 @@ test('a stated weld leg rides on the joint, and is refused as undrawn under anal
   };
   assert.deepEqual(resolve(welded).resolved.joints[0].weld, { outer_fillet_weld_leg: 10 });
   assert.deepEqual(resolve(welded, 'analysis').resolved.refusals.map((r) => r.symbol), ['outer_fillet_weld_leg']);
+});
+
+test('two necks facing each other on one axis each name their own opening', () => {
+  // At 0° and 180°, at one height: the two necks share an axis line, and only the depth each
+  // tool cut tells their opening edges apart.
+  const neck = (id: string) =>
+    part(id, 'radial_nozzle', { nozzle_inside_diameter: 150, nozzle_thickness: 11, nozzle_outward_projection: 250 }, 0, 'C');
+  const definition: AssemblyDefinition = {
+    components: [part('C', 'cylindrical_shell', { inside_diameter: 800, thickness: 12, course_length: 800 }), neck('T1'), neck('T2')],
+    placements: { T1: shellSide(400, 180), T2: shellSide(400, 0) },
+    reversed: [],
+  };
+  const resolved = resolveGeometry(definition, new AssemblyBuilder(kernel).build(definition), kernel, { mode: 'analysis' });
+  assert.deepEqual(resolved.errors, []);
+  assert.equal(resolved.ready, true);
 });

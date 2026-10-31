@@ -6,12 +6,15 @@
 import {
   BuildError,
   Sym,
-  analysisNote,
+  assumedNote,
   note,
   optionalDimension,
+  representedNote,
   requireDimension,
+  scope,
   type ComponentDefinition,
   type Note,
+  type Scope,
 } from '../definition.ts';
 import type { Point2, ProfileStep, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { mm } from './placing.ts';
@@ -25,7 +28,21 @@ function openingOf(component: ComponentDefinition, context: RunContext): number 
   const stated = optionalDimension(component, Sym.INSIDE_DIAMETER);
   if (stated !== undefined) return stated;
   if (context.neighbourInsideDiameter !== undefined) return context.neighbourInsideDiameter;
-  throw new BuildError(component, 'has no diameter of its own and closes nothing it could take one from');
+  throw new BuildError(
+    component,
+    'has no diameter of its own and closes nothing it could take one from',
+    scope('out_of_scope', Sym.INSIDE_DIAMETER, 'stated, or a neighbour to take it from', 'neither')
+  );
+}
+
+/** A dish that cannot be built, as its builder's error: the scope it carries, kept. */
+function dishFailed(component: ComponentDefinition, error: unknown): BuildError {
+  const message = (error as Error).message;
+  return new BuildError(
+    component,
+    `: ${message}`,
+    (error as { scope?: Scope }).scope ?? scope('out_of_scope', 'dish', 'built by the kernel', message)
+  );
 }
 
 /**
@@ -34,7 +51,9 @@ function openingOf(component: ComponentDefinition, context: RunContext): number 
  */
 function dish(context: RunContext, crown: number, thickness: number, rim: number, base: number) {
   if (rim >= crown) {
-    throw new Error(`a crown radius of ${mm(crown)} cannot span an opening of ${mm(2 * rim)}`);
+    throw Object.assign(new Error(`a crown radius of ${mm(crown)} cannot span an opening of ${mm(2 * rim)}`), {
+      scope: scope('out_of_scope', Sym.CROWN_RADIUS, `> ${mm(rim)}, half the opening it spans`, mm(crown)),
+    });
   }
   const zc = base - Math.sqrt(crown * crown - rim * rim);
   const outsideRim = Math.sqrt((crown + thickness) ** 2 - (base - zc) ** 2);
@@ -73,7 +92,7 @@ export const sphericallyDishedCover: RunBuilder = (component, context) => {
   try {
     built = dish(context, crown, thickness, opening / 2, 0);
   } catch (error) {
-    throw new BuildError(component, `: ${(error as Error).message}`);
+    throw dishFailed(component, error);
   }
   return {
     solid: built.solid,
@@ -89,7 +108,14 @@ export const sphericallyDishedCover: RunBuilder = (component, context) => {
       { key: 'lower-outside', z: 0, diameter: 2 * built.outsideRim, role: 'Dish rim (outside)', junction: 'lower' },
     ],
     meridian: built.midline,
-    notes: [note('Drawn as the dish alone, on the opening of the part it closes')],
+    notes: [
+      representedNote(
+        'Drawn as the dish alone, on the opening of the part it closes',
+        'cover',
+        'the dish and what holds it',
+        `the dish alone, on a ${mm(opening)} opening`
+      ),
+    ],
   };
 };
 
@@ -107,10 +133,20 @@ function dishedCoverOnRing(type: 'B' | 'C' | 'D'): RunBuilder {
     const outsideDiameter = requireDimension(component, Sym.FLANGE_OUTSIDE_DIAMETER);
     const ring = requireDimension(component, Sym.FLANGE_RING_THICKNESS);
     if (outsideDiameter <= bore) {
-      throw new BuildError(component, 'has a ring outside diameter no larger than its bore');
+      throw new BuildError(
+        component,
+        'has a ring outside diameter no larger than its bore',
+        scope('out_of_scope', Sym.FLANGE_OUTSIDE_DIAMETER, `> ${mm(bore)}, the bore`, mm(outsideDiameter))
+      );
     }
     const notes: Note[] = [
-      analysisNote(`The dish meets the ring on a plane placed by convention (Type ${type})`),
+      representedNote(
+        `The dish meets the ring on a plane placed by convention (Type ${type})`,
+        'dish-to-ring plane',
+        'as fabricated',
+        `placed by convention for Type ${type}`,
+        true
+      ),
     ];
     const { kernel } = context;
 
@@ -137,14 +173,14 @@ function dishedCoverOnRing(type: 'B' | 'C' | 'D'): RunBuilder {
       });
       ringSolid = kernel.cut(ringSolid, holes);
     } else {
-      notes.push(note('Number of bolts not stated — the bolt holes are not drawn', Sym.BOLT_COUNT));
+      notes.push(assumedNote('Number of bolts not stated — the bolt holes are not drawn', Sym.BOLT_COUNT, 'no bolt holes'));
     }
 
     let built;
     try {
       built = dish(context, crown, thickness, bore / 2, type === 'B' ? ring / 2 : type === 'C' ? ring : 0);
     } catch (error) {
-      throw new BuildError(component, `: ${(error as Error).message}`);
+      throw dishFailed(component, error);
     }
 
     const landmarks: Landmark[] = [
@@ -204,7 +240,7 @@ export const quickActuatingClosure: RunBuilder = (component, context) => {
       [(diameter / 2 + rim) / 2, thickness / 2],
       [0, thickness / 2],
     ],
-    notes: [note('Drawn as its door; the locking mechanism is not modelled')],
+    notes: [representedNote('Drawn as its door; the locking mechanism is not modelled', 'closure', 'door and locking mechanism', 'the door alone')],
   };
 };
 
@@ -256,6 +292,12 @@ export const stayedSurface: RunBuilder = (component, context) => {
       [(a + rim) / 2, thickness / 2],
       [0, thickness / 2],
     ],
-    notes: [note(`${positions.length} stays on a square array ${mm(spacing)} apart, drawn ${mm(depth)} into the vessel`)],
+    notes: [
+      note(
+        `${positions.length} stays on a square array ${mm(spacing)} apart, drawn ${mm(depth)} into the vessel`,
+        undefined,
+        scope('assumed', 'stay layout and length', 'stated', `not stated — ${positions.length} on a square array, ${mm(depth)} long`)
+      ),
+    ],
   };
 };

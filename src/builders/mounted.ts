@@ -4,7 +4,7 @@
 // They work in the host's frame, from the host's own description of its surface, so a mounted
 // part follows its host through every rebuild: the anchor is (offset, azimuth) on a named
 // surface, never a face of the previous solid.
-import { NotDrawnError, Sym, analysisNote, requireDimension } from '../definition.ts';
+import { NotDrawnError, Sym, representedNote, requireDimension, scope } from '../definition.ts';
 import {
   angledNozzle,
   axialNozzle,
@@ -26,7 +26,11 @@ export const stiffeningRing: MountedBuilder = (component, context) => {
   const height = requireDimension(component, Sym.RING_HEIGHT);
   const thickness = requireDimension(component, Sym.RING_THICKNESS);
   if (!hostSurface.course) {
-    throw new NotDrawnError(component, `a ring is drawn round a course, and ${host.name} is not one`);
+    throw new NotDrawnError(
+      component,
+      `a ring is drawn round a course, and ${host.name} is not one`,
+      scope('out_of_scope', 'host', 'a cylindrical or conical course', host.kind)
+    );
   }
   requireWithinHost(component, context, thickness / 2);
 
@@ -47,7 +51,15 @@ export const stiffeningRing: MountedBuilder = (component, context) => {
     attachment: { axial: thickness, circumferentialDeg: 360, thickness },
     notes: [
       ...(hostSurface.course.halfApexAngle !== 0
-        ? [analysisNote('On a cone it is drawn square to the axis at the radius of its mid-plane, its face not following the slope')]
+        ? [
+            representedNote(
+              'On a cone it is drawn square to the axis at the radius of its mid-plane, its face not following the slope',
+              'ring face on a cone',
+              'following the cone',
+              `square to the axis, on a cone of ${hostSurface.course.halfApexAngle}°`,
+              true
+            ),
+          ]
         : []),
     ],
   };
