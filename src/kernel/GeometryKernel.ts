@@ -138,6 +138,13 @@ export interface GeometryKernel {
    */
   extrude(outline: Profile, from: number, to: number): Solid;
 
+  /**
+   * A solid tube of circular section `tubeRadius`, its centre swept along a right-handed helix
+   * about Z of radius `radius` and pitch `pitch`, from `(radius, 0, from)` up `height`. Circular,
+   * so its section is the same however the sweep turns it: what a half-pipe coil is cut from.
+   */
+  helicalTube(radius: number, pitch: number, from: number, height: number, tubeRadius: number): Solid;
+
   /** `base` with every tool removed, in one boolean. */
   cut(base: Solid, tools: readonly Solid[]): Solid;
 

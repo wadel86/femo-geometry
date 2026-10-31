@@ -210,6 +210,13 @@ export interface MountedContext {
   readonly tangentLines?: readonly [number, number];
   /** The host's own solid, for a part that is cut to its outside surface: a skirt on a head. */
   readonly hostSolid?: Solid;
+  /**
+   * The host built again by its own builder, its wall `extra` thicker outward, its inside
+   * unchanged: what a layer laid on the host — a pad — is cut from, so that layer's inner face is
+   * the host's own outside surface whatever its curvature. Undefined for a host whose wall is
+   * not one `thickness`.
+   */
+  readonly thickenedHost?: (extra: number) => Solid;
 }
 
 export type MountedBuilder = (component: ComponentDefinition, context: MountedContext) => MountedPart;

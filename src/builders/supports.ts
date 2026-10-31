@@ -15,7 +15,7 @@ import {
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
-import type { Point2, Profile, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
+import type { Point2, Profile, Solid } from '../kernel/GeometryKernel.ts';
 import { mm, requireWithinHost } from './placing.ts';
 import type { CourseShape, MountedBuilder, MountedContext, MountedPart } from './types.ts';
 
@@ -90,25 +90,96 @@ export const saddleSupport: MountedBuilder = (component, context) => {
     );
   }
 
-  const solids: Solid[] = [];
+  // A fabricated saddle: a bearing plate wrapping the shell — or its wear plate — over θ, a web
+  // across the vessel at the saddle's centre, ribs along the vessel at intervals across the
+  // chord, the outer two at the horns, and a base plate. Every plate meets the next on a face,
+  // none overlaps another, and the bearing plate follows the shell's own circle, so the saddle
+  // needs nothing of a doubly curved surface. Its plates are the drawing's, read by no rule.
+  const stated = (symbol: string, label: string, assumed: number): number => {
+    const value = optionalDimension(component, symbol);
+    if (value !== undefined) return value;
+    notes.push(assumedNote(`${label} not stated — drawn ${mm(assumed)}`, symbol, mm(assumed)));
+    return assumed;
+  };
   const contact = outside + (plate ?? 0);
   const half = (theta * DEG) / 2;
-  const base = contact + Math.max(150, 0.25 * outside);
-  const [x1, y1] = polar(contact, half);
+  const bearing = stated(Sym.SADDLE_BEARING_PLATE_THICKNESS, 'Saddle bearing plate thickness', 12);
+  const outer = contact + bearing;
+  const height = stated(Sym.SADDLE_HEIGHT, 'Saddle height', contact - outside + Math.max(150, 0.25 * outside));
+  const basePlate = stated(Sym.SADDLE_BASE_PLATE_THICKNESS, 'Saddle base plate thickness', 16);
+  const web = stated(Sym.SADDLE_WEB_THICKNESS, 'Saddle web thickness', 12);
+  const rib = stated(Sym.SADDLE_RIB_THICKNESS, 'Saddle rib thickness', 12);
+  const horn = outer * Math.sin(half);
+  const ribCount = Math.round(stated(Sym.SADDLE_RIB_COUNT, 'Saddle rib count', 2 + Math.floor((2 * horn) / 600)));
+
+  // x runs from the axis out through the saddle: its base is the far side of the bottom of the shell.
+  const base = outside + height;
+  const baseTop = base - basePlate;
+  if (baseTop <= outer) {
+    throw new BuildError(
+      component,
+      `is ${mm(height)} high, which leaves no web under its ${mm(bearing)} bearing plate`,
+      scope('out_of_scope', Sym.SADDLE_HEIGHT, `> ${mm(outer - outside + basePlate)}, the bearing and base plates`, mm(height))
+    );
+  }
+  if (ribCount < 2 || web >= width || rib * ribCount >= 2 * horn) {
+    throw new BuildError(
+      component,
+      `has ${ribCount} ribs of ${mm(rib)} and a ${mm(web)} web on a saddle ${mm(width)} wide and ${mm(2 * horn)} across`,
+      scope('out_of_scope', 'ribs and web', `≥ 2 ribs, all fitting the ${mm(2 * horn)} chord; a web thinner than ${mm(width)}`, `${ribCount} × ${mm(rib)}, web ${mm(web)}`)
+    );
+  }
+
+  const solids: Solid[] = [];
+  const [hx, hy] = polar(outer, half);
+  const [cx, cy] = polar(contact, half);
+  // The bearing plate, on the shell's circle.
   solids.push(
     kernel.extrude(
       {
-        start: [x1, -y1],
+        start: [cx, -cy],
         steps: [
-          { kind: 'arc', to: [x1, y1], through: [contact, 0] },
-          { kind: 'line', to: [base, y1] },
-          { kind: 'line', to: [base, -y1] },
+          { kind: 'line', to: [hx, -hy] },
+          { kind: 'arc', to: [hx, hy], through: [outer, 0] },
+          { kind: 'line', to: [cx, cy] },
+          { kind: 'arc', to: [cx, -cy], through: [contact, 0] },
         ],
       },
       z - width / 2,
       z + width / 2
     )
   );
+  // The base plate, the chord's width across.
+  solids.push(kernel.extrude(rectangle(baseTop, base, -horn, horn), z - width / 2, z + width / 2));
+  // The web, from the bearing plate down to the base plate, across the vessel.
+  solids.push(
+    kernel.extrude(
+      {
+        start: [hx, -hy],
+        steps: [
+          { kind: 'arc', to: [hx, hy], through: [outer, 0] },
+          { kind: 'line', to: [baseTop, hy] },
+          { kind: 'line', to: [baseTop, -hy] },
+        ],
+      },
+      z - web / 2,
+      z + web / 2
+    )
+  );
+  // The ribs, each in two halves either side of the web, its top on the bearing plate's circle.
+  const onCircle = (y: number): [number, number] => [Math.sqrt(outer * outer - y * y), y];
+  for (let k = 0; k < ribCount; k++) {
+    const y = -(horn - rib / 2) + (k * 2 * (horn - rib / 2)) / (ribCount - 1);
+    const outline = {
+      start: onCircle(y - rib / 2),
+      steps: [
+        { kind: 'arc' as const, to: onCircle(y + rib / 2), through: onCircle(y) },
+        { kind: 'line' as const, to: [baseTop, y + rib / 2] as [number, number] },
+        { kind: 'line' as const, to: [baseTop, y - rib / 2] as [number, number] },
+      ],
+    };
+    solids.push(kernel.extrude(outline, z - width / 2, z - web / 2), kernel.extrude(outline, z + web / 2, z + width / 2));
+  }
 
   if (plate !== undefined) {
     const halfPlate = half * (13 / 12);
@@ -131,7 +202,6 @@ export const saddleSupport: MountedBuilder = (component, context) => {
     );
   }
 
-  notes.push(representedNote('Drawn as a solid block; its web and ribs are not modelled', 'saddle section', 'web, ribs and base plate', 'a solid block'));
   return {
     solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
     footprint: plateWidth / 2,
@@ -301,39 +371,39 @@ export const halfPipeJacket: MountedBuilder = (component, context) => {
   const pitch = 2 * reach + Math.max(20, radius);
   const margin = reach + 20;
   const turns = Math.min(60, Math.floor((high - low - 2 * margin) / pitch) + 1);
-  if (turns < 1) {
+  if (turns < 2) {
     throw new NotDrawnError(
       component,
       `${context.host.name} is too short for a turn of half-pipe`,
-      scope('out_of_scope', 'course length', `≥ ${mm(2 * margin)}, one turn and its margins`, mm(high - low))
+      scope('out_of_scope', 'course length', `≥ ${mm(2 * margin + pitch)}, one turn and its margins`, mm(high - low))
     );
   }
 
-  // One turn, built and meshed once, repeated up the course.
+  // One continuous helix. Two circular tubes swept with their centre ON the shell's outside
+  // surface, the inner taken from the outer, and what lies inside the shell's outside cylinder
+  // cut away: the coil's two weld lines then lie exactly on the shell's cylinder, which no
+  // profile swept with its edges on the shell would give.
   const z = low + margin;
-  const turn = kernel.revolve({
-    start: [outside, z - reach],
+  const rise = (turns - 1) * pitch;
+  const shellOutside = kernel.revolve({
+    start: [0, low - 1],
     steps: [
-      { kind: 'line', to: [outside, z - radius] },
-      { kind: 'arc', to: [outside, z + radius], through: [outside + radius, z] },
-      { kind: 'line', to: [outside, z + reach] },
-      { kind: 'arc', to: [outside, z - reach], through: [outside + reach, z] },
+      { kind: 'line', to: [outside, low - 1] },
+      { kind: 'line', to: [outside, high + 1] },
+      { kind: 'line', to: [0, high + 1] },
     ],
   });
+  const coil = kernel.cut(kernel.helicalTube(outside, pitch, z, rise, reach), [
+    kernel.helicalTube(outside, pitch, z, rise, radius),
+    shellOutside,
+  ]);
   return {
-    solids: [turn],
-    copies: [Array.from({ length: turns - 1 }, (_, k): Vec3 => [0, 0, (k + 1) * pitch])],
+    solids: [coil],
     footprint: 0,
-    attachment: { axial: (turns - 1) * pitch + 2 * reach, circumferentialDeg: 360, thickness },
-    // Two different things: the coil drawn as rings is the same jacket approximated; its pitch
-    // and its extent are chosen here, the type carrying neither.
+    attachment: { axial: rise + 2 * reach, circumferentialDeg: 360, thickness },
+    // The coil is the jacket itself now; its pitch and extent are still chosen here, the type
+    // carrying neither.
     notes: [
-      representedNote(
-        `Drawn as ${turns} closed turns — the helix is not modelled`,
-        'coil',
-        'a helix',
-        `${turns} closed circumferential turns`
-      ),
       note(
         `Pitch and extent not stated — drawn at a ${mm(pitch)} pitch over the whole course`,
         undefined,

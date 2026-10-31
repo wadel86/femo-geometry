@@ -11,7 +11,9 @@ import {
   Sym,
   assumedNote,
   notBuiltNote,
+  note,
   optionalDimension,
+  representedNote,
   requireDimension,
   scope,
   type ComponentDefinition,
@@ -90,16 +92,54 @@ function nozzle(aimer: Aimer): MountedBuilder {
     if (padWidth !== undefined && padThickness !== undefined) {
       const radius = hostSurface.outsideRadius;
       if (radius === undefined || !padAllowed) {
-        // A pad is a band of a cylinder: one that has to conform to a doubly curved surface, or
-        // follow a neck that is not normal to the wall, is not built.
-        notes.push(
-          notBuiltNote(
-            'Reinforcing pad not drawn on this geometry yet',
-            Sym.PAD_WIDTH,
-            `${mm(padWidth)} × ${mm(padThickness)} on ${host.kind}`,
-            `${component.kind} except normal to a cylindrical course`
-          )
-        );
+        // Anywhere else, the pad is the host's own wall thickened outward, within its reach of the
+        // neck's axis: its inner face IS the host's outside surface, a knuckle's or a cone's alike.
+        const reach = outside + padWidth;
+        const along = reach * (footprint / outside);
+        const [low, high] = hostSurface.offsetRange;
+        const at = context.placement.axialOffset;
+        const fits = hostSurface.anchor === 'head_crown' ? at + reach <= high : at - along >= low && at + along <= high;
+        if (fits && !context.thickenedHost) {
+          // Tapered at a joint, the host is no longer what its builder would make thicker.
+          notes.push(
+            notBuiltNote(
+              'Reinforcing pad not drawn: its host is tapered at a joint',
+              Sym.PAD_WIDTH,
+              `${mm(padWidth)} × ${mm(padThickness)} on ${host.kind}`,
+              `${component.kind} on a host tapered to its neighbour`
+            )
+          );
+        } else if (!fits) {
+          notes.push(
+            note(
+              'Reinforcing pad reaches past its host',
+              Sym.PAD_WIDTH,
+              hostSurface.anchor === 'head_crown'
+                ? scope('out_of_scope', 'pad reach from the axis', `≤ ${mm(high)}, the inside radius of ${host.name}`, mm(at + reach))
+                : scope('out_of_scope', `pad edge along ${host.name}`, `within ${mm(low)} to ${mm(high)}, its one host`, `${mm(at - along)} to ${mm(at + along)}`)
+            )
+          );
+        } else if (context.thickenedHost) {
+          const around = kernel.tube(frame, outside, reach, -(through + 2 * reach), padThickness + 2 * reach);
+          const thick = context.thickenedHost(padThickness);
+          solids.push(kernel.cut(kernel.intersect(thick, around), [context.hostSolid ?? hostSurface.cavity(), hostSurface.cavity()]));
+          pad = { reach, thickness: padThickness };
+          // Not normal to the surface, the reach is measured square to the neck rather than along it.
+          const wallHere = hostSurface.wallAt(at);
+          const phi = (context.placement.azimuth * Math.PI) / 180;
+          const axialRadial = frame.axis[0] * Math.cos(phi) + frame.axis[1] * Math.sin(phi);
+          const normality = Math.abs(axialRadial * wallHere.meridian[1] - frame.axis[2] * wallHere.meridian[0]);
+          if (normality < 0.999) {
+            notes.push(
+              representedNote(
+                `Reinforcing pad's width measured square to the neck, ${Math.round((Math.acos(Math.min(1, normality)) * 180) / Math.PI)}° off the surface's normal`,
+                'pad width',
+                `${mm(padWidth)} along the surface`,
+                `${mm(padWidth)} square to the neck's axis`
+              )
+            );
+          }
+        }
       } else {
         pad = { reach: outside + padWidth, thickness: padThickness };
         const reach = outside + padWidth;

@@ -142,7 +142,10 @@ export class AssemblyBuilder {
     const run = runOrder(definition.components);
 
     // ---------------------------------------------------------------- the axial run
-    const runParts = new Map<string, { part: RunPart; key: string; transform: PartTransform }>();
+    const runParts = new Map<
+      string,
+      { part: RunPart; key: string; transform: PartTransform; thicken?: (extra: number) => Solid }
+    >();
     let cursor = 0;
 
     run.forEach((component, index) => {
@@ -190,7 +193,17 @@ export class AssemblyBuilder {
         cursor += part.height;
       }
 
-      runParts.set(component.id, { part, key, transform });
+      // The same part, its wall thicker outward: what a pad laid on it is cut from.
+      const wall = component.dimensions[Sym.THICKNESS];
+      const thicken =
+        wall === undefined
+          ? undefined
+          : (extra: number): Solid => {
+              const thicker = { ...component, dimensions: { ...component.dimensions, [Sym.THICKNESS]: wall + extra } };
+              const thickKey = stableStringify({ kind: component.kind, dimensions: thicker.dimensions, context });
+              return this.remember(this.runCache, thickKey, () => builder(thicker, { kernel: this.kernel, ...context })).solid;
+            };
+      runParts.set(component.id, { part, key, transform, thicken });
     });
 
     // Two walls of unequal thickness butt welded: the thicker is tapered to the thinner.
@@ -207,7 +220,10 @@ export class AssemblyBuilder {
           : [upper, above.end, below.junction];
       const key = `${thick.key}|taper:${end}:${thin.wall.thickness}`;
       const tapered = this.remember(this.runCache, key, () => taper(this.kernel, thick.part, end, thin.wall.thickness));
-      if (tapered) runParts.set(thick === lower ? run[index].id : run[index + 1].id, { ...thick, part: tapered, key });
+      // Tapered, the part is no longer what its builder makes thicker: nothing is laid on it.
+      if (tapered) {
+        runParts.set(thick === lower ? run[index].id : run[index + 1].id, { ...thick, part: tapered, key, thicken: undefined });
+      }
     }
 
     // ---------------------------------------------------------------- mounted parts
@@ -278,6 +294,7 @@ export class AssemblyBuilder {
             placement: at,
             tangentLines,
             hostSolid: host.part.solid,
+            thickenedHost: host.thicken,
           })
         );
         return { part, key, local: at };

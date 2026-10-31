@@ -106,6 +106,27 @@ test('a saddle near a head: a is measured to the tangent line, past the straight
   close(pair.distance, 600 - 125, 0.5);
 });
 
+test("a saddle on an exchanger's shell is measured to the tubesheet, not across it", () => {
+  const head = { inside_diameter: 800, head_height: 200, thickness: 12, straight_flange_length: 50 };
+  const { resolved } = resolve({
+    components: [
+      part('B', 'ellipsoidal_head', head, 0),
+      part('C', 'cylindrical_shell', { inside_diameter: 800, thickness: 12, course_length: 800 }, 1),
+      part('T', 'u_tube_tubesheet', {
+        thickness: 80, flange_outside_diameter: 900, tube_pitch: 31.75, tube_outside_diameter: 25.4,
+        tube_thickness: 2.1, tube_limit_radius: 260, tube_layout_angle: 30,
+      }, 2),
+      part('S', 'cylindrical_shell', { inside_diameter: 800, thickness: 12, course_length: 4000 }, 3),
+      part('H', 'ellipsoidal_head', head, 4),
+      part('SA', 'saddle_support', { saddle_angle: 120, saddle_width: 180 }, 0, 'S'),
+    ],
+    placements: { SA: shellSide(800, 0) },
+    reversed: [],
+  });
+  // 800 from the tubesheet's face, where the bonnet's tangent line is 50 + 800 + 80 + 800 away.
+  close(resolved.measured.SA.saddle_distance.value, 800, 1e-6);
+});
+
 test('a nozzle in a knuckle sits inside the knuckle-to-crown zone', () => {
   const { resolved } = resolve({
     components: [

@@ -143,24 +143,32 @@ export const tubesheet: RunBuilder = (component, context) => {
   const one: Solid = kernel.tube({ origin: [first[0], first[1], 0], axis: [0, 0, 1] }, tube / 2 - wall, tube / 2, -stub, 0);
   const copies = centres.slice(1).map((c): Vec3 => [c[0] - first[0], c[1] - first[1], 0]);
 
-  // The shell and the channel meet the plate on its faces; without their diameters stated,
-  // the plate's own rim stands in.
+  // The shell and the channel meet the plate on its faces, each on the annulus of its own wall —
+  // as a flat head's face is its course's. Without their diameter and thickness stated, the
+  // plate's own rim stands in, and a course welded there does not match it.
   const shell = optionalDimension(component, Sym.SHELL_INSIDE_DIAMETER) ?? 2 * (limit + pitch);
   const channel = optionalDimension(component, Sym.CHANNEL_INSIDE_DIAMETER) ?? shell;
-  const face = (inside: number, meridian: readonly [number, number]) => ({
-    insideDiameter: inside,
-    outsideDiameter: outside,
-    face: true,
-    wall: { surface: PLANE, thickness: (outside - inside) / 2, meridian },
-  });
+  const landing = (inside: number, wallSymbol: string): number => {
+    const wall = optionalDimension(component, wallSymbol);
+    return wall !== undefined && inside + 2 * wall <= outside ? inside + 2 * wall : outside;
+  };
+  const face = (inside: number, wallSymbol: string, meridian: readonly [number, number]) => {
+    const across = landing(inside, wallSymbol);
+    return {
+      insideDiameter: inside,
+      outsideDiameter: across,
+      face: true,
+      wall: { surface: PLANE, thickness: (across - inside) / 2, meridian },
+    };
+  };
 
   return {
     solid: plate,
     extraSolids: centres.length > 0 ? [one] : [],
     copies: [undefined, copies],
     height: thickness,
-    lower: face(shell, [0, -1]),
-    upper: face(channel, [0, 1]),
+    lower: face(shell, Sym.SHELL_THICKNESS, [0, -1]),
+    upper: face(channel, Sym.CHANNEL_THICKNESS, [0, 1]),
     landmarks: [
       { key: 'lower-rim', z: 0, diameter: outside, role: 'Tubesheet rim, shell side', junction: 'lower' },
       { key: 'upper-rim', z: thickness, diameter: outside, role: 'Tubesheet rim, channel side', junction: 'upper' },

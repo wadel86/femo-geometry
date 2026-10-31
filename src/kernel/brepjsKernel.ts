@@ -4,7 +4,11 @@
 // pen, its Result type, its branded shape types, its face and edge hashes — stops here.
 import {
   OcctWasmAdapter,
+  circle,
   compound,
+  helix,
+  sweep,
+  wire,
   curveLength,
   exportSTEPConfigured,
   faceAxis,
@@ -105,6 +109,16 @@ class BrepjsKernel implements GeometryKernel {
   extrude(outline: Profile, from: number, to: number): Solid {
     const prism: Shape = drawing(outline).sketchOnPlane('XY').extrude(to - from);
     return from === 0 ? asSolid(prism) : asSolid(translate(prism, [0, 0, from]));
+  }
+
+  helicalTube(radius: number, pitch: number, from: number, height: number, tubeRadius: number): Solid {
+    const spine = helix(pitch, height, radius, { at: [0, 0, from] });
+    // The section square to the helix at its start, where it leaves (radius, 0, from).
+    const lead = Math.hypot(2 * Math.PI * radius, pitch);
+    const tangent: [number, number, number] = [0, (2 * Math.PI * radius) / lead, pitch / lead];
+    const section = unwrap(wire([circle(tubeRadius, { at: [radius, 0, from], axis: tangent })]));
+    // Frenet's frame is well defined all along a helix, and a circle does not care how it turns.
+    return asSolid(unwrap(sweep(section as never, spine, { frenet: true })) as Shape);
   }
 
   tube(frame: Frame, innerRadius: number, outerRadius: number, from: number, to: number): Solid {

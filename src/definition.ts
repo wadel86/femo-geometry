@@ -82,6 +82,13 @@ export const Sym = {
   SADDLE_ANGLE: 'saddle_angle',
   SADDLE_WIDTH: 'saddle_width',
   SADDLE_DISTANCE: 'saddle_distance',
+  // A saddle's construction, for the drawing alone: no rule reads them.
+  SADDLE_HEIGHT: 'saddle_height',
+  SADDLE_BEARING_PLATE_THICKNESS: 'saddle_bearing_plate_thickness',
+  SADDLE_WEB_THICKNESS: 'saddle_web_thickness',
+  SADDLE_RIB_COUNT: 'saddle_rib_count',
+  SADDLE_RIB_THICKNESS: 'saddle_rib_thickness',
+  SADDLE_BASE_PLATE_THICKNESS: 'saddle_base_plate_thickness',
   WEAR_PLATE_THICKNESS: 'wear_plate_thickness',
   FLANGE_RING_THICKNESS: 'flange_ring_thickness',
   BOLT_CIRCLE: 'bolt_circle',
@@ -122,6 +129,8 @@ export const Sym = {
   TUBE_HOLE_DIAMETER: 'tube_hole_diameter',
   SHELL_INSIDE_DIAMETER: 'shell_inside_diameter',
   CHANNEL_INSIDE_DIAMETER: 'channel_inside_diameter',
+  SHELL_THICKNESS: 'shell_thickness',
+  CHANNEL_THICKNESS: 'channel_thickness',
   // §4.19, bellows.
   BELLOWS_INSIDE_DIAMETER: 'bellows_inside_diameter',
   CONVOLUTION_HEIGHT: 'convolution_height',

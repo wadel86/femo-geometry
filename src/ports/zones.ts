@@ -110,6 +110,18 @@ const FORMED_HEADS: ReadonlySet<string> = new Set([
   Kind.ELLIPSOIDAL_HEAD,
 ]);
 
+/** Plates in the run a shell is welded to, which stiffen it as a head does. */
+const STIFFENING_PLATES: ReadonlySet<string> = new Set([
+  Kind.U_TUBE_TUBESHEET,
+  Kind.FIXED_TUBESHEET,
+  Kind.FLOATING_TUBESHEET_IMMERSED,
+  Kind.FLOATING_TUBESHEET_EXTERNALLY_SEALED,
+  Kind.FLOATING_TUBESHEET_INTERNALLY_SEALED,
+  Kind.FLAT_HEAD,
+  Kind.INTEGRAL_FLANGE,
+  Kind.LOOSE_FLANGE,
+]);
+
 const mm = (value: number): string => `${Number(value.toPrecision(5))} mm`;
 
 /** A polyline's cumulative lengths. */
@@ -400,10 +412,19 @@ export function deriveZones(
     }
   }
 
-  // §4.15.3: a saddle's axis to the nearer head tangent line, along the vessel axis.
+  // §4.15.3: a saddle's axis to the nearer end that stiffens the shell, along the vessel axis —
+  // a head's tangent line, or the face of a plate the shell is welded to. A tubesheet is one: a
+  // saddle on an exchanger's shell is measured to it, never across it to the channel's bonnet,
+  // which is what the saddle's own drawing reads too.
   const tangentLines = model.parts
     .filter((p) => p.status === 'drawn' && FORMED_HEADS.has(p.kind))
     .map((p) => toAssembly([0, 0, p.tangentLine ?? 0], p.transform)[2]);
+  for (const p of model.parts) {
+    if (p.status !== 'drawn' || !STIFFENING_PLATES.has(p.kind)) continue;
+    for (const l of p.landmarks) {
+      if (l.junction) tangentLines.push(toAssembly([0, 0, l.z], p.transform)[2]);
+    }
+  }
   for (const part of model.parts) {
     if (part.kind !== Kind.SADDLE_SUPPORT || part.status !== 'drawn' || !part.mount || tangentLines.length === 0) continue;
     const z = toAssembly(part.mount.origin, part.transform)[2];
@@ -412,7 +433,7 @@ export function deriveZones(
       part.componentId,
       Sym.SADDLE_DISTANCE,
       value,
-      'Along the vessel axis, from the saddle centre to the nearer head tangent line, nominal',
+      'Along the vessel axis, from the saddle centre to the nearer head tangent line or stiffening plate, nominal',
       true
     );
   }

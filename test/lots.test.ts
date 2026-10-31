@@ -132,7 +132,9 @@ test('lot 2 — saddles, skirt, lug and bulkhead ring', () => {
   const sa1 = drum.model.parts.find((p) => p.componentId === 'SA1')!;
   const sa2 = drum.model.parts.find((p) => p.componentId === 'SA2')!;
   assert.deepEqual([sa1.placement?.axialOffset, sa2.placement?.axialOffset], [900, 7100]);
-  assert.equal(sa2.solids.length, 2, 'the saddle and its wear plate');
+  // Its wear plate, bearing plate, base plate and web, and five ribs either side of the web: a
+  // chord of 2·1058·sin 60° = 1833 mm takes 2 + ⌊1833/600⌋ ribs when none is stated.
+  assert.equal(sa2.solids.length, 1 + 3 + 2 * 5, 'the saddle as plates, and its wear plate');
 
   const column = build({
     components: [
@@ -225,7 +227,7 @@ test('lot 4 — rectangular vessel and half-pipe jacket', () => {
   const volume = kernel.volume(box.solids[0]);
   assert.ok(Math.abs(volume - (980 * 680 - 900 * 600) * 2000) < 1, `box volume ${volume}`);
   const jacket = partNamed(result, 'J1');
-  assert.equal(jacket.solids.length, 1, 'one turn, built once');
-  assert.ok((jacket.solids[0].copies?.length ?? 0) >= 10, 'repeated up the course');
+  assert.equal(jacket.solids.length, 1, 'one continuous helix');
+  assert.equal(jacket.solids[0].copies?.length ?? 0, 0, 'not repeated: a helix is one solid');
   console.log(`lot 4: ${result.elapsed.toFixed(0)} ms`);
 });
