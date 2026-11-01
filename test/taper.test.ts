@@ -58,6 +58,33 @@ test('a straight flange shorter than the taper leaves the step, and it is still 
   assert.ok(resolved.refusals.some((r) => /taper is not drawn/.test(r.message)));
 });
 
+test("a joint's taper ratio is the fabricator's, from the code's 3:1 up to a transition piece", () => {
+  // The head closes the bottom turned over: its own lower end faces the shell's.
+  const at = (taperRatio: number): AssemblyDefinition => ({ ...vessel(16), joints: { 'H:lower~S:lower': { taperRatio } } });
+  const taperOf = (definition: AssemblyDefinition) =>
+    new AssemblyBuilder(kernel).build(definition).parts.find((p) => p.componentId === 'H')!.landmarks.find((l) => l.key === 'lower-taper');
+
+  // 4·2 mm along the straight flange, and said to be 4:1; unstated is the code's 3:1.
+  const four = taperOf(at(4))!;
+  close(four.z, 8, 1e-9);
+  assert.equal(four.role, '4:1 taper to the thinner wall (outside)');
+  close(taperOf(vessel(16))!.z, 6, 1e-9);
+  // Stated on the two parts it joins, in either order, as the platform stores it.
+  close(taperOf({ ...vessel(16), joints: { 'S~H': { taperRatio: 4 } } })!.z, 8, 1e-9);
+  const resolved = resolveGeometry(at(4), new AssemblyBuilder(kernel).build(at(4)), kernel, { mode: 'analysis' });
+  assert.deepEqual(resolved.refusals, []);
+
+  // Below the code's floor, or past a fairing into a transition piece, the step is left and refused.
+  for (const ratio of [2.5, 12]) {
+    assert.equal(taperOf(at(ratio)), undefined);
+    const refused = resolveGeometry(at(ratio), new AssemblyBuilder(kernel).build(at(ratio)), kernel, { mode: 'analysis' }).refusals;
+    const own = refused.find((r) => r.parameter === 'taper ratio')!;
+    assert.equal(own.reason, 'out_of_scope');
+    assert.equal(own.value, `${ratio}`);
+    assert.match(own.limit, /^3 to 10/);
+  }
+});
+
 test('two openings overlap within 2.5·√(R·t), not within twice that', () => {
   // R = 510, t = 20: √(R·t) = 101, a zone of 252.5.
   const nozzle = (id: string) =>

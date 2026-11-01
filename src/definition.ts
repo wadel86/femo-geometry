@@ -295,6 +295,26 @@ export interface AssemblyDefinition {
   readonly reversed: readonly string[];
   /** The layout revision the placements were read at, carried onto what is measured from them. */
   readonly layoutRevision?: number;
+  /**
+   * What the fabricator specifies at a joint, keyed on its id — `<lowerId>:<port>~<upperId>:<port>`,
+   * the id {@link derivePorts} gives it — or, for a joint of the run, on the two parts it joins,
+   * `<idA>~<idB>` in either order: a key that survives turning a cone round, which changes its
+   * ports. A joint with none is drawn at the code minimum.
+   */
+  readonly joints?: Readonly<Record<string, JointParameters>>;
+}
+
+/** §6.1.6.2: the thicker of two butt welded walls is faired "at least 3 to 1". */
+export const MINIMUM_TAPER_RATIO = 3;
+/**
+ * Past this a taper is a transition piece, not a fairing: draw it as a cone of its own. The
+ * modeller's range, not the Code's — the Code sets a floor and no ceiling.
+ */
+export const MAXIMUM_TAPER_RATIO = 10;
+
+export interface JointParameters {
+  /** Length over thickness step of the fairing on the thicker wall; the code minimum when unstated. */
+  readonly taperRatio?: number;
 }
 
 /** Parts of the run that close it: drawn turned over when they close its bottom. */

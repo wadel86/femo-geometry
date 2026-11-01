@@ -115,6 +115,7 @@ function parse(raw: string): { definition: AssemblyDefinition; mode: GeometryMod
       placements: definition.placements ?? {},
       reversed: definition.reversed ?? [],
       ...(Number.isFinite(definition.layoutRevision) ? { layoutRevision: definition.layoutRevision } : {}),
+      ...(definition.joints && typeof definition.joints === 'object' ? { joints: definition.joints } : {}),
     },
     mode,
   };

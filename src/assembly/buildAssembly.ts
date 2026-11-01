@@ -10,6 +10,8 @@ import {
   AnchorError,
   BuildError,
   Kind,
+  MAXIMUM_TAPER_RATIO,
+  MINIMUM_TAPER_RATIO,
   NotDrawnError,
   RUN_KINDS_THAT_CLOSE,
   Sym,
@@ -17,6 +19,7 @@ import {
   scope,
   type AssemblyDefinition,
   type ComponentDefinition,
+  type JointParameters,
   type Note,
   type Placement,
   type PlacementAnchor,
@@ -218,11 +221,32 @@ export class AssemblyBuilder {
         below.junction.wall.thickness > above.junction.wall.thickness
           ? [lower, below.end, above.junction]
           : [upper, above.end, below.junction];
-      const key = `${thick.key}|taper:${end}:${thin.wall.thickness}`;
-      const tapered = this.remember(this.runCache, key, () => taper(this.kernel, thick.part, end, thin.wall.thickness));
+      const thickId = thick === lower ? run[index].id : run[index + 1].id;
+      const jointId = `${run[index].id}:${below.end}~${run[index + 1].id}:${above.end}`;
+      const ratio =
+        (definition.joints?.[jointId] ?? jointBetween(definition, run[index].id, run[index + 1].id))?.taperRatio ??
+        MINIMUM_TAPER_RATIO;
+      if (!(ratio >= MINIMUM_TAPER_RATIO && ratio <= MAXIMUM_TAPER_RATIO)) {
+        // Outside its range the step is left as it is, and said: never faired at a ratio not asked for.
+        const refused = note(
+          `Taper at ${jointId} not drawn: ${ratio}:1 is outside ${MINIMUM_TAPER_RATIO}:1 to ${MAXIMUM_TAPER_RATIO}:1`,
+          undefined,
+          scope(
+            'out_of_scope',
+            'taper ratio',
+            `${MINIMUM_TAPER_RATIO} to ${MAXIMUM_TAPER_RATIO} (§6.1.6.2's "at least 3 to 1"; longer is a transition piece)`,
+            `${ratio}`
+          )
+        );
+        runParts.set(thickId, { ...thick, part: { ...thick.part, notes: [...thick.part.notes, refused] } });
+        continue;
+      }
+      // The code minimum keeps the key it always had, so no assembly drawn before is drawn again.
+      const key = `${thick.key}|taper:${end}:${thin.wall.thickness}${ratio === MINIMUM_TAPER_RATIO ? '' : `:${ratio}`}`;
+      const tapered = this.remember(this.runCache, key, () => taper(this.kernel, thick.part, end, thin.wall.thickness, ratio));
       // Tapered, the part is no longer what its builder makes thicker: nothing is laid on it.
       if (tapered) {
-        runParts.set(thick === lower ? run[index].id : run[index + 1].id, { ...thick, part: tapered, key, thicken: undefined });
+        runParts.set(thickId, { ...thick, part: tapered, key, thicken: undefined });
       }
     }
 
@@ -545,9 +569,6 @@ function tangentLinesOf(
 }
 
 /** The opening a part presents: its inside diameter, or a flange's bore. */
-/** §6.1.6.2's fairing: the thicker of two butt welded walls is tapered at least 3 to 1. */
-const TAPER_RATIO = 3;
-
 /**
  * The end of a run part that faces up or down the assembly, in the part's own frame: `lower` at
  * z = 0, `upper` at its height. Turned over, a part presents its lower end upwards.
@@ -560,6 +581,11 @@ function facing(
   const end = (direction === 'up') !== transform.flipped ? 'upper' : 'lower';
   const junction = part[end];
   return junction ? { junction, end } : null;
+}
+
+/** A run joint's parameters stated on the two parts it joins, in either order. */
+function jointBetween(definition: AssemblyDefinition, a: string, b: string): JointParameters | undefined {
+  return definition.joints?.[`${a}~${b}`] ?? definition.joints?.[`${b}~${a}`];
 }
 
 /**
@@ -577,15 +603,15 @@ function taperable(a: Junction, b: Junction): boolean {
 
 /**
  * The part with its end tapered on the outside, flush inside, down to `thickness` at the weld:
- * a cone from the thinner wall's outside at the end to its own outside 3·Δt in. Null where the
+ * a cone from the thinner wall's outside at the end to its own outside `ratio`·Δt in. Null where the
  * end is not a cylinder for that length — a head whose straight flange is shorter than the
  * taper would need it cut into its knuckle — and the step is then left, and reported.
  */
-function taper(kernel: GeometryKernel, part: RunPart, end: 'lower' | 'upper', thickness: number): RunPart | null {
+function taper(kernel: GeometryKernel, part: RunPart, end: 'lower' | 'upper', thickness: number, ratio: number): RunPart | null {
   const junction = part[end]!;
   if (junction.wall.surface.kind !== 'cylinder') return null;
   const step = junction.wall.thickness - thickness;
-  const length = TAPER_RATIO * step;
+  const length = ratio * step;
   const z = end === 'lower' ? 0 : part.height;
   const into = end === 'lower' ? 1 : -1;
   // The cylinder the end belongs to: up to the tangent line for a head, the whole of a course.
@@ -601,8 +627,8 @@ function taper(kernel: GeometryKernel, part: RunPart, end: 'lower' | 'upper', th
     start: [thin, z - into * margin],
     steps: [
       { kind: 'line', to: [thin, z] },
-      { kind: 'line', to: [thick + margin, z + into * TAPER_RATIO * (step + margin)] },
-      { kind: 'line', to: [thick + 2 * margin, z + into * TAPER_RATIO * (step + margin)] },
+      { kind: 'line', to: [thick + margin, z + into * ratio * (step + margin)] },
+      { kind: 'line', to: [thick + 2 * margin, z + into * ratio * (step + margin)] },
       { kind: 'line', to: [thick + 2 * margin, z - into * margin] },
     ],
   });
@@ -619,7 +645,7 @@ function taper(kernel: GeometryKernel, part: RunPart, end: 'lower' | 'upper', th
     },
     landmarks: [
       ...part.landmarks.map((l) => (l.key === outside ? { ...l, diameter: 2 * thin } : l)),
-      { key: `${end}-taper`, z: z + into * length, diameter: 2 * thick, role: '3:1 taper to the thinner wall (outside)' },
+      { key: `${end}-taper`, z: z + into * length, diameter: 2 * thick, role: `${ratio}:1 taper to the thinner wall (outside)` },
     ],
   };
 }
