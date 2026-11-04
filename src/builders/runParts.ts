@@ -35,6 +35,7 @@ import type {
   CourseShape,
   HostFrame,
   HostSurface,
+  Junction,
   Landmark,
   RunBuilder,
   RunContext,
@@ -373,75 +374,145 @@ export const conicalShell: RunBuilder = (component, context) => {
       scope('out_of_scope', Sym.COURSE_LENGTH, `< ${mm(diameter / (2 * tan))}, where it closes`, mm(length))
     );
   }
-  // §4.3.12 reads them; the drawing does not have them yet, and must not pretend otherwise.
-  for (const [symbol, end] of [
-    [Sym.KNUCKLE_RADIUS, 'knuckle at the large end'],
-    [Sym.FLARE_RADIUS, 'flare at the small end'],
-  ] as const) {
-    const radius = optionalDimension(component, symbol);
-    if (radius !== undefined) {
-      notes.push(
-        notBuiltNote(
-          `A ${end} of ${mm(radius)} is stated and not drawn: the cone meets its neighbour at a sharp corner`,
-          symbol,
-          mm(radius),
-          'conical_shell: a sharp corner only'
-        )
-      );
-    }
-  }
-
   const a0 = diameter / 2;
   const a1 = smallEnd / 2;
   const cosA = Math.cos(alpha * DEG);
   const sinA = Math.sin(alpha * DEG);
   // Thickness is normal to the wall; across a horizontal section it reads t / cos α.
   const across = thickness / cosA;
-  const margin = Math.min(length, a1) / 4;
+
+  // §4.3.12: a knuckle at the large end and a flare at the small end, each tangent to the cone
+  // and to the cylinder it meets, so that end of the part is a cylinder of D or D_S. Both are
+  // inside radii: the knuckle's centre lies inside the vessel, the flare's outside it. Unstated,
+  // the end is §4.3.11's sharp corner, at the cone's own section.
+  const knuckle = optionalDimension(component, Sym.KNUCKLE_RADIUS);
+  const flare = optionalDimension(component, Sym.FLARE_RADIUS);
+  const halfTurn = Math.tan((alpha * DEG) / 2);
+  const slant = length / cosA;
+  for (const [symbol, radius, limit, what] of [
+    [Sym.KNUCKLE_RADIUS, knuckle, a0, `${mm(a0)}, the large end's inside radius`],
+    [Sym.FLARE_RADIUS, flare, thickness, `> ${mm(thickness)}, the wall, so the flare's outside has a radius`],
+  ] as const) {
+    if (radius === undefined) continue;
+    if (symbol === Sym.KNUCKLE_RADIUS ? !(radius > 0 && radius < limit) : !(radius > limit)) {
+      throw new BuildError(component, `cannot have a ${symbol.replace(/_/g, ' ')} of ${mm(radius)}`, scope('out_of_scope', symbol, symbol === Sym.KNUCKLE_RADIUS ? `> 0 and < ${what}` : what, mm(radius)));
+    }
+  }
+  if (((knuckle ?? 0) + (flare ?? 0)) * halfTurn > slant) {
+    throw new BuildError(
+      component,
+      `has a knuckle and a flare that meet before the cone does: ${mm(((knuckle ?? 0) + (flare ?? 0)) * halfTurn)} of its ${mm(slant)} slant`,
+      scope('out_of_scope', 'knuckle and flare along the cone', `≤ ${mm(slant)}, the cone's slant length`, mm(((knuckle ?? 0) + (flare ?? 0)) * halfTurn))
+    );
+  }
+
+  // In the part's frame z = 0 is its lower end. The cone's inside line runs between its two
+  // virtual corners, where it would meet the cylinders were the ends sharp.
+  const below = knuckle !== undefined ? knuckle * halfTurn : 0;
+  const above = flare !== undefined ? flare * halfTurn : 0;
+  const z0 = below;
+  const z1 = below + length;
+  const height = z1 + above;
+  const insideAt = (z: number) => a0 - (z - z0) * tan;
+  // The knuckle about (a0 − r_k, 0), the flare about (a1 + r_f, height); both turn through α.
+  const kc: Point2 = [a0 - (knuckle ?? 0), 0];
+  const fc: Point2 = [a1 + (flare ?? 0), height];
+  const onKnuckle = (radius: number, angle: number): Point2 => [kc[0] + radius * Math.cos(angle), radius * Math.sin(angle)];
+  const onFlare = (radius: number, angle: number): Point2 => [fc[0] - radius * Math.cos(angle), height - radius * Math.sin(angle)];
+  const a = alpha * DEG;
+  // Where the straight cone begins and ends, inside and outside.
+  const coneLow = knuckle !== undefined ? onKnuckle(knuckle, a)[1] : 0;
+  const coneHigh = flare !== undefined ? onFlare(flare, a)[1] : height;
+
+  const outsideSteps: ProfileStep[] = [
+    ...(knuckle !== undefined
+      ? [line(a0 + thickness, 0), arc(onKnuckle(knuckle + thickness, a), onKnuckle(knuckle + thickness, a / 2))]
+      : [line(a0 + across, 0)]),
+    ...(flare !== undefined
+      ? [line(...onFlare(flare - thickness, a)), arc([a1 + thickness, height], onFlare(flare - thickness, a / 2))]
+      : [line(a1 + across, height)]),
+  ];
+  const insideDown: ProfileStep[] = [
+    ...(flare !== undefined
+      ? [line(a1, height), arc(onFlare(flare, a), onFlare(flare, a / 2))]
+      : [line(a1, height)]),
+    ...(knuckle !== undefined ? [line(...onKnuckle(knuckle, a)), arc([a0, 0], onKnuckle(knuckle, a / 2))] : []),
+  ];
+  const insideUp: ProfileStep[] = [
+    ...(knuckle !== undefined ? [arc(onKnuckle(knuckle, a), onKnuckle(knuckle, a / 2))] : []),
+    ...(flare !== undefined
+      ? [line(...onFlare(flare, a)), arc([a1, height], onFlare(flare, a / 2))]
+      : [line(a1, height)]),
+  ];
+
+  const margin = Math.min(height, a1) / 4;
   let cavity: ReturnType<RunContext['kernel']['revolve']> | undefined;
   const course: CourseShape = {
     halfApexAngle: alpha,
     thickness,
-    insideRadiusAt: (offset: number) => a0 - offset * tan,
-    outsideRadiusAt: (offset: number) => a0 - offset * tan + across,
+    insideRadiusAt: insideAt,
+    outsideRadiusAt: (offset: number) => insideAt(offset) + across,
   };
   // The mid-surface's circumferential radius of curvature is its distance to the axis along
   // the normal: r / cos α.
   const surfaceAt = (offset: number): WallSurface => ({
     kind: 'cone',
-    principalRadii: [null, (a0 - offset * tan + across / 2) / cosA],
+    principalRadii: [null, (insideAt(offset) + across / 2) / cosA],
   });
   const upward: Point2 = [-sinA, cosA];
 
+  // A knuckled or flared end is a cylinder's end: it meets its neighbour square, on D or D_S.
+  const end = (side: 'lower' | 'upper'): Junction => {
+    const curved = side === 'lower' ? knuckle !== undefined : flare !== undefined;
+    const inside = side === 'lower' ? a0 : a1;
+    const z = side === 'lower' ? 0 : height;
+    if (curved) {
+      return {
+        insideDiameter: 2 * inside,
+        outsideDiameter: 2 * (inside + thickness),
+        wall: { surface: cylinderSurface(inside + thickness / 2), thickness, meridian: side === 'lower' ? DOWN : UP },
+        straightLength: 0,
+      };
+    }
+    return {
+      insideDiameter: 2 * inside,
+      outsideDiameter: 2 * (inside + across),
+      wall: { surface: surfaceAt(z), thickness, meridian: side === 'lower' ? [sinA, -cosA] : upward },
+    };
+  };
+  const lower = end('lower');
+  const upper = end('upper');
+  const tangent = (key: string, centreSide: 'knuckle' | 'flare', role: string): Landmark[] => {
+    const at = (radius: number) => (centreSide === 'knuckle' ? onKnuckle(radius, a) : onFlare(radius, a));
+    const inner = at(centreSide === 'knuckle' ? knuckle! : flare!);
+    const outer = at(centreSide === 'knuckle' ? knuckle! + thickness : flare! - thickness);
+    return [
+      { key: `${key}-inside`, z: inner[1], diameter: 2 * inner[0], role: `${role} (inside)` },
+      { key: `${key}-outside`, z: outer[1], diameter: 2 * outer[0], role: `${role} (outside)` },
+    ];
+  };
+
   return {
-    solid: context.kernel.revolve({
-      start: [a0, 0],
-      steps: [line(a0 + across, 0), line(a1 + across, length), line(a1, length)],
-    }),
-    height: length,
-    lower: {
-      insideDiameter: diameter,
-      outsideDiameter: 2 * (a0 + across),
-      wall: { surface: surfaceAt(0), thickness, meridian: [sinA, -cosA] },
-    },
-    upper: {
-      insideDiameter: smallEnd,
-      outsideDiameter: 2 * (a1 + across),
-      wall: { surface: surfaceAt(length), thickness, meridian: upward },
-    },
+    solid: context.kernel.revolve({ start: [a0, 0], steps: [...outsideSteps, ...insideDown] }),
+    height,
+    lower,
+    upper,
     landmarks: [
-      ...junctionLandmarks('lower', 0, diameter, 2 * (a0 + across), 'Large end'),
-      ...junctionLandmarks('upper', length, smallEnd, 2 * (a1 + across), 'Small end'),
+      ...junctionLandmarks('lower', 0, lower.insideDiameter, lower.outsideDiameter, knuckle !== undefined ? 'Large end, knuckle to cylinder' : 'Large end'),
+      ...junctionLandmarks('upper', height, upper.insideDiameter, upper.outsideDiameter, flare !== undefined ? 'Small end, flare to cylinder' : 'Small end'),
+      ...(knuckle !== undefined ? tangent('knuckle-cone', 'knuckle', 'Knuckle-to-cone tangent line') : []),
+      ...(flare !== undefined ? tangent('flare-cone', 'flare', 'Flare-to-cone tangent line') : []),
     ],
     host: {
       anchor: 'shell_side',
-      offsetRange: [0, length],
-      defaultOffset: length / 2,
+      // A nozzle or a ring sits on the straight cone, never on the knuckle or the flare.
+      offsetRange: [coneLow, coneHigh],
+      defaultOffset: (coneLow + coneHigh) / 2,
       course,
       sideOf: courseSide(course),
       frameAt(offset: number, azimuth: number): HostFrame {
         const phi = azimuth * DEG;
-        const r = a0 - offset * tan + across;
+        const r = insideAt(offset) + across;
         return {
           origin: [r * Math.cos(phi), r * Math.sin(phi), offset],
           axis: [cosA * Math.cos(phi), cosA * Math.sin(phi), sinA],
@@ -451,21 +522,17 @@ export const conicalShell: RunBuilder = (component, context) => {
       cavity() {
         cavity ??= context.kernel.revolve({
           start: [0, -margin],
-          steps: [
-            line(a0, -margin),
-            line(a0, 0),
-            line(a1, length),
-            line(a1, length + margin),
-            line(0, length + margin),
-          ],
+          steps: [line(a0, -margin), line(a0, 0), ...insideUp, line(a1, height + margin), line(0, height + margin)],
         });
         return cavity;
       },
       wallAt: (offset) => ({ surface: surfaceAt(offset), thickness, meridian: upward }),
     },
     meridian: [
-      [a0 + across / 2, 0],
-      [a1 + across / 2, length],
+      ...(knuckle !== undefined ? arcPoints(kc, knuckle + thickness / 2, 0, a, 16) : [[a0 + across / 2, 0] as Point2]),
+      ...(flare !== undefined
+        ? arcPoints(fc, flare - thickness / 2, Math.PI + a, Math.PI, 16)
+        : [[a1 + across / 2, height] as Point2]),
     ],
     notes,
   };

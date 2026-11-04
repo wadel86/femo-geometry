@@ -5,6 +5,7 @@
 // restart it at will. No framework: `node:http` and JSON, the kernel being the only dependency.
 //
 //   GET  /health   → {"status":"UP", "revision": ..., ...}
+//   GET  /catalogue → the draft entries: status, specimen, parameters, ports, joint
 //   POST /resolve  {definition, mode?} → ResolvedGeometry
 //   POST /step     {definition, mode?} → the STEP file (model/step), or 422 with the refusals
 //
@@ -22,6 +23,7 @@ import {
   stepOf,
   type GeometryMode,
 } from '../assembly/resolve.ts';
+import { DRAFT_ENTRIES, OUT_OF_SCOPE } from '../catalogue/draftEntries.ts';
 import type { AssemblyDefinition } from '../definition.ts';
 import { createBrepjsKernel } from '../kernel/brepjsKernel.ts';
 
@@ -76,6 +78,11 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
 
   if (request.method === 'GET' && path === '/health') {
     json(response, 200, { status: 'UP', kernel: 'occt-wasm', revision, formatVersion: GEOMETRY_FORMAT_VERSION });
+    return;
+  }
+  if (request.method === 'GET' && path === '/catalogue') {
+    // The draft entries, their specimens included: a mesh-side recipe can resolve one as is.
+    json(response, 200, { revision, entries: DRAFT_ENTRIES, outOfScope: OUT_OF_SCOPE });
     return;
   }
   if (request.method === 'POST' && (path === '/resolve' || path === '/step')) {

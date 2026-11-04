@@ -28,6 +28,12 @@ export interface Junction {
   /** A bolted or gasketed face, rather than the end of a wall that is welded. */
   readonly face?: boolean;
   /**
+   * How far from the end the wall stays the cylinder it ends in, where that is not the part's
+   * whole length or a head's straight flange: no taper may run further. Zero on a knuckle or a
+   * flare, which leave the cylinder at the very end.
+   */
+  readonly straightLength?: number;
+  /**
    * The wall where it ends. Its meridian points away from the part; for a face, its thickness
    * is the width across it.
    */

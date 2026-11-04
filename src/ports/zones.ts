@@ -307,6 +307,57 @@ export function deriveZones(
     }
   }
 
+  // ---------------------------------------------------------------- inside a toriconical course
+  // §4.3.12's knuckle and flare: where each meets the cone, and where each meets its cylinder —
+  // the part's own end, so that one sits on the weld.
+  for (const part of model.parts) {
+    if (part.status !== 'drawn' || part.kind !== Kind.CONICAL_SHELL || !part.hostSurface || !path.has(part.componentId)) continue;
+    const t = part.hostSurface.course?.thickness ?? part.hostSurface.wallAt(0).thickness;
+    const alpha = ((part.hostSurface.course?.halfApexAngle ?? 0) * Math.PI) / 180;
+    for (const [key, tangentKey, endKey] of [
+      ['knuckle', 'knuckle-cone', 'lower'],
+      ['flare', 'flare-cone', 'upper'],
+    ] as const) {
+      const inside = part.landmarks.find((l) => l.key === `${tangentKey}-inside`);
+      const outside = part.landmarks.find((l) => l.key === `${tangentKey}-outside`);
+      if (!inside || !outside) continue;
+      for (const [id, kind, a, b] of [
+        [`${part.componentId}:${tangentKey}`, 'knuckle', inside, outside],
+        [
+          `${part.componentId}:${key}-cylinder`,
+          'tangent_line',
+          part.landmarks.find((l) => l.key === `${endKey}-inside`),
+          part.landmarks.find((l) => l.key === `${endKey}-outside`),
+        ],
+      ] as const) {
+        if (!a || !b) continue;
+        const rho = (a.diameter + b.diameter) / 4;
+        const z = (a.z + b.z) / 2;
+        const s = path.at(part.componentId, [rho, 0, z]);
+        if (s === undefined) continue;
+        // Either side the circumferential radius is the cone's at that circle, r / cos α; the
+        // cylinder's own r on the cylinder side.
+        const coneSide = Math.sqrt((rho / Math.cos(alpha)) * t);
+        const cylinderSide = Math.sqrt(rho * t);
+        const onCylinder = kind === 'tangent_line';
+        const lowSide = key === 'knuckle' ? (onCylinder ? cylinderSide : coneSide) : coneSide;
+        const highSide = key === 'knuckle' ? coneSide : onCylinder ? cylinderSide : coneSide;
+        const flipped = part.transform.flipped;
+        discontinuities.push({
+          id,
+          kind,
+          componentId: part.componentId,
+          componentIds: [part.componentId],
+          location: toAssembly([0, 0, z], part.transform),
+          causes: ['curvature'],
+          meridional: [s, s],
+          circumferential: null,
+          sqrtRt: { below: flipped ? highSide : lowSide, above: flipped ? lowSide : highSide },
+        });
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- openings and attachments
   for (const part of model.parts) {
     if (part.status !== 'drawn' || !part.hostId || !part.mount || !part.localPlacement) continue;

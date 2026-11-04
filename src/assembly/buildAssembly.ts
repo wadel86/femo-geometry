@@ -615,7 +615,9 @@ function taper(kernel: GeometryKernel, part: RunPart, end: 'lower' | 'upper', th
   const z = end === 'lower' ? 0 : part.height;
   const into = end === 'lower' ? 1 : -1;
   // The cylinder the end belongs to: up to the tangent line for a head, the whole of a course.
-  const straight = end === 'lower' ? (part.tangentLine ?? part.height) : part.height - (part.tangentLine ?? 0);
+  const straight =
+    junction.straightLength ??
+    (end === 'lower' ? (part.tangentLine ?? part.height) : part.height - (part.tangentLine ?? 0));
   if (length > straight + 1e-9) return null;
 
   const inside = junction.insideDiameter / 2;

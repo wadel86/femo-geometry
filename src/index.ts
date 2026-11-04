@@ -8,6 +8,13 @@ export type * from './builders/types.ts';
 export { RUN_BUILDERS } from './builders/runParts.ts';
 export { MOUNTED_BUILDERS } from './builders/mounted.ts';
 export {
+  DRAFT_ENTRIES,
+  OUT_OF_SCOPE,
+  type DeclaredJoint,
+  type DraftEntry,
+  type EntryStatus,
+} from './catalogue/draftEntries.ts';
+export {
   AssemblyBuilder,
   assemblyBounds,
   runOrder,

@@ -157,8 +157,8 @@ test('a pad on a head is the head thickened: it lies on the head and nowhere in 
   assert.equal(past[0].value, '966 mm');
 });
 
-test("a cone's knuckle and flare are stated, not drawn, and said to be", () => {
-  const messages = refusals({
+test("a cone's knuckle and flare are drawn, so nothing about them is refused", () => {
+  const found = refusals({
     components: [
       part('C', 'conical_shell', {
         inside_diameter: 2000, thickness: 20, half_apex_angle: 30, small_end_diameter: 1200,
@@ -167,9 +167,8 @@ test("a cone's knuckle and flare are stated, not drawn, and said to be", () => {
     ],
     placements: {},
     reversed: [],
-  }).map((r) => r.message);
-  assert.ok(messages.some((m) => /knuckle at the large end of 200 mm is stated and not drawn/.test(m)), messages.join('\n'));
-  assert.ok(messages.some((m) => /flare at the small end of 100 mm is stated and not drawn/.test(m)));
+  });
+  assert.deepEqual(found.filter((r) => /knuckle|flare/.test(r.message)), []);
 });
 
 test('a flat head next to an obround body is not joined to it, and analysis says so', () => {
