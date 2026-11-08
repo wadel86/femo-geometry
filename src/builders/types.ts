@@ -33,6 +33,8 @@ export interface Junction {
    * flare, which leave the cylinder at the very end.
    */
   readonly straightLength?: number;
+  /** Where the end's circles are centred, in the XY plane of the part's frame; absent, on the axis. */
+  readonly centre?: Point2;
   /**
    * The wall where it ends. Its meridian points away from the part; for a face, its thickness
    * is the width across it.
@@ -54,6 +56,8 @@ export interface Landmark {
   readonly role: string;
   /** Set on the circles where the part meets a neighbour, which the assembly then names. */
   readonly junction?: 'lower' | 'upper';
+  /** Set on a circle that is not centred on the axis: an eccentric cone's small end. */
+  readonly centre?: Point2;
 }
 
 /** Where a mounted part stands on its host, in the host's frame. */
@@ -117,6 +121,12 @@ export interface RunPart {
    * or its lower pole — onwards: what a distance along the vessel's surface is measured on.
    */
   readonly meridian: readonly Point2[];
+  /**
+   * Parallel to `meridian`: where the circle through each of its points is centred, in the XY
+   * plane of the part's frame. Absent, every one is on the axis — the part is revolved. Stated by
+   * a part whose sections are circles that do not share an axis: an eccentric cone.
+   */
+  readonly centres?: readonly Point2[];
   /** For a formed head: the height of its tangent line above its lower junction. */
   readonly tangentLine?: number;
   readonly idealisations?: readonly Idealisation[];
@@ -165,12 +175,19 @@ export interface MountedPart {
   };
   /** Half the part's extent along the host's offset: what must stay on the host. */
   readonly footprint: number;
+  /**
+   * Metal the part gives its host, in the host's frame, drawn as one more solid of the host after
+   * the opening is cut: a nozzle's rounded corner, outside the radius it is split at.
+   */
+  readonly hostAddition?: Solid;
   /** Repeats of the solids, parallel to `solids`: see {@link Copies}. */
   readonly copies?: Copies;
   /** For a nozzle: its neck, and its pad when one is drawn. */
   readonly neck?: Neck;
   /** For a part welded on without opening its host: the patch of wall it covers. */
   readonly attachment?: Attachment;
+  /** For a tube bundle: the pattern its tubes repeat, and where they end. */
+  readonly bundle?: TubeBundle;
   /**
    * Where the part really stands on its host when its own dimensions decide it rather than its
    * placement — a skirt on a head meets the knuckle where its diameter says.
@@ -186,6 +203,22 @@ export interface Neck {
   readonly outward: number;
   readonly inward: number;
   readonly pad?: { readonly reach: number; readonly thickness: number };
+}
+
+/**
+ * A tube bundle is one part carrying a pattern, not several hundred parts: every tube is the same
+ * tube, and §4.18 reads the pattern — pitch, layout, limit radius — never a tube by position. Its
+ * ends are what the tubesheets join, all tubes of an end at once.
+ */
+export interface TubeBundle {
+  readonly count: number;
+  readonly pitch: number;
+  readonly layoutAngle: number;
+  readonly limitRadius: number;
+  readonly tubeOutsideDiameter: number;
+  readonly tubeThickness: number;
+  /** Where the tubes end, along the host's axis in its frame: lower then upper. */
+  readonly ends: readonly [number, number];
 }
 
 export interface Attachment {
@@ -223,6 +256,12 @@ export interface MountedContext {
    * not one `thickness`.
    */
   readonly thickenedHost?: (extra: number) => Solid;
+  /**
+   * A nozzle's corner radii, a construction detail: where the neck meets the host's outside
+   * surface (the crotch, rounded by added metal) and where its bore meets the inside (rounded by
+   * metal taken away). Undefined, both corners are sharp, as the catalogue nozzle always was.
+   */
+  readonly corner?: { readonly outside: number; readonly inside: number };
 }
 
 export type MountedBuilder = (component: ComponentDefinition, context: MountedContext) => MountedPart;

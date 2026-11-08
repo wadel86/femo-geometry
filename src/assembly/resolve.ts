@@ -19,6 +19,9 @@ import {
   type Proximity,
 } from '../ports/zones.ts';
 import { describeGeometry, type EdgeDescriptor, type FaceDescriptor } from '../topology/descriptors.ts';
+import { runSection, type AxisymmetryDeclaration, type RunSection } from '../ports/section.ts';
+import type { AppliedDetail, ResolvedDetails } from '../details/apply.ts';
+import { DETAILS, type DetailSpec } from '../details/constructionDetails.ts';
 import {
   assemblyBounds,
   runOrder,
@@ -33,8 +36,11 @@ import {
 
 export type GeometryMode = 'display' | 'analysis';
 
-/** 2: discontinuities, proximities, measured symbols and their issues. */
-export const GEOMETRY_FORMAT_VERSION = 2;
+/**
+ * 2: discontinuities, proximities, measured symbols and their issues. 3: layer 1 as a circular
+ * section per station, the axisymmetry each rule assumes, and the construction details applied.
+ */
+export const GEOMETRY_FORMAT_VERSION = 3;
 
 /** Why a part cannot go to analysis as it is. */
 /**
@@ -105,12 +111,33 @@ export interface ResolvedGeometry {
   readonly measured: Readonly<Record<string, Readonly<Record<string, Measured>>>>;
   /** Stated symbols the layout contradicts — refusals too, under analysis. */
   readonly issues: readonly MeasurementIssue[];
+  /** What every proximity's √(R·t) assumes: one R per station, the section's radius about the axis. */
+  readonly influenceAssumption: AxisymmetryDeclaration;
+  /** Layer 1: the run as a circular section at every station, centre(s) and radius(s). */
+  readonly section: RunSection;
+  /**
+   * The construction details the model was built with — each one's value, the layer it came from
+   * and what it changed — and the declared effect of every detail the kernel knows. Null when the
+   * definition was built without resolving them.
+   */
+  readonly constructionDetails: {
+    readonly profile: string | null;
+    readonly applied: readonly AppliedDetail[];
+    readonly catalogue: readonly DetailSpec[];
+    /**
+     * The definition as built — corroded dimensions, a profile's straight flange, a datum's bore —
+     * which is what a mesher checks its import against, not the one that was sent.
+     */
+    readonly built: Pick<AssemblyDefinition, 'components' | 'joints'>;
+  } | null;
 }
 
 export interface ResolveOptions {
   readonly mode?: GeometryMode;
   /** Tolerance of the naming predicates; by default the one the viewer derives from the model's size. */
   readonly epsilon?: number;
+  /** The construction details `applyConstructionDetails` resolved the definition with. */
+  readonly details?: ResolvedDetails;
 }
 
 /** Refused by analysis mode: the STEP file of an assembly that is not ready to be meshed. */
@@ -231,6 +258,17 @@ export function resolveGeometry(
   const zones = deriveZones(definition, model, ports, joints);
   const refusals = refusalsOf(definition, model, mode);
   const errors: string[] = [];
+  const section = runSection(definition, model);
+  // Every rule downstream reads one meridian. Off the axis it would answer for a vessel it was
+  // never written for, so the geometry is not ready rather than quietly wrong.
+  if (!section.axisymmetric) {
+    errors.push(
+      `The run is not axisymmetric: ${section.assumptions
+        .filter((a) => a.assumesAxisymmetry)
+        .map((a) => `${a.rule} assumes it (${a.whenBroken})`)
+        .join('; ')}`
+    );
+  }
 
   const parts = model.parts.map((part): ResolvedPart => {
     const described =
@@ -279,6 +317,16 @@ export function resolveGeometry(
     proximities: zones.proximities,
     measured: zones.measured,
     issues: zones.issues,
+    influenceAssumption: zones.influenceAssumption,
+    section,
+    constructionDetails: options.details
+      ? {
+          profile: options.details.profile,
+          applied: options.details.applied,
+          catalogue: DETAILS,
+          built: { components: definition.components, ...(definition.joints ? { joints: definition.joints } : {}) },
+        }
+      : null,
   };
 }
 

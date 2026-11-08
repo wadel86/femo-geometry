@@ -29,6 +29,14 @@ export type ProfileStep =
   | { readonly kind: 'bezier'; readonly to: Point2; readonly controls: readonly Point2[] };
 
 /** A closed outline of the meridian half-plane, closed by a straight line back to its start. */
+/** A circle square to Z: what {@link GeometryKernel.loft} joins. */
+export interface CircleSection {
+  readonly z: number;
+  /** In the XY plane. */
+  readonly centre: Point2;
+  readonly radius: number;
+}
+
 export interface Profile {
   readonly start: Point2;
   readonly steps: readonly ProfileStep[];
@@ -105,6 +113,14 @@ export interface FaceGeometry extends FaceInfo {
   readonly axis: Frame | null;
 }
 
+/** An edge as a fillet's selector sees it: where it runs, and whether it closes on itself. */
+export interface EdgeProbe {
+  readonly start: Vec3;
+  readonly middle: Vec3;
+  readonly end: Vec3;
+  readonly closed: boolean;
+}
+
 export interface EdgeGeometry extends EdgeInfo {
   readonly bounds: Bounds;
 }
@@ -145,10 +161,28 @@ export interface GeometryKernel {
    */
   helicalTube(radius: number, pitch: number, from: number, height: number, tubeRadius: number): Solid;
 
+  /**
+   * A solid through circles square to Z, joined by ruled faces from each to the next: every
+   * section is a circle, but the centres need not lie on one axis — an eccentric cone. The point
+   * at angle θ of one circle is ruled to the point at θ of the next. Optional: a kernel without
+   * it does not draw such a part, and says so.
+   */
+  loft?(sections: readonly CircleSection[]): Solid;
+
   /** `base` with every tool removed, in one boolean. */
   cut(base: Solid, tools: readonly Solid[]): Solid;
 
   intersect(a: Solid, b: Solid): Solid;
+
+  /** The union of two solids, as one solid: what a corner is rounded on before it is split again. */
+  fuse(a: Solid, b: Solid): Solid;
+
+  /**
+   * The solid with some of its edges rounded. `radiusOf` is asked once per edge and returns the
+   * radius to round it to, or null to leave it sharp; an edge is offered by where it runs, never
+   * by an index a rebuild would renumber.
+   */
+  fillet(solid: Solid, radiusOf: (edge: EdgeProbe) => number | null): Solid;
 
   translate(solid: Solid, offset: Vec3): Solid;
 

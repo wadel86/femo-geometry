@@ -14,7 +14,8 @@ import {
 } from './nozzles.ts';
 import { jacketClosure, pressureReliefDevice } from './fittings.ts';
 import { requireWithinHost } from './placing.ts';
-import { halfPipeJacket, lugSupport, saddleSupport, skirtSupport } from './supports.ts';
+import { passPartitionPlate, tubeBundle } from './exchangers.ts';
+import { halfPipeJacket, legSupport, lugSupport, saddleSupport, skirtSupport } from './supports.ts';
 import type { MountedBuilder } from './types.ts';
 
 /**
@@ -80,4 +81,7 @@ export const MOUNTED_BUILDERS: Readonly<Record<string, MountedBuilder>> = {
   half_pipe_jacket: halfPipeJacket,
   jacket_closure: jacketClosure,
   pressure_relief_device: pressureReliefDevice,
+  leg_support: legSupport,
+  pass_partition_plate: passPartitionPlate,
+  tube_bundle: tubeBundle,
 };

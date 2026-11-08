@@ -23,8 +23,9 @@ import {
   stepOf,
   type GeometryMode,
 } from '../assembly/resolve.ts';
-import { DRAFT_ENTRIES, OUT_OF_SCOPE } from '../catalogue/draftEntries.ts';
+import { DECLARATIONS, DRAFT_ENTRIES, OUT_OF_SCOPE, TUBE_MODEL } from '../catalogue/draftEntries.ts';
 import type { AssemblyDefinition } from '../definition.ts';
+import { applyConstructionDetails, withDetailNotes } from '../details/apply.ts';
 import { createBrepjsKernel } from '../kernel/brepjsKernel.ts';
 
 const PORT = Number(process.env.GEOMETRY_PORT ?? 8095);
@@ -82,15 +83,17 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
   }
   if (request.method === 'GET' && path === '/catalogue') {
     // The draft entries, their specimens included: a mesh-side recipe can resolve one as is.
-    json(response, 200, { revision, entries: DRAFT_ENTRIES, outOfScope: OUT_OF_SCOPE });
+    json(response, 200, { revision, entries: DRAFT_ENTRIES, outOfScope: OUT_OF_SCOPE, declarations: DECLARATIONS, tubeModel: TUBE_MODEL });
     return;
   }
   if (request.method === 'POST' && (path === '/resolve' || path === '/step')) {
-    const { definition, mode } = parse(await body(request));
+    const { definition: declared, mode } = parse(await body(request));
     const startedAt = performance.now();
-    const model = builder.build(definition);
+    // The construction details become dimensions and joint parameters before anything is built.
+    const { definition, details } = applyConstructionDetails(declared);
+    const model = withDetailNotes(builder.build(definition), details);
     if (path === '/resolve') {
-      json(response, 200, resolveGeometry(definition, model, kernel, { mode }));
+      json(response, 200, resolveGeometry(definition, model, kernel, { mode, details }));
     } else {
       const step = stepOf(definition, model, kernel, mode);
       response.writeHead(200, { 'Content-Type': 'model/step', 'Content-Length': Buffer.byteLength(step) });
@@ -123,6 +126,7 @@ function parse(raw: string): { definition: AssemblyDefinition; mode: GeometryMod
       reversed: definition.reversed ?? [],
       ...(Number.isFinite(definition.layoutRevision) ? { layoutRevision: definition.layoutRevision } : {}),
       ...(definition.joints && typeof definition.joints === 'object' ? { joints: definition.joints } : {}),
+      ...(definition.details && typeof definition.details === 'object' ? { details: definition.details } : {}),
     },
     mode,
   };

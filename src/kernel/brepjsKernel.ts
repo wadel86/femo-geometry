@@ -19,6 +19,8 @@ import {
   cutAll,
   draw,
   faceCenter,
+  fillet,
+  fuse,
   facesOfEdge,
   getBounds,
   getCurveType,
@@ -36,13 +38,16 @@ import {
   translate,
   unwrap,
   curveIsClosed,
+  loft as loftWires,
 } from 'brepjs';
 import { OcctKernel } from 'occt-wasm';
 import type {
   Bounds,
+  CircleSection,
   CurveKind,
   EdgeGeometry,
   EdgeInfo,
+  EdgeProbe,
   FaceGeometry,
   FaceInfo,
   Frame,
@@ -121,6 +126,11 @@ class BrepjsKernel implements GeometryKernel {
     return asSolid(unwrap(sweep(section as never, spine, { frenet: true })) as Shape);
   }
 
+  loft(sections: readonly CircleSection[]): Solid {
+    const wires = sections.map((s) => unwrap(wire([circle(s.radius, { at: [s.centre[0], s.centre[1], s.z], axis: [0, 0, 1] })])));
+    return asSolid(unwrap(loftWires(wires as never, { ruled: true })) as Shape);
+  }
+
   tube(frame: Frame, innerRadius: number, outerRadius: number, from: number, to: number): Solid {
     const outline = draw([innerRadius, from])
       .lineTo([outerRadius, from])
@@ -147,6 +157,38 @@ class BrepjsKernel implements GeometryKernel {
 
   intersect(a: Solid, b: Solid): Solid {
     return asSolid(unwrap(intersect(asShape(a), asShape(b))));
+  }
+
+  fuse(a: Solid, b: Solid): Solid {
+    return asSolid(unwrap(fuse(asShape(a), asShape(b))));
+  }
+
+  fillet(solid: Solid, radiusOf: (edge: EdgeProbe) => number | null): Solid {
+    const pick = (shape: Shape) =>
+      getEdges(shape).map((edge: Shape) => ({
+        edge,
+        radius: radiusOf({
+          start: toVec3(curvePointAt(edge, 0)),
+          middle: toVec3(curvePointAt(edge, 0.5)),
+          end: toVec3(curvePointAt(edge, 1)),
+          closed: curveIsClosed(edge),
+        }),
+      }));
+    // One radius per call: given several at once, OpenCascade rounds the edges of a saddle-shaped
+    // intersection to a fraction of what was asked (a 38.1 mm crotch came out a quarter its volume).
+    // A rounded edge is replaced by the fillet's own boundaries, which a selector by location does
+    // not pick again, so each radius is asked for exactly once.
+    const radii = [...new Set(pick(asShape(solid)).map((p: { radius: number | null }) => p.radius))]
+      .filter((r): r is number => r !== null && r > 0)
+      .sort((x, y) => y - x);
+    let shape = asShape(solid);
+    for (const radius of radii) {
+      const edges = pick(shape)
+        .filter((p: { radius: number | null }) => p.radius === radius)
+        .map((p: { edge: Shape }) => p.edge);
+      if (edges.length > 0) shape = unwrap(fillet(shape, edges, radius));
+    }
+    return asSolid(shape);
   }
 
   translate(solid: Solid, offset: Vec3): Solid {

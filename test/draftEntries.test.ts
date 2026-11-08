@@ -4,9 +4,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { AssemblyBuilder } from '../src/assembly/buildAssembly.ts';
-import { DRAFT_ENTRIES } from '../src/catalogue/draftEntries.ts';
-import type { AssemblyDefinition } from '../src/definition.ts';
+import { DECLARATIONS, DRAFT_ENTRIES } from '../src/catalogue/draftEntries.ts';
+import { Kind, type AssemblyDefinition } from '../src/definition.ts';
+import { applyConstructionDetails } from '../src/details/apply.ts';
+import { Detail } from '../src/details/constructionDetails.ts';
 import { derivePorts } from '../src/ports/ports.ts';
+import { runSection } from '../src/ports/section.ts';
 import { kernel } from './fixtures.ts';
 
 /**
@@ -82,4 +85,57 @@ test('the first pass names every component and joint the brief lists, once', () 
   const ids = DRAFT_ENTRIES.map((e) => e.id);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(DRAFT_ENTRIES.filter((e) => e.entry === 'joint').length, 17);
+});
+
+test('wave 1b leaves nothing not started, and every article it touched is an entry or a declaration', () => {
+  assert.deepEqual(DRAFT_ENTRIES.filter((e) => e.status === 'not started').map((e) => e.id), []);
+  assert.ok(DRAFT_ENTRIES.some((e) => e.article === '§4.8'));
+  assert.ok(DECLARATIONS.some((d) => d.article === '§4.8') && DECLARATIONS.some((d) => d.article === '§4.12'));
+});
+
+// A construction detail an entry claims is one it resolves: declared corroded, its part changes.
+for (const entry of DRAFT_ENTRIES.filter((e) => e.constructionDetails)) {
+  test(`construction details: ${entry.id}`, () => {
+    const known = new Set<string>(Object.values(Detail));
+    for (const key of entry.constructionDetails!) assert.ok(known.has(key), `${key} is not a construction detail`);
+    if (!entry.constructionDetails!.includes(Detail.CORRODED_MODEL)) return;
+    const { details } = applyConstructionDetails({
+      ...entry.specimen!,
+      details: { equipment: { [Detail.CORRODED_MODEL]: 'corroded', [Detail.CORROSION_ALLOWANCE]: 3 } },
+    });
+    assert.ok(
+      details.applied.some((a) => a.at === entry.focus && a.key === Detail.CORRODED_MODEL && a.effect),
+      `corroding the specimen changes nothing on ${entry.focus}`
+    );
+  });
+}
+
+// The eccentric cone is the test of layer 1: a circle per station whose centre moves.
+test('layer 1 describes the eccentric cone with no special case, and the run beneath it says what it cannot do', () => {
+  const entry = DRAFT_ENTRIES.find((e) => e.id === 'conical_shell.eccentric')!;
+  const above = { id: 'U', name: 'U', kind: Kind.CYLINDRICAL_SHELL, position: 2, hostId: null, dimensions: { inside_diameter: 1200, thickness: 20, course_length: 1000 } };
+  const definition = { ...entry.specimen!, components: [...entry.specimen!.components, above] };
+  const model = new AssemblyBuilder(kernel).build(definition);
+  const section = runSection(definition, model);
+  assert.equal(section.axisymmetric, false);
+  const cone = section.stations.filter((s) => s.componentId === 'C');
+  assert.deepEqual(cone[0].centre, [0, 0]);
+  assert.ok(Math.abs(cone[1].centre[0] - 400) < 1e-6 && Math.abs(cone[1].centre[1]) < 1e-9, `small end centred at ${cone[1].centre}`);
+  assert.ok(Math.abs(cone[1].radius - 610) < 1e-6);
+  // The course above is stacked on the axis: its joint to the small end is refused, not passed.
+  const joint = derivePorts(definition, model).joints.find((j) => j.id === 'C:upper~U:lower');
+  assert.ok(joint?.issues.some((i) => i.startsWith('Centres are 400 mm apart')), joint?.issues.join('; '));
+  assert.ok(section.assumptions.some((a) => a.rule === 'the run, stacked' && a.assumesAxisymmetry));
+});
+
+test('a tube-to-tubesheet joint with no weld is refused, and a bundle that disagrees with its plate is a mismatch', () => {
+  const entry = DRAFT_ENTRIES.find((e) => e.id === 'tube')!;
+  const definition = {
+    ...entry.specimen!,
+    components: entry.specimen!.components.map((c) => (c.id === 'B' ? { ...c, dimensions: { ...c.dimensions, tube_pitch: 32 } } : c)),
+  };
+  const joint = derivePorts(definition, new AssemblyBuilder(kernel).build(definition)).joints.find((j) => j.kind === 'tube_to_tubesheet')!;
+  assert.ok(joint.multiplicity! > 1000);
+  assert.ok(joint.issues.some((i) => i.startsWith('No strength weld stated')));
+  assert.ok(joint.issues.some((i) => i.includes('tube pitch 32')));
 });

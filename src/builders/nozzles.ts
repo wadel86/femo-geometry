@@ -157,12 +157,33 @@ function nozzle(aimer: Aimer): MountedBuilder {
       }
     }
 
+    let tool = kernel.tube(frame, 0, outside, -through, 2 * footprint + 10);
+    let bore = outside;
+    let hostAddition: MountedPart['hostAddition'];
+    if (context.corner) {
+      const rounded = roundCorners(
+        context,
+        frame,
+        { inside, outside, inward, outward, through },
+        solids[0],
+        tool,
+        pad !== undefined
+      );
+      solids[0] = rounded.neck;
+      tool = rounded.tool;
+      bore = rounded.bore ?? outside;
+      hostAddition = rounded.hostAddition;
+      notes.push(...rounded.notes);
+    }
+
     const part: MountedPart = {
       solids,
+      ...(hostAddition ? { hostAddition } : {}),
       opening: {
-        tool: kernel.tube(frame, 0, outside, -through, 2 * footprint + 10),
+        tool,
         frame,
-        radius: outside,
+        // Rounded, the host is bored past the corner's toes and given the rounding back as a solid.
+        radius: bore,
         depth: through,
       },
       footprint,
@@ -170,6 +191,111 @@ function nozzle(aimer: Aimer): MountedBuilder {
       notes,
     };
     return part;
+  };
+}
+
+/**
+ * A nozzle's two corners rounded, as a construction detail declares them.
+ *
+ * The catalogue nozzle is a uniform tube meeting its host at a sharp corner, which no real nozzle
+ * has: the crotch, where the neck meets the host's outside surface, is welded or forged to a
+ * radius, and the bore's edge at the inside surface is ground to one. The neck and the host stay
+ * separate solids — whoever meshes them decides where they are joined — so the rounding is done
+ * on a patch of the host fused with the neck, and the result split back into the two across the
+ * fillets (see below). The edges are chosen by where they run — at the neck's radius from its axis,
+ * on the host's surface — never by index.
+ */
+function roundCorners(
+  context: MountedContext,
+  frame: HostFrame,
+  neck: { inside: number; outside: number; inward: number; outward: number; through: number },
+  neckSolid: ReturnType<MountedContext['kernel']['tube']>,
+  tool: ReturnType<MountedContext['kernel']['tube']>,
+  padded: boolean
+): { neck: typeof neckSolid; hostAddition?: typeof neckSolid; tool: typeof tool; bore?: number; notes: Note[] } {
+  const { kernel, hostSurface } = context;
+  const { outside: rOut, inside: rIn } = context.corner!;
+  const refused = (message: string, parameter: string, limit: string, value: string) => ({
+    neck: neckSolid,
+    tool,
+    notes: [note(message, undefined, scope('not_built', parameter, limit, value))],
+  });
+  if (padded) {
+    return refused(
+      'Corner radii not drawn: the neck meets a reinforcing pad, not the host',
+      'nozzle corner radius',
+      'a nozzle without a pad',
+      `${mm(rOut)} outside, ${mm(rIn)} inside`
+    );
+  }
+  if (!context.hostSolid) {
+    return refused('Corner radii not drawn: the host solid is not available', 'nozzle corner radius', 'a drawn host', 'none');
+  }
+
+  const reach = neck.outside + 3 * Math.max(rOut, rIn) + neck.through;
+  const patch = kernel.cut(kernel.intersect(context.hostSolid, kernel.tube(frame, 0, reach, -(neck.through + 2 * reach), 2 * reach)), [tool]);
+  const fused = kernel.fuse(patch, neckSolid);
+
+  // Where an edge runs, in the neck's own terms: how far from its axis, how far along it.
+  const across = (p: readonly [number, number, number]) => {
+    const v = [p[0] - frame.origin[0], p[1] - frame.origin[1], p[2] - frame.origin[2]];
+    const along = v[0] * frame.axis[0] + v[1] * frame.axis[1] + v[2] * frame.axis[2];
+    const off = Math.hypot(v[0] - along * frame.axis[0], v[1] - along * frame.axis[1], v[2] - along * frame.axis[2]);
+    return { along, off };
+  };
+  const tolerance = 1e-3 * Math.max(1, neck.outside);
+  const near = (p: readonly [number, number, number], radius: number, side: 'inside' | 'outside') => {
+    const { along, off } = across(p);
+    return Math.abs(off - radius) < tolerance && along <= 1 && along >= -(neck.through + 1) && hostSurface.sideOf(p) === side;
+  };
+  // Inside, the corner is the bore's edge on a flush neck, and the neck's own crotch on one that
+  // projects inwards: it then ADDS metal, as the outside one does.
+  const insideRadius = neck.inward > 0 ? neck.outside : neck.inside;
+
+  let rounded;
+  try {
+    rounded = kernel.fillet(fused, (edge) =>
+      rOut > 0 && near(edge.middle, neck.outside, 'outside') ? rOut : rIn > 0 && near(edge.middle, insideRadius, 'inside') ? rIn : null
+    );
+  } catch (error) {
+    return refused(
+      `Corner radii not drawn: the kernel could not round them (${error instanceof Error ? error.message : String(error)})`,
+      'nozzle corner radius',
+      'rounded by the kernel',
+      `${mm(rOut)} outside, ${mm(rIn)} inside`
+    );
+  }
+  // A radius that rounded nothing is a corner the selector did not find: said, never passed off.
+  const changed = Math.abs(kernel.volume(rounded) - kernel.volume(fused)) + kernel.volume(kernel.cut(fused, [rounded]));
+  if (!(changed > 0)) {
+    return refused(
+      'Corner radii not drawn: the corner was not found on the neck',
+      'nozzle corner radius',
+      'a corner where the neck meets the host',
+      `${mm(rOut)} outside, ${mm(rIn)} inside`
+    );
+  }
+  // Split back into neck and host ACROSS the fillets, never along them. A fillet meets the surfaces it
+  // rounds tangentially, so a boundary between two solids laid along it — the ring the rounding adds,
+  // as its own solid — ends in a knife edge of zero angle at each toe, which no boolean downstream can
+  // unite and no tetrahedron can fill (Demo A's N1 at PTB-3's radii: OCC's fuse returned no solid, and
+  // NETGEN 192 inverted cells). Two cylinders about the neck's axis instead: the neck takes everything
+  // within r_s, half way up the crotch's radius; the host takes the rest out to r_p, past both toes, as a
+  // second solid beside its own wall bored to r_p. Each toe then lies inside ONE solid, and every
+  // boundary between two of them crosses the wall or the fillet square to it.
+  const toes = Math.max(neck.outside + rOut, (neck.inward > 0 ? neck.outside : neck.inside) + rIn);
+  const bore = toes + Math.max(frame.wall, 5);
+  // With no crotch radius, half way out to the bore: at r_o itself the split would lie ON the neck's
+  // outside surface, two coincident faces (NETGEN: "some edges multiple times in surface mesh").
+  const split = rOut > 0 ? neck.outside + rOut / 2 : (neck.outside + bore) / 2;
+  const down = -(neck.through + 2 * reach);
+  const up = Math.max(2 * reach, neck.outward + 10);
+  return {
+    neck: kernel.intersect(rounded, kernel.tube(frame, 0, split, down, up)),
+    hostAddition: kernel.intersect(rounded, kernel.tube(frame, split, bore, down, up)),
+    tool: kernel.tube(frame, 0, bore, -neck.through, up),
+    bore,
+    notes: [],
   };
 }
 

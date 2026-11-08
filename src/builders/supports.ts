@@ -354,6 +354,60 @@ export const lugSupport: MountedBuilder = (component, context) => {
 };
 
 /**
+ * A leg — §4.15.5: a pipe column welded along the side of a course and carried down past it to
+ * its base plate on the foundation. One component per leg, placed by azimuth like a lug. The
+ * placement's offset is the middle of the weld, so where the leg is attached — the station
+ * §4.15.5.5 measures its 1.8·√(D·t) from — is the placement itself, and the layout measures it.
+ * It may run past the course's lower end: only its weld has to stay on its host.
+ */
+export const legSupport: MountedBuilder = (component, context) => {
+  const { kernel, placement } = context;
+  const course = cylinderOf(component, context, 'a leg');
+  const diameter = requireDimension(component, Sym.LEG_OUTSIDE_DIAMETER);
+  const wall = requireDimension(component, Sym.LEG_THICKNESS);
+  const length = requireDimension(component, Sym.LEG_LENGTH);
+  const weld = requireDimension(component, Sym.LEG_ATTACHMENT_LENGTH);
+  if (wall >= diameter / 2) {
+    throw new BuildError(component, `has a wall of ${mm(wall)} on a ${mm(diameter)} pipe`, scope('out_of_scope', Sym.LEG_THICKNESS, `< ${mm(diameter / 2)}`, mm(wall)));
+  }
+  if (weld > length) {
+    throw new BuildError(component, `is welded over ${mm(weld)} of a ${mm(length)} leg`, scope('out_of_scope', Sym.LEG_ATTACHMENT_LENGTH, `≤ ${mm(length)}, the leg`, mm(weld)));
+  }
+  requireWithinHost(component, context, weld / 2);
+  const notes: Note[] = [];
+  const statedBase = optionalDimension(component, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS);
+  const base = statedBase ?? Math.max(12, 2 * wall);
+  if (statedBase === undefined) notes.push(assumedNote(`Base plate thickness not stated — drawn ${mm(base)}`, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS, mm(base)));
+
+  const z = placement.axialOffset;
+  const outside = course.outsideRadiusAt(z);
+  // Standing against the shell, touching it along one generatrix.
+  const axis = outside + diameter / 2;
+  const top = z + weld / 2;
+  const bottom = top - length;
+  const half = 0.75 * diameter;
+  const solids = [
+    kernel.tube({ origin: [axis, 0, 0], axis: [0, 0, 1] }, diameter / 2 - wall, diameter / 2, bottom, top),
+    kernel.extrude(rectangle(axis - half, axis + half, -half, half), bottom - base, bottom),
+  ];
+  notes.push(
+    representedNote(
+      'A pipe leg touches the shell along one line; the weld either side of it is not drawn, and the attachment is taken a pipe diameter wide',
+      'leg to shell weld',
+      'two fillets along the line of contact',
+      `a patch ${mm(weld)} by ${mm(diameter)}`,
+      true
+    )
+  );
+  return {
+    solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
+    footprint: weld / 2,
+    attachment: { axial: weld, circumferentialDeg: (diameter / outside) * (180 / Math.PI), thickness: wall },
+    notes,
+  };
+};
+
+/**
  * A half-pipe jacket — §4.11.6. Drawn as closed turns of the half-pipe on the whole course, at
  * a pitch of a little more than its own width: the helix is not modelled, and neither is the
  * pitch, which the type does not carry.

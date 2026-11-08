@@ -9,16 +9,19 @@
 import {
   BuildError,
   Kind,
+  NotDrawnError,
   Sym,
+  assumedNote,
   optionalDimension,
   representedNote,
   requireDimension,
   scope,
+  type ComponentDefinition,
   type Note,
 } from '../definition.ts';
 import type { Solid, Vec3 } from '../kernel/GeometryKernel.ts';
-import { mm } from './placing.ts';
-import type { Idealisation, RunBuilder } from './types.ts';
+import { mm, requireWithinHost } from './placing.ts';
+import type { Idealisation, MountedBuilder, MountedContext, RunBuilder } from './types.ts';
 import { PLANE } from './walls.ts';
 
 /** More than this and the stubs are thinned to the outermost rows: a picture, not a count. */
@@ -179,6 +182,155 @@ export const tubesheet: RunBuilder = (component, context) => {
     ],
     idealisations: [idealisation],
     notes,
+  };
+};
+
+/** A course's straight bore, or the reason the part needs one. */
+function boreOf(component: ComponentDefinition, context: MountedContext, what: string) {
+  const course = context.hostSurface.course;
+  if (!course || course.halfApexAngle !== 0) {
+    throw new NotDrawnError(
+      component,
+      `${what} is drawn in a cylindrical course, and ${context.host.name} is not one`,
+      scope('out_of_scope', 'host', 'a cylindrical course', course ? `a cone of ${course.halfApexAngle}°` : context.host.kind)
+    );
+  }
+  return course;
+}
+
+/**
+ * The tube bundle — §4.18 — as ONE part carrying its pattern: `d_t` × `t_t` tubes on pitch `p`
+ * out to `r_o`, standing in the shell from its upper end, where the tubesheet is, down `L_t`.
+ * The shell is its host for where it stands along the axis and nothing else: nothing welds a
+ * bundle to its shell, so it has no attachment and no joint with it. What it joins is a
+ * tubesheet, at each end of its tubes, all of them at once (`ports.ts`, `tube_to_tubesheet`).
+ */
+export const tubeBundle: MountedBuilder = (component, context) => {
+  const { kernel, hostSurface } = context;
+  const course = boreOf(component, context, 'a tube bundle');
+  requireWithinHost(component, context, 0);
+  const pitch = requireDimension(component, Sym.TUBE_PITCH);
+  const tube = requireDimension(component, Sym.TUBE_OUTSIDE_DIAMETER);
+  const wall = requireDimension(component, Sym.TUBE_THICKNESS);
+  const limit = requireDimension(component, Sym.TUBE_LIMIT_RADIUS);
+  const angle = requireDimension(component, Sym.TUBE_LAYOUT_ANGLE);
+  if (![30, 45, 60, 90].some((a) => Math.abs(angle - a) < 1)) {
+    throw new BuildError(component, `has a tube layout of ${angle}°, which is none of §4.18.4.a's patterns`, scope('out_of_scope', Sym.TUBE_LAYOUT_ANGLE, '30°, 45°, 60° or 90°', `${angle}°`));
+  }
+  if (pitch <= tube) {
+    throw new BuildError(component, `has its tubes (${mm(tube)}) no narrower than their pitch`, scope('out_of_scope', Sym.TUBE_PITCH, `> ${mm(tube)}, the tube diameter`, mm(pitch)));
+  }
+  if (wall >= tube / 2) {
+    throw new BuildError(component, `has a tube wall of ${mm(wall)} on a ${mm(tube)} tube`, scope('out_of_scope', Sym.TUBE_THICKNESS, `< ${mm(tube / 2)}`, mm(wall)));
+  }
+  const [low, high] = hostSurface.offsetRange;
+  const bore = course.insideRadiusAt(high);
+  if (limit + tube / 2 > bore) {
+    throw new BuildError(
+      component,
+      `places tubes out to ${mm(limit + tube / 2)}, outside the shell's bore`,
+      scope('out_of_scope', `${Sym.TUBE_LIMIT_RADIUS} plus half a tube`, `≤ ${mm(bore)}, the shell's inside radius`, mm(limit + tube / 2))
+    );
+  }
+  const notes: Note[] = [];
+  const stated = optionalDimension(component, Sym.TUBE_LENGTH_OUTER);
+  const length = stated ?? high - low;
+  if (stated === undefined) notes.push(assumedNote(`Tube length not stated — drawn the length of ${context.host.name}`, Sym.TUBE_LENGTH_OUTER, mm(length)));
+
+  const pattern = tubePattern(pitch, limit, angle);
+  let centres = pattern;
+  if (centres.length > MOST_TUBES) {
+    const kept = centres.filter((c) => Math.hypot(c[0], c[1]) > limit - 3 * pitch);
+    notes.push(representedNote(`${centres.length} tubes on the pattern; the outer ${kept.length} drawn`, 'tubes drawn', `all ${centres.length}`, `the outer ${kept.length}`));
+    centres = kept;
+  }
+  // §4.18.10's weld legs belong to the joint with the tubesheet, which reads them off the bundle;
+  // the tube ends are drawn flush with the plate's face and the weld itself is not drawn.
+  const legs = [Sym.FILLET_WELD_LEG, Sym.GROOVE_WELD_LEG].filter((s) => optionalDimension(component, s) !== undefined);
+  if (legs.length > 0) {
+    notes.push(
+      representedNote(
+        `The tube-to-tubesheet weld (${legs.map((s) => s.replace(/_/g, ' ')).join(' and ')}) is not drawn: the tube ends are flush with the plate`,
+        'tube-to-tubesheet weld',
+        'drawn',
+        'carried on the joint, not drawn',
+        true
+      )
+    );
+  }
+  notes.push(
+    representedNote(
+      'Drawn straight: a U-bend, the baffles and the tie rods are not, and the pass lanes are left in the pattern',
+      'bundle',
+      'tubes with their bends, baffles and tie rods, pass lanes clear',
+      'straight tubes on the full pattern'
+    )
+  );
+  const first = centres[0] ?? [0, 0, 0];
+  const one: Solid = kernel.tube({ origin: [first[0], first[1], 0], axis: [0, 0, 1] }, tube / 2 - wall, tube / 2, high - length, high);
+  return {
+    solids: [one],
+    copies: [centres.slice(1).map((c): Vec3 => [c[0] - first[0], c[1] - first[1], 0])],
+    footprint: 0,
+    anchorOffset: high,
+    bundle: {
+      count: pattern.length,
+      pitch,
+      layoutAngle: angle,
+      limitRadius: limit,
+      tubeOutsideDiameter: tube,
+      tubeThickness: wall,
+      ends: [high - length, high],
+    },
+    notes,
+  };
+};
+
+/**
+ * A pass partition plate — §4.18 — `t_p` thick, across the channel's bore in the plane through
+ * the axis at the placement's azimuth, over the channel's whole length. Welded to the channel
+ * along both edges; its end against the tubesheet sits in the plate's pass partition groove,
+ * gasketed rather than welded, so that end is a seat and no port. It bounds the passes: the
+ * channel and the tube-side face of the tubesheet on either side of it are separate chambers.
+ */
+export const passPartitionPlate: MountedBuilder = (component, context) => {
+  const { kernel, hostSurface, placement } = context;
+  const course = boreOf(component, context, 'a pass partition plate');
+  const thickness = requireDimension(component, Sym.PASS_PARTITION_THICKNESS);
+  requireWithinHost(component, context, 0);
+  const [low, high] = hostSurface.offsetRange;
+  const bore = course.insideRadiusAt(low);
+  if (thickness >= bore) {
+    throw new BuildError(component, `is ${mm(thickness)} thick in a ${mm(2 * bore)} bore`, scope('out_of_scope', Sym.PASS_PARTITION_THICKNESS, `< ${mm(bore)}`, mm(thickness)));
+  }
+  // Its corners on the bore: the plate meets the wall along two lines.
+  const reach = Math.sqrt(bore * bore - (thickness * thickness) / 4);
+  const plate = kernel.extrude(
+    {
+      start: [-reach, -thickness / 2],
+      steps: [
+        { kind: 'line', to: [reach, -thickness / 2] },
+        { kind: 'line', to: [reach, thickness / 2] },
+        { kind: 'line', to: [-reach, thickness / 2] },
+      ],
+    },
+    low,
+    high
+  );
+  return {
+    solids: [kernel.rotateZ(plate, placement.azimuth)],
+    footprint: (high - low) / 2,
+    anchorOffset: (low + high) / 2,
+    attachment: { axial: high - low, circumferentialDeg: (thickness / bore) * (180 / Math.PI), thickness },
+    notes: [
+      representedNote(
+        'Welded to the channel along two lines, 180° apart; a part has one patch on its host, so the second edge carries no port',
+        'pass partition welds',
+        'two edges, each welded',
+        'one patch at the placement azimuth',
+        true
+      ),
+    ],
   };
 };
 

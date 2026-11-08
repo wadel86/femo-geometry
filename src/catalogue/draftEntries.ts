@@ -13,6 +13,7 @@
 // each declared port on the part and each declared joint between the parts, and checks the
 // declared parameters against what the drawing actually read.
 import { Kind, Sym, type AssemblyDefinition, type ComponentDefinition, type Placement } from '../definition.ts';
+import { Detail } from '../details/constructionDetails.ts';
 import type { JointKind } from '../ports/ports.ts';
 
 export type EntryStatus = 'not started' | 'captured' | 'scripted' | 'validated';
@@ -44,6 +45,11 @@ export interface DraftEntry {
   readonly joint?: DeclaredJoint;
   /** The mesh-side catalogue entry that already exists for it, whose status outranks this one. */
   readonly meshing?: string;
+  /**
+   * The construction details (`Detail` keys) the entry resolves into its drawing. Stated from
+   * wave 1b on; the first 47 entries were captured before the field existed and do not carry it.
+   */
+  readonly constructionDetails?: readonly string[];
   /** What it is drawn as, what it is not, or why it has not started. */
   readonly note?: string;
 }
@@ -100,6 +106,16 @@ const exchanger = (kind: string, plate: Record<string, number> = {}) =>
     course('CH', 2, { inside_diameter: 1500, thickness: 16, course_length: 800 }),
   ]);
 
+// Wave 1b's bundle: §4.18's pattern on its own part, in the shell, ending at the tubesheet.
+const BUNDLE = {
+  tube_pitch: 31.75, tube_outside_diameter: 25.4, tube_thickness: 2.1, tube_limit_radius: 600, tube_layout_angle: 30,
+  tube_length_outer: 2000,
+};
+const withBundle = (bundle: Record<string, number>) =>
+  vessel([...exchanger(Kind.U_TUBE_TUBESHEET).components, on('B', Kind.TUBE_BUNDLE, 'S', bundle)], { B: side(1000) });
+
+const CORRODED = [Detail.CORRODED_MODEL, Detail.CORROSION_ALLOWANCE, Detail.CORRODED_SURFACES];
+
 // A short course: every turn of the helix is a sweep, and a long one takes seconds each.
 const halfPipe = vessel(
   [
@@ -116,10 +132,6 @@ const BELLOWS = {
 
 // ---------------------------------------------------------------- the entries
 
-const notStarted = (id: string, article: string, title: string, entry: DraftEntry['entry'], note: string): DraftEntry => ({
-  id, article, title, entry, status: 'not started', kinds: [], note,
-});
-
 export const DRAFT_ENTRIES: readonly DraftEntry[] = [
   // §4.3 — shells and formed heads
   {
@@ -133,8 +145,23 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     parameters: [Sym.INSIDE_DIAMETER, Sym.SMALL_END_DIAMETER, Sym.HALF_APEX_ANGLE, Sym.THICKNESS, Sym.COURSE_LENGTH, Sym.KNUCKLE_RADIUS, Sym.FLARE_RADIUS],
     ports: ['lower', 'upper'],
   },
-  notStarted('conical_shell.eccentric', '§4.3.4', 'Conical shell, eccentric', 'component',
-    'No catalogue kind, and the run is drawn about one axis: an eccentric cone is the placement without an axis of revolution in ROADMAP.md'),
+  {
+    id: 'conical_shell.eccentric', article: '§4.3.4', title: 'Conical shell, eccentric', entry: 'component', status: 'captured',
+    kinds: [Kind.ECCENTRIC_CONICAL_SHELL], focus: 'C',
+    specimen: vessel([
+      run('L', Kind.CYLINDRICAL_SHELL, 0, { inside_diameter: 2000, thickness: 20, course_length: 1000 }),
+      run('C', Kind.ECCENTRIC_CONICAL_SHELL, 1, { inside_diameter: 2000, small_end_diameter: 1200, half_apex_angle: 30, thickness: 20, flat_side_azimuth: 0 }),
+    ]),
+    parameters: [Sym.INSIDE_DIAMETER, Sym.SMALL_END_DIAMETER, Sym.HALF_APEX_ANGLE, Sym.THICKNESS, Sym.FLAT_SIDE_AZIMUTH, Sym.KNUCKLE_RADIUS, Sym.FLARE_RADIUS],
+    ports: ['lower', 'upper'],
+    joint: { kind: 'butt_weld', between: ['L', 'C'], ports: ['upper', 'lower'] },
+    constructionDetails: CORRODED,
+    note:
+      'Draft kind, no ComponentType yet. One generatrix square to the ends, facing flat_side_azimuth; α is the steep side\'s, the largest round it, which is the one §4.3.4 reads. ' +
+      'Every section is a circle, lofted rather than revolved, and the part states its circles\' centres beside its meridian: layer 1 describes it with no special case (centre moves, radius changes, axisymmetric false). ' +
+      'Three things below layer 1 do assume one axis, and say so in KERNEL_AXISYMMETRY: s is no generatrix\'s length off the axis; the run is stacked by height alone, so a course above the small end is not shifted and its joint is refused as "centres apart"; and a host surface for nozzles is not offered. ' +
+      'Wall drawn t wide in every section (t·cos α normal to it on the steep side); knuckle and flare refused as not built',
+  },
   {
     id: 'spherical_shell', article: '§4.3.5', title: 'Spherical shell', entry: 'component', status: 'captured',
     kinds: [Kind.SPHERICAL_SHELL], specimen: vessel([run('P', Kind.SPHERICAL_SHELL, 0, { inside_diameter: 2000, thickness: 20 })]), focus: 'P',
@@ -264,6 +291,16 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     specimen: vessel([course('S', 0), run('P', Kind.STAYED_SURFACE, 1, { inside_diameter: 1500, thickness: 30, stay_pitch: 300, stay_diameter: 40 })]),
     parameters: [Sym.INSIDE_DIAMETER, Sym.THICKNESS, 'stay_pitch', 'stay_diameter'], ports: ['lower'],
   },
+  {
+    id: 'quick_actuating_closure', article: '§4.8', title: 'Quick-actuating closure (its door)', entry: 'component', status: 'captured',
+    kinds: [Kind.QUICK_ACTUATING_CLOSURE], focus: 'Q',
+    specimen: vessel([course('S', 0), run('Q', Kind.QUICK_ACTUATING_CLOSURE, 1, { inside_diameter: 1500, thickness: 40 })]),
+    parameters: [Sym.INSIDE_DIAMETER, Sym.THICKNESS], ports: ['lower'],
+    constructionDetails: [],
+    note:
+      'Opened by wave 1b\'s declaration: the kernel already drew it and the catalogue listed it nowhere. Drawn as its DOOR, a plate with a lip; the locking mechanism — what §4.8 is about — is not modelled, and §4.8.1.1 gives no calculation method, so the rules refuse it with its requirements. ' +
+      'Its face against the course is reported as a mean-radius mismatch, the door\'s rim being wider than the wall: the ring that locks them is the missing mechanism. A mesh of this entry is a mesh of a plate',
+  },
 
   // §4.11 — jackets
   {
@@ -302,8 +339,23 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['attach'],
     note: 'Two gussets on a base plate; what is not stated is drawn to the course and refused as assumed',
   },
-  notStarted('leg_support', '§4.15.5', 'Leg', 'component',
-    'The catalogue has one kind for "lug, leg or bracket" and the kernel draws it as a lug; a leg down to the foundation needs its own length and section'),
+  {
+    id: 'leg_support', article: '§4.15.5', title: 'Leg', entry: 'component', status: 'captured',
+    kinds: [Kind.LEG_SUPPORT], focus: 'M',
+    specimen: mountedOnCourse(
+      Kind.LEG_SUPPORT,
+      { leg_outside_diameter: 219.1, leg_thickness: 8.18, leg_length: 1800, leg_attachment_length: 600, support_lug_base_plate_thickness: 20 },
+      side(300, 45)
+    ),
+    parameters: [Sym.LEG_OUTSIDE_DIAMETER, Sym.LEG_THICKNESS, Sym.LEG_LENGTH, Sym.LEG_ATTACHMENT_LENGTH, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Draft kind: the backend\'s lug_support is "lug or leg" and the kernel draws it as a lug, so the leg is its own kind until a ComponentType says otherwise. ' +
+      'A pipe column against the course, welded over leg_attachment_length and carried down past the course to its base plate. The placement\'s offset is the middle of the weld, so the attachment station IS the placement: ' +
+      'the layout measures support_to_discontinuity from that patch to the nearest discontinuity or circumferential seam, as it does for a lug, and §4.15.5.5\'s 1.8·√(D·t) is judged on it. Not wetted, so no corrosion detail applies',
+  },
 
   // §4.18 — heat exchangers
   {
@@ -326,10 +378,32 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     parameters: ['thickness', 'flange_outside_diameter', 'tube_pitch', 'tube_outside_diameter', 'tube_thickness', 'tube_limit_radius', 'tube_layout_angle', 'tube_length_outer', 'shell_inside_diameter', 'shell_thickness', 'channel_inside_diameter', 'channel_thickness'],
     ports: ['lower', 'upper'],
   },
-  notStarted('tube', '§4.18', 'Tube', 'component',
-    'Drawn only as stubs inside the tubesheet part, the outer ring of the pattern: no tube has a solid or a port of its own'),
-  notStarted('pass_partition_plate', '§4.18', 'Pass partition plate', 'component',
-    'No catalogue kind; the tubesheet carries pass_partition_groove_depth for the rules and nothing for the drawing'),
+  {
+    id: 'tube', article: '§4.18', title: 'Tube (the bundle, one entry on a pattern)', entry: 'component', status: 'captured',
+    kinds: [Kind.TUBE_BUNDLE], focus: 'B', specimen: withBundle(BUNDLE),
+    parameters: [Sym.TUBE_PITCH, Sym.TUBE_OUTSIDE_DIAMETER, Sym.TUBE_THICKNESS, Sym.TUBE_LIMIT_RADIUS, Sym.TUBE_LAYOUT_ANGLE, Sym.TUBE_LENGTH_OUTER, Sym.FILLET_WELD_LEG, Sym.GROOVE_WELD_LEG],
+    ports: ['tube-end:lower', 'tube-end:upper'],
+    constructionDetails: [],
+    note:
+      'Draft kind. The bundle is the entry, not the tube: see TUBE_MODEL. One tube drawn and repeated on the pattern; each end is one port carrying the pattern. ' +
+      'Hosted by the shell for where it stands along the axis only — nothing welds a bundle to its shell, so there is no joint with it. ' +
+      'Here the lower end meets nothing, which is a U-tube bundle\'s far end. The tubesheet still draws its own stubs, so with a bundle the last four pitches are drawn twice (the 47 are untouched). ' +
+      'A corroded model leaves the tubes nominal and says so: a tube\'s allowance is not the vessel\'s',
+  },
+  {
+    id: 'pass_partition_plate', article: '§4.18', title: 'Pass partition plate', entry: 'component', status: 'captured',
+    kinds: [Kind.PASS_PARTITION_PLATE], focus: 'P',
+    specimen: vessel([...exchanger(Kind.U_TUBE_TUBESHEET).components, on('P', Kind.PASS_PARTITION_PLATE, 'CH', { pass_partition_thickness: 12 })], { P: side(400, 90) }),
+    parameters: [Sym.PASS_PARTITION_THICKNESS],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['CH', 'P'], ports: ['wall:P', 'attach'] },
+    constructionDetails: CORRODED,
+    note:
+      'Draft kind. A plate across the channel\'s bore, in the plane through the axis at the placement\'s azimuth, over the channel\'s whole length. ' +
+      'ATTACHES: welded to the channel along both edges, 180° apart; seated against the tubesheet in its pass partition groove (pass_partition_groove_depth, the rules\') — gasketed, so that end is a seat and has no port. ' +
+      'BOUNDS: the tube-side passes — the channel and the tubesheet\'s tube-side face on either side of it are separate chambers, and it carries the pressure difference between them. ' +
+      'Port model gap: a part has one attachment patch, so the second weld line carries no port. Corroded on both faces by the inside allowance',
+  },
   {
     id: 'channel', article: '§4.18', title: 'Channel', entry: 'component', status: 'captured',
     kinds: [Kind.CYLINDRICAL_SHELL], specimen: exchanger(Kind.U_TUBE_TUBESHEET), focus: 'CH',
@@ -419,8 +493,16 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     kinds: [Kind.U_TUBE_TUBESHEET, Kind.CYLINDRICAL_SHELL], specimen: exchanger(Kind.U_TUBE_TUBESHEET),
     joint: { kind: 'butt_weld', between: ['T', 'CH'], ports: ['upper', 'lower'] },
   },
-  notStarted('tube_to_tubesheet', '§4.18.10', 'Tube to tubesheet', 'joint',
-    'The joint kind is reserved and never emitted: the tubes are stubs of the plate, with no port to join'),
+  {
+    id: 'tube_to_tubesheet', article: '§4.18.10', title: 'Tube to tubesheet', entry: 'joint', status: 'captured',
+    kinds: [Kind.TUBE_BUNDLE, Kind.U_TUBE_TUBESHEET], specimen: withBundle({ ...BUNDLE, fillet_weld_leg: 3 }),
+    joint: { kind: 'tube_to_tubesheet', between: ['T', 'B'], ports: ['tube-holes:B', 'tube-end:upper'] },
+    constructionDetails: [],
+    note:
+      'One joint per tubesheet face a bundle\'s end meets, standing for every tube: multiplicity = the tube count. The bundle\'s pattern and the plate\'s are held to each other, a difference being a mismatch. ' +
+      'COVERS a strength-welded joint, told apart by the legs stated — fillet_weld_leg, groove_weld_leg or both — with an expansion beside the weld allowed and not drawn (the holes are not drilled, §4.18.6.4.b). ' +
+      'REFUSES an expanded-only or seal-welded joint (no leg stated): §4.18.10.2.c gives its allowable load to Annex 4.C\'s qualification tests, which no geometry carries. The weld is not drawn and its sizing stays the rules engine\'s (§4.18.10.5)',
+  },
   {
     id: 'saddle_to_shell', article: '§4.15.3', title: 'Saddle to shell', entry: 'joint', status: 'captured',
     kinds: [Kind.SADDLE_SUPPORT, Kind.CYLINDRICAL_SHELL], specimen: mountedOnCourse(Kind.SADDLE_SUPPORT, { saddle_angle: 120, saddle_width: 200 }, side(500, 180)),
@@ -452,9 +534,57 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
 
 /** Declared out of this pass by the brief, and why: carried so the list says what it leaves out. */
 export const OUT_OF_SCOPE = [
-  { article: '§4.12', title: 'Non-circular vessels (obround, rectangular)', reason: 'out of scope, declared' },
+  {
+    article: '§4.12',
+    title: 'Non-circular vessels (rectangular, obround, octagonal)',
+    reason: 'out of scope, declared and kept — see DECLARATIONS: the kernel draws the bodies, but with no ports a body is not an entry',
+  },
   { article: '§4.13', title: 'Layered vessels', reason: 'out of scope, declared' },
   { article: '§4.16', title: 'Flanged joints', reason: 'rules engine only: PTB-3 E5.2.1 models the neck to the flange face and applies the thrust there' },
   { article: '§4.17', title: 'Clamped connections', reason: 'rules engine only' },
-  { article: '§4.18.10', title: 'Tube-to-tubesheet welds', reason: 'rules engine only' },
+  {
+    article: '§4.18.10',
+    title: 'Tube-to-tubesheet weld sizing',
+    reason: 'rules engine only (§4.18.10.5): the JOINT is drawn since wave 1b — see tube_to_tubesheet — and its weld is carried, not drawn',
+  },
 ] as const;
+
+/** Wave 1b's two written decisions: an article a catalogue says nothing about reads as covered. */
+export const DECLARATIONS = [
+  {
+    article: '§4.8',
+    title: 'Quick-actuating closures',
+    decision: 'entry opened, captured as the door only',
+    reason:
+      'The kernel already drew it (builders/covers.ts) and the catalogue listed it nowhere — the silence ran both ways. Declaring out of scope a part the modeller draws would hide a drawing; opening it as captured says exactly what it is: ' +
+      'a plate with a lip. The mechanism §4.8 is about — bayonet, clamp ring, swing bolts and the locking that holds them — is a manufacturer\'s design with no parameters in the catalogue, and §4.8.1.1 gives no calculation method, ' +
+      'so the entry stays at captured: nothing about the closure itself would be validated by meshing its door. It moves only when a closure type names its mechanism.',
+  },
+  {
+    article: '§4.12',
+    title: 'Non-circular vessels (rectangular, obround, octagonal)',
+    decision: 'the gap stays: out of scope for the geometry catalogue',
+    reason:
+      'The premise needs one correction: the kernel does draw all three bodies (builders/special.ts, with their stay plates). What it cannot give them is PORTS — their ends are null, because a Junction is a pair of diameters and a non-circular end has none, ' +
+      'and they offer no host surface, because a placement is (offset along the axis, azimuth round it), meaningless on a flat side. So they fail the captured bar itself. Closing the gap is ROADMAP.md §2, about two to three weeks: a surface_uv anchor ' +
+      'in the definition and the backend, a host surface per non-circular builder, non-circular closures, a plate influence length in place of √(R·t), and the meshing session told first — a contract four parties read, not a catalogue pass. ' +
+      'Meanwhile nothing is lost by the wait: §4.12 is closed-form end to end, all twelve types, so the rules engine reaches a verdict that no geometry feeds. Layer 1 excludes non-circular sections by design. ' +
+      'It closes when the engine and meshing sessions agree the anchor, and not before.',
+  },
+] as const;
+
+/** Wave 1b, Part C: whether a tube is a component, answered before the tube entry was drawn. */
+export const TUBE_MODEL = {
+  decision: 'the bundle is one entry carrying a pattern (count, pitch, layout angle, limit radius, tube size, length)',
+  bothDefensible: true,
+  why:
+    'Both readings are defensible. A tube per component matches §4.18.10, which sizes the joint of ONE tube, and tube buckling, which is read at one position. ' +
+    'The bundle wins because every equation of §4.18 is written on the pattern, never on a tube by position — §4.18.6.4.b replaces the drilled plate by an equivalent solid one for exactly that reason — ' +
+    'and §4.18.10\'s one tube is any tube, all being identical. Several hundred identical components would be several hundred rows in the backend, the layout and the UI with nothing to tell them apart, ' +
+    'and the kernel already draws one tube and repeats it (`copies`). The tube count is a property of the pattern, not a list.',
+  portUnit:
+    'An END of the bundle: one port per end, kind tube_end, carrying the pattern, located at the pattern\'s centre with one tube\'s radii. The tubesheet answers it with one tube_holes port on its face. ' +
+    'Their joint is ONE tube_to_tubesheet joint whose multiplicity is the tube count — what §4.18.10 sizes is one of them, and the count says how many there are.',
+  passArrangement:
+    'Not carried by the bundle: the passes are bounded by the pass partition plates, each its own entry, so the arrangement is how many plates there are and where. The pass lanes they need are not cleared from the pattern yet.',
+} as const;

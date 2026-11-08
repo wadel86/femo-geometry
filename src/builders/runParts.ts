@@ -29,6 +29,7 @@ import {
 } from './covers.ts';
 import { clampedConnection } from './clamps.ts';
 import { CONVOLUTED_BUILDERS } from './convoluted.ts';
+import { eccentricConicalShell } from './eccentric.ts';
 import { TUBESHEET_BUILDERS } from './exchangers.ts';
 import { dividingPlates, obroundVessel, octagonalVessel, rectangularVessel } from './special.ts';
 import type {
@@ -983,6 +984,7 @@ export const RUN_BUILDERS: Readonly<Record<string, RunBuilder>> = {
   clamped_connection: clampedConnection,
   ...CONVOLUTED_BUILDERS,
   ...TUBESHEET_BUILDERS,
+  eccentric_conical_shell: eccentricConicalShell,
 };
 
 export function isRunKindDrawn(component: ComponentDefinition): boolean {

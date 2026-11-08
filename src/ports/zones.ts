@@ -15,6 +15,7 @@ import { Kind, Sym, type AssemblyDefinition } from '../definition.ts';
 import { runOrder, toAssembly, type AssemblyModel, type BuiltPart } from '../assembly/buildAssembly.ts';
 import type { Point2, Vec3 } from '../kernel/GeometryKernel.ts';
 import type { Joint, Port } from './ports.ts';
+import { KERNEL_AXISYMMETRY, type AxisymmetryDeclaration } from './section.ts';
 
 /**
  * The multiple of √(R·t) the overlap flag uses: two discontinuities overlap when they are closer
@@ -102,6 +103,11 @@ export interface Zones {
   /** Keyed on component id, then on the symbol's wire name. */
   readonly measured: Readonly<Record<string, Readonly<Record<string, Measured>>>>;
   readonly issues: readonly MeasurementIssue[];
+  /**
+   * What every `sqrtRt` above assumes: one R per station, the circle's radius about the vessel
+   * axis. Off the axis, R is a function of azimuth and these figures stop holding.
+   */
+  readonly influenceAssumption: AxisymmetryDeclaration;
 }
 
 const FORMED_HEADS: ReadonlySet<string> = new Set([
@@ -489,10 +495,10 @@ export function deriveZones(
     );
   }
 
-  // §4.15.5.5: a lug to the nearer of a discontinuity and a Category A or B seam. The
+  // §4.15.5.5: a lug or a leg to the nearer of a discontinuity and a Category A or B seam. The
   // circumferential seams are known; the longitudinal ones are not, so this is an upper bound.
   for (const part of model.parts) {
-    if (part.kind !== Kind.LUG_SUPPORT || part.status !== 'drawn' || !part.hostId) continue;
+    if ((part.kind !== Kind.LUG_SUPPORT && part.kind !== Kind.LEG_SUPPORT) || part.status !== 'drawn' || !part.hostId) continue;
     const own = byId.get(`${part.hostId}:wall:${part.componentId}`);
     if (!own) continue;
     const nearest = [
@@ -532,7 +538,14 @@ export function deriveZones(
     }
   }
 
-  return { zoneFactor: ZONE_FACTOR, discontinuities, proximities, measured, issues };
+  return {
+    zoneFactor: ZONE_FACTOR,
+    discontinuities,
+    proximities,
+    measured,
+    issues,
+    influenceAssumption: KERNEL_AXISYMMETRY.find((d) => d.rule === 'zones: √(R·t)')!,
+  };
 }
 
 /** How far apart two discontinuities are along the vessel's surface, and whether their zones overlap. */

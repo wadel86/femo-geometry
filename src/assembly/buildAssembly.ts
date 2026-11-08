@@ -38,6 +38,7 @@ import type {
   Landmark,
   MountedPart,
   Neck,
+  TubeBundle,
   RunPart,
 } from '../builders/types.ts';
 import type { Bounds, GeometryKernel, Point2, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
@@ -100,6 +101,8 @@ export interface BuiltPart {
   readonly junctions?: { readonly lower: Junction | null; readonly upper: Junction | null };
   /** For a part of the run: its mid-surface meridian, in its own frame. */
   readonly meridian?: readonly Point2[];
+  /** Parallel to `meridian`, where it states them: the centres of its circles, in its own frame. */
+  readonly centres?: readonly Point2[];
   /** For a formed head: the height of its tangent line above its lower junction. */
   readonly tangentLine?: number;
   /** Where the part is drawn as an idealisation of itself, and what that left out. */
@@ -108,6 +111,8 @@ export interface BuiltPart {
   readonly localPlacement?: Placement;
   readonly neck?: Neck;
   readonly attachment?: Attachment;
+  /** For a tube bundle: its pattern and where its tubes end, in its host's frame. */
+  readonly bundle?: TubeBundle;
   readonly notes: readonly Note[];
   /** Why a part is not drawn, or failed: the parameter, the limit and the value seen. */
   readonly scope?: Scope;
@@ -216,16 +221,18 @@ export class AssemblyBuilder {
       if (!lower || !upper) continue;
       const below = facing(lower.part, lower.transform, 'up');
       const above = facing(upper.part, upper.transform, 'down');
-      if (!below || !above || !taperable(below.junction, above.junction)) continue;
+      if (!below || !above) continue;
+      const jointId = `${run[index].id}:${below.end}~${run[index + 1].id}:${above.end}`;
+      const parameters = definition.joints?.[jointId] ?? jointBetween(definition, run[index].id, run[index + 1].id);
+      // Undeclared, a joint is what it always was: inside flush, tapered only where the bores match.
+      const datum = parameters?.alignment;
+      if (!taperable(below.junction, above.junction, datum !== undefined)) continue;
       const [thick, end, thin] =
         below.junction.wall.thickness > above.junction.wall.thickness
           ? [lower, below.end, above.junction]
           : [upper, above.end, below.junction];
       const thickId = thick === lower ? run[index].id : run[index + 1].id;
-      const jointId = `${run[index].id}:${below.end}~${run[index + 1].id}:${above.end}`;
-      const ratio =
-        (definition.joints?.[jointId] ?? jointBetween(definition, run[index].id, run[index + 1].id))?.taperRatio ??
-        MINIMUM_TAPER_RATIO;
+      const ratio = parameters?.taperRatio ?? MINIMUM_TAPER_RATIO;
       if (!(ratio >= MINIMUM_TAPER_RATIO && ratio <= MAXIMUM_TAPER_RATIO)) {
         // Outside its range the step is left as it is, and said: never faired at a ratio not asked for.
         const refused = note(
@@ -241,9 +248,16 @@ export class AssemblyBuilder {
         runParts.set(thickId, { ...thick, part: { ...thick.part, notes: [...thick.part.notes, refused] } });
         continue;
       }
-      // The code minimum keeps the key it always had, so no assembly drawn before is drawn again.
-      const key = `${thick.key}|taper:${end}:${thin.wall.thickness}${ratio === MINIMUM_TAPER_RATIO ? '' : `:${ratio}`}`;
-      const tapered = this.remember(this.runCache, key, () => taper(this.kernel, thick.part, end, thin.wall.thickness, ratio));
+      // The code minimum keeps the key it always had, so no assembly drawn before is drawn again;
+      // a declared datum keys on the thinner wall's bore too, which it is faired to.
+      const key =
+        `${thick.key}|taper:${end}:${thin.wall.thickness}${ratio === MINIMUM_TAPER_RATIO ? '' : `:${ratio}`}` +
+        (datum === undefined ? '' : `:${datum}:${thin.insideDiameter}`);
+      // Undeclared, the bores matched to within the tolerance and the thicker part's own is kept.
+      const bore = datum === undefined ? thick.part[end]!.insideDiameter / 2 : thin.insideDiameter / 2;
+      const tapered = this.remember(this.runCache, key, () =>
+        taper(this.kernel, thick.part, end, bore, thin.wall.thickness, ratio)
+      );
       // Tapered, the part is no longer what its builder makes thicker: nothing is laid on it.
       if (tapered) {
         runParts.set(thickId, { ...thick, part: tapered, key, thicken: undefined });
@@ -251,7 +265,7 @@ export class AssemblyBuilder {
     }
 
     // ---------------------------------------------------------------- mounted parts
-    const openingsByHost = new Map<string, { opening: Opening; tool: Solid; key: string }[]>();
+    const openingsByHost = new Map<string, { opening: Opening; tool: Solid; key: string; addition?: Solid }[]>();
     const unplacedOnHost = new Map<string, number>();
 
     for (const component of definition.components) {
@@ -301,6 +315,11 @@ export class AssemblyBuilder {
       const hostSurface = host.part.host;
       // A host turned over mirrors y, so the azimuth is mirrored on the way in.
       const localOf = (p: Placement): Placement => (host.transform.flipped ? { ...p, azimuth: -p.azimuth } : p);
+      const joint = jointBetween(definition, component.id, component.hostId);
+      const corner =
+        (joint?.outsideCornerRadius ?? 0) > 0 || (joint?.insideCornerRadius ?? 0) > 0
+          ? { outside: joint?.outsideCornerRadius ?? 0, inside: joint?.insideCornerRadius ?? 0 }
+          : undefined;
       const buildAt = (p: Placement) => {
         const at = localOf(p);
         const key = stableStringify({
@@ -309,6 +328,8 @@ export class AssemblyBuilder {
           placement: at,
           host: host.key,
           tangentLines,
+          // A sharp corner keeps the key it always had.
+          ...(corner ? { corner } : {}),
         });
         const part = this.remember(this.mountedCache, key, () =>
           builder(component, {
@@ -319,6 +340,7 @@ export class AssemblyBuilder {
             tangentLines,
             hostSolid: host.part.solid,
             thickenedHost: host.thicken,
+            ...(corner ? { corner } : {}),
           })
         );
         return { part, key, local: at };
@@ -362,6 +384,7 @@ export class AssemblyBuilder {
           },
           tool: mounted.opening.tool,
           key,
+          ...(mounted.hostAddition ? { addition: mounted.hostAddition } : {}),
         });
         openingsByHost.set(component.hostId, list);
       }
@@ -383,6 +406,7 @@ export class AssemblyBuilder {
         footprint: mounted.footprint,
         neck: mounted.neck,
         attachment: mounted.attachment,
+        ...(mounted.bundle ? { bundle: mounted.bundle } : {}),
         notes: stated
           ? mounted.notes
           : [
@@ -430,7 +454,13 @@ export class AssemblyBuilder {
         message,
         ...(failure ? { scope: failure } : {}),
         transform: entry.transform,
-        solids: [solid, ...(entry.part.extraSolids ?? [])],
+        // What a mounted part gives back to its host (a nozzle's rounded corner) comes last, so the
+        // repeats in `copies`, parallel to the part's own solids, keep their places.
+        solids: [
+          solid,
+          ...(entry.part.extraSolids ?? []),
+          ...openings.flatMap((o) => (o.addition ? [o.addition] : [])),
+        ],
         copies: entry.part.copies,
         landmarks: nameJunctions(component, entry.part.landmarks, entry.transform, run[index - 1], run[index + 1]),
         openings: openings.map((o) => o.opening),
@@ -439,6 +469,7 @@ export class AssemblyBuilder {
         hostSurface: entry.part.host,
         junctions: { lower: entry.part.lower, upper: entry.part.upper },
         meridian: entry.part.meridian,
+        ...(entry.part.centres ? { centres: entry.part.centres } : {}),
         tangentLine: entry.part.tangentLine,
         idealisations: entry.part.idealisations,
         notes,
@@ -589,29 +620,46 @@ function jointBetween(definition: AssemblyDefinition, a: string, b: string): Joi
 }
 
 /**
- * Whether a taper can reconcile two ends: welded walls, flush inside, of unequal thickness. A
- * face is bolted, not welded; walls of different bores are a different joint, which is reported.
+ * Whether a taper can reconcile two ends: welded walls of unequal thickness, the thinner lying
+ * within the thicker's. A face is bolted, not welded. Undeclared, the bores must match — inside
+ * flush, as every joint was drawn before a datum could be declared; with a declared datum the
+ * thinner wall may sit anywhere inside the thicker one, outside flush and mid-wall included.
  */
-function taperable(a: Junction, b: Junction): boolean {
+function taperable(a: Junction, b: Junction, datumDeclared: boolean): boolean {
   if (a.face || b.face || a.wall.surface.kind === 'plane' || b.wall.surface.kind === 'plane') return false;
   const tolerance = Math.max(1e-3 * Math.max(a.insideDiameter, b.insideDiameter), 1e-6);
+  if (!(Math.abs(a.wall.thickness - b.wall.thickness) > 1e-6)) return false;
+  if (!datumDeclared) return Math.abs(a.insideDiameter - b.insideDiameter) <= tolerance;
+  const [thick, thin] = a.wall.thickness > b.wall.thickness ? [a, b] : [b, a];
   return (
-    Math.abs(a.insideDiameter - b.insideDiameter) <= tolerance &&
-    Math.abs(a.wall.thickness - b.wall.thickness) > 1e-6
+    thin.insideDiameter >= thick.insideDiameter - tolerance && thin.outsideDiameter <= thick.outsideDiameter + tolerance
   );
 }
 
 /**
- * The part with its end tapered on the outside, flush inside, down to `thickness` at the weld:
- * a cone from the thinner wall's outside at the end to its own outside `ratio`·Δt in. Null where the
- * end is not a cylinder for that length — a head whose straight flange is shorter than the
- * taper would need it cut into its knuckle — and the step is then left, and reported.
+ * The part with its end tapered down to the thinner wall at the weld — `[inside, inside +
+ * thickness]` — on whichever side it steps: a cone from the thinner wall's surface at the end to
+ * the part's own `ratio` × that side's step in. Inside flush is the step outside, outside flush the
+ * step inside, mid-wall half on each. Null where the end is not a cylinder for that length — a
+ * head whose straight flange is shorter than the taper would need it cut into its knuckle — and
+ * the step is then left, and reported.
  */
-function taper(kernel: GeometryKernel, part: RunPart, end: 'lower' | 'upper', thickness: number, ratio: number): RunPart | null {
+function taper(
+  kernel: GeometryKernel,
+  part: RunPart,
+  end: 'lower' | 'upper',
+  inside: number,
+  thickness: number,
+  ratio: number
+): RunPart | null {
   const junction = part[end]!;
   if (junction.wall.surface.kind !== 'cylinder') return null;
-  const step = junction.wall.thickness - thickness;
-  const length = ratio * step;
+  const ownInside = junction.insideDiameter / 2;
+  const ownOutside = junction.outsideDiameter / 2;
+  const thin = inside + thickness;
+  const outer = Math.max(0, ownOutside - thin);
+  const inner = Math.max(0, inside - ownInside);
+  const length = ratio * Math.max(outer, inner);
   const z = end === 'lower' ? 0 : part.height;
   const into = end === 'lower' ? 1 : -1;
   // The cylinder the end belongs to: up to the tangent line for a head, the whole of a course.
@@ -620,34 +668,68 @@ function taper(kernel: GeometryKernel, part: RunPart, end: 'lower' | 'upper', th
     (end === 'lower' ? (part.tangentLine ?? part.height) : part.height - (part.tangentLine ?? 0));
   if (length > straight + 1e-9) return null;
 
-  const inside = junction.insideDiameter / 2;
-  const thin = inside + thickness;
-  const thick = junction.outsideDiameter / 2;
-  // Run past both ends, so the tool never grazes a face of the part.
-  const margin = Math.max(1, step);
-  const tool = kernel.revolve({
-    start: [thin, z - into * margin],
-    steps: [
-      { kind: 'line', to: [thin, z] },
-      { kind: 'line', to: [thick + margin, z + into * ratio * (step + margin)] },
-      { kind: 'line', to: [thick + 2 * margin, z + into * ratio * (step + margin)] },
-      { kind: 'line', to: [thick + 2 * margin, z - into * margin] },
-    ],
-  });
+  const tools = [];
+  // Run past both ends, so a tool never grazes a face of the part.
+  if (outer > 1e-9) {
+    const margin = Math.max(1, outer);
+    tools.push(
+      kernel.revolve({
+        start: [thin, z - into * margin],
+        steps: [
+          { kind: 'line', to: [thin, z] },
+          { kind: 'line', to: [ownOutside + margin, z + into * ratio * (outer + margin)] },
+          { kind: 'line', to: [ownOutside + 2 * margin, z + into * ratio * (outer + margin)] },
+          { kind: 'line', to: [ownOutside + 2 * margin, z - into * margin] },
+        ],
+      })
+    );
+  }
+  if (inner > 1e-9) {
+    const margin = Math.min(Math.max(1, inner), ownInside / 4);
+    const floor = Math.max(0, ownInside - 2 * margin);
+    tools.push(
+      kernel.revolve({
+        start: [inside, z - into * margin],
+        steps: [
+          { kind: 'line', to: [inside, z] },
+          { kind: 'line', to: [ownInside - margin, z + into * ratio * (inner + margin)] },
+          { kind: 'line', to: [floor, z + into * ratio * (inner + margin)] },
+          { kind: 'line', to: [floor, z - into * margin] },
+        ],
+      })
+    );
+  }
 
-  const outside = `${end}-outside`;
+  const keyOutside = `${end}-outside`;
+  const keyInside = `${end}-inside`;
+  const sides = outer > 1e-9 && inner > 1e-9 ? 'both sides' : inner > 1e-9 ? 'inside' : 'outside';
   return {
     ...part,
-    solid: kernel.cut(part.solid, [tool]),
+    solid: kernel.cut(part.solid, tools),
     [end]: {
       ...junction,
+      insideDiameter: 2 * inside,
       outsideDiameter: 2 * thin,
       // The thinner wall's mid-surface too: the weld joins two equal walls on one radius.
       wall: { ...junction.wall, surface: cylinderSurface(inside + thickness / 2), thickness },
     },
     landmarks: [
-      ...part.landmarks.map((l) => (l.key === outside ? { ...l, diameter: 2 * thin } : l)),
-      { key: `${end}-taper`, z: z + into * length, diameter: 2 * thick, role: `${ratio}:1 taper to the thinner wall (outside)` },
+      ...part.landmarks.map((l) =>
+        l.key === keyOutside ? { ...l, diameter: 2 * thin } : l.key === keyInside ? { ...l, diameter: 2 * inside } : l
+      ),
+      ...(outer > 1e-9
+        ? [{ key: `${end}-taper`, z: z + into * ratio * outer, diameter: 2 * ownOutside, role: `${ratio}:1 taper to the thinner wall (outside)` }]
+        : []),
+      ...(inner > 1e-9
+        ? [
+            {
+              key: `${end}-taper-inside`,
+              z: z + into * ratio * inner,
+              diameter: 2 * ownInside,
+              role: `${ratio}:1 taper to the thinner wall (inside${sides === 'both sides' ? ', mid-wall' : ''})`,
+            },
+          ]
+        : []),
     ],
   };
 }

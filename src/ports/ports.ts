@@ -8,6 +8,7 @@
 //
 // Everything is in millimetres, in the assembly's frame, Z being the vessel axis.
 import {
+  Kind,
   Sym,
   scope,
   type AssemblyDefinition,
@@ -21,7 +22,7 @@ import {
   type AssemblyModel,
   type BuiltPart,
 } from '../assembly/buildAssembly.ts';
-import type { Junction, WallAt, WallSurface } from '../builders/types.ts';
+import type { Junction, TubeBundle, WallAt, WallSurface } from '../builders/types.ts';
 import { cylinderSurface } from '../builders/walls.ts';
 import type { Vec3 } from '../kernel/GeometryKernel.ts';
 
@@ -32,8 +33,31 @@ import type { Vec3 } from '../kernel/GeometryKernel.ts';
  * - `shell_wall` — the patch of a host a part is welded to without opening it.
  * - `neck_end` — an end of a nozzle's neck: where it meets its host, where it stands out.
  * - `support_face` — the side of a ring, support, jacket or pad that bears on its host.
+ * - `tube_end` — an end of a tube bundle: every tube's end there, as one port on a pattern.
+ * - `tube_holes` — the holes of a tubesheet those ends meet, as one port on the same pattern.
  */
-export type PortKind = 'axial_edge' | 'flange_face' | 'opening' | 'shell_wall' | 'neck_end' | 'support_face';
+export type PortKind =
+  | 'axial_edge'
+  | 'flange_face'
+  | 'opening'
+  | 'shell_wall'
+  | 'neck_end'
+  | 'support_face'
+  | 'tube_end'
+  | 'tube_holes';
+
+/**
+ * A port that stands for many identical ones: every tube end of a bundle at one tubesheet, every
+ * hole of the plate it meets. One port, one joint, and the count they repeat at.
+ */
+export interface PortPattern {
+  readonly count: number;
+  readonly pitch: number;
+  readonly layoutAngle: number;
+  readonly limitRadius: number;
+  readonly tubeOutsideDiameter: number;
+  readonly tubeThickness: number;
+}
 
 export interface Port {
   /** `<key>@<componentId>`. */
@@ -63,6 +87,11 @@ export interface Port {
   readonly outsideRadius?: number;
   /** For a patch of wall and what bears on it: along the host's offset, and round it. */
   readonly extent?: { readonly axial: number; readonly circumferentialDeg: number };
+  /**
+   * For a tube end or the holes it meets: the pattern the port repeats on. Its location is the
+   * pattern's centre, and its radii are one tube's.
+   */
+  readonly pattern?: PortPattern;
   /** The references `describePart` gives the B-Rep edges of the port, when it has any. */
   readonly semanticRefs: readonly string[];
 }
@@ -72,7 +101,8 @@ export interface Port {
  * - `set_in_nozzle` — a neck through its host's wall.
  * - `fillet_attachment` — a ring, support, jacket or pad on a wall.
  * - `bolted` — two faces of the run.
- * - `clamped`, `tube_to_tubesheet` — reserved for the parts that make them.
+ * - `tube_to_tubesheet` — a bundle's tube ends in a tubesheet, every tube at once.
+ * - `clamped` — reserved for the parts that make it.
  */
 export type JointKind = 'butt_weld' | 'set_in_nozzle' | 'fillet_attachment' | 'bolted' | 'clamped' | 'tube_to_tubesheet';
 
@@ -83,7 +113,9 @@ export interface Joint {
   /** Port ids, in the order of the joint's id. */
   readonly ports: readonly [string, string];
   /** Why the joint exists. */
-  readonly sourceRule: 'run adjacency' | 'host';
+  readonly sourceRule: 'run adjacency' | 'host' | 'tube ends';
+  /** How many identical joints this one stands for: a bundle's tube count. Absent, one. */
+  readonly multiplicity?: number;
   /**
    * The weld, as the component states it, keyed on `CodeSymbol` wire values. Absent when
    * nothing is stated: the kernel invents no weld.
@@ -280,7 +312,125 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
     }
   }
 
+  // ---------------------------------------------------------------- a bundle's tubes, in their tubesheets
+  // One port per end of the bundle, carrying the pattern; one joint per tubesheet face an end
+  // meets, standing for every tube of it. The plate states the same pattern for the rules, so the
+  // two statements are held to each other here.
+  for (const part of model.parts) {
+    if (part.status !== 'drawn' || !part.bundle) continue;
+    const component = components.get(part.componentId);
+    if (!component) continue;
+    const bundle = part.bundle;
+    const pattern: PortPattern = {
+      count: bundle.count,
+      pitch: bundle.pitch,
+      layoutAngle: bundle.layoutAngle,
+      limitRadius: bundle.limitRadius,
+      tubeOutsideDiameter: bundle.tubeOutsideDiameter,
+      tubeThickness: bundle.tubeThickness,
+    };
+    const outside = bundle.tubeOutsideDiameter / 2;
+    const tubeWall = {
+      surface: cylinderSurface(outside - bundle.tubeThickness / 2),
+      thickness: bundle.tubeThickness,
+      meanRadius: outside - bundle.tubeThickness / 2,
+      insideRadius: outside - bundle.tubeThickness,
+      outsideRadius: outside,
+    };
+    const ends = (['lower', 'upper'] as const).map((side, i) => {
+      const axis = toAssemblyVector([0, 0, side === 'lower' ? -1 : 1], part.transform);
+      return port(part.componentId, `tube-end:${side}`, 'tube_end', {
+        location: toAssembly([0, 0, bundle.ends[i]], part.transform),
+        axis,
+        meridian: axis,
+        ...tubeWall,
+        pattern,
+        semanticRefs: [],
+      });
+    });
+    ports.push(...ends);
+
+    for (const end of ends) {
+      const face = ports.find(
+        (p) =>
+          p.kind === 'flange_face' &&
+          TUBESHEETS.has(components.get(p.componentId)?.kind ?? '') &&
+          Math.abs(p.location[2] - end.location[2]) <= 1e-6 &&
+          p.axis[2] * end.axis[2] < 0
+      );
+      const sheet = face && components.get(face.componentId);
+      if (!face || !sheet) continue;
+      const stated = (symbol: string) => sheet.dimensions[symbol];
+      const holes = port(sheet.id, `tube-holes:${part.componentId}`, 'tube_holes', {
+        location: face.location,
+        axis: face.axis,
+        meridian: face.meridian,
+        ...tubeWall,
+        surface: face.surface,
+        thickness: stated(Sym.THICKNESS) ?? face.thickness,
+        pattern: {
+          count: bundle.count,
+          pitch: stated(Sym.TUBE_PITCH),
+          layoutAngle: stated(Sym.TUBE_LAYOUT_ANGLE),
+          limitRadius: stated(Sym.TUBE_LIMIT_RADIUS),
+          tubeOutsideDiameter: stated(Sym.TUBE_OUTSIDE_DIAMETER),
+          tubeThickness: stated(Sym.TUBE_THICKNESS),
+        },
+        semanticRefs: [],
+      });
+      ports.push(holes);
+      joints.push({
+        id: jointId(holes, end),
+        kind: 'tube_to_tubesheet',
+        ports: [holes.id, end.id],
+        sourceRule: 'tube ends',
+        multiplicity: bundle.count,
+        ...weldOf(component, [Sym.FILLET_WELD_LEG, Sym.GROOVE_WELD_LEG]),
+        ...tubeJointIssues(component, sheet, bundle),
+      });
+    }
+  }
+
   return { ports, joints };
+}
+
+const TUBESHEETS: ReadonlySet<string> = new Set([
+  Kind.U_TUBE_TUBESHEET,
+  Kind.FIXED_TUBESHEET,
+  Kind.FLOATING_TUBESHEET_IMMERSED,
+  Kind.FLOATING_TUBESHEET_EXTERNALLY_SEALED,
+  Kind.FLOATING_TUBESHEET_INTERNALLY_SEALED,
+]);
+
+/**
+ * What a bundle and the plate it ends in do not agree on, and whether the joint is one §4.18.10
+ * sizes. The catalogue covers a joint whose strength is a weld — fillet, groove, or both, told
+ * apart by the legs stated, an expansion beside them being allowed and not drawn. A joint with no
+ * weld leg is expanded, or seal welded, and §4.18.10.2.c gives its allowable load to Annex 4.C's
+ * qualification tests, which no geometry carries: it is refused.
+ */
+function tubeJointIssues(bundle: ComponentDefinition, sheet: ComponentDefinition, shape: TubeBundle): { issues: string[]; findings: Scope[] } {
+  const issues: string[] = [];
+  const findings: Scope[] = [];
+  const pairs: [string, number][] = [
+    [Sym.TUBE_PITCH, shape.pitch],
+    [Sym.TUBE_OUTSIDE_DIAMETER, shape.tubeOutsideDiameter],
+    [Sym.TUBE_THICKNESS, shape.tubeThickness],
+    [Sym.TUBE_LAYOUT_ANGLE, shape.layoutAngle],
+    [Sym.TUBE_LIMIT_RADIUS, shape.limitRadius],
+  ];
+  for (const [symbol, own] of pairs) {
+    const plate = sheet.dimensions[symbol];
+    if (plate === undefined || Math.abs(plate - own) <= 1e-6 * Math.max(1, own)) continue;
+    issues.push(`The bundle states ${symbol.replace(/_/g, ' ')} ${own}, the tubesheet ${plate}`);
+    findings.push(scope('mismatch', symbol, `the tubesheet's ${plate}`, `${own} on the bundle`));
+  }
+  const legs = [Sym.FILLET_WELD_LEG, Sym.GROOVE_WELD_LEG].filter((s) => (bundle.dimensions[s] ?? 0) > 0);
+  if (legs.length === 0) {
+    issues.push('No strength weld stated: an expanded or seal-welded joint takes its allowable load from Annex 4.C tests, which no geometry carries');
+    findings.push(scope('not_built', `${Sym.FILLET_WELD_LEG} or ${Sym.GROOVE_WELD_LEG}`, 'a strength weld, §4.18.10', 'expanded or seal welded'));
+  }
+  return { issues, findings };
 }
 
 type PortBody = Omit<Port, 'id' | 'componentId' | 'key' | 'kind'>;
@@ -298,8 +448,9 @@ function junctionPort(part: BuiltPart, side: 'lower' | 'upper', junction: Juncti
   const landmarks = part.landmarks.filter((l) => l.junction === side);
   const z = landmarks[0]?.z ?? 0;
   const wall: WallAt = junction.wall;
+  const [cx, cy] = junction.centre ?? [0, 0];
   return port(part.componentId, side, junction.face ? 'flange_face' : 'axial_edge', {
-    location: toAssembly([0, 0, z], part.transform),
+    location: toAssembly([cx, cy, z], part.transform),
     axis: toAssemblyVector([0, 0, side === 'lower' ? -1 : 1], part.transform),
     meridian: toAssemblyVector([wall.meridian[0], 0, wall.meridian[1]], part.transform),
     surface: wall.surface,
@@ -322,6 +473,13 @@ function mismatches(a: Port, b: Port): { issues: string[]; findings: Scope[] } {
   const ra = a.meanRadius ?? 0;
   const rb = b.meanRadius ?? 0;
   const tolerance = Math.max(1e-3 * Math.max(ra, rb), 1e-6);
+  // Two circles of one radius on different centres do not meet: what an eccentric cone's small
+  // end presents to a course that the run, stacked on one axis, still places on it.
+  const apart = Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]);
+  if (apart > tolerance) {
+    issues.push(`Centres are ${mm(apart)} apart`);
+    findings.push(scope('mismatch', 'centre of the joint circle, across the axis', `coincident within ${mm(tolerance)}`, `${mm(apart)} apart`));
+  }
   if (Math.abs(ra - rb) > tolerance) {
     issues.push(`Mean radii differ: ${mm(ra)} against ${mm(rb)}`);
     findings.push(

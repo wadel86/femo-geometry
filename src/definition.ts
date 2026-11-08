@@ -51,7 +51,21 @@ export const Kind = {
   JACKET_CLOSURE: 'jacket_closure',
   OCTAGONAL_VESSEL: 'octagonal_vessel',
   PRESSURE_RELIEF_DEVICE: 'pressure_relief_device',
+  // Draft kinds: drawn by the catalogue's wave 1b, with no `ComponentType` behind them yet. The
+  // backend cannot store one, so they live in draft entries' specimens until it can.
+  ECCENTRIC_CONICAL_SHELL: 'eccentric_conical_shell',
+  LEG_SUPPORT: 'leg_support',
+  PASS_PARTITION_PLATE: 'pass_partition_plate',
+  TUBE_BUNDLE: 'tube_bundle',
 } as const;
+
+/** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
+export const DRAFT_KINDS: ReadonlySet<string> = new Set([
+  Kind.ECCENTRIC_CONICAL_SHELL,
+  Kind.LEG_SUPPORT,
+  Kind.PASS_PARTITION_PLATE,
+  Kind.TUBE_BUNDLE,
+]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
 export const Sym = {
@@ -131,6 +145,19 @@ export const Sym = {
   CHANNEL_INSIDE_DIAMETER: 'channel_inside_diameter',
   SHELL_THICKNESS: 'shell_thickness',
   CHANNEL_THICKNESS: 'channel_thickness',
+  /** §4.18.10's tube-to-tubesheet weld legs, Figure 4.18.13. */
+  FILLET_WELD_LEG: 'fillet_weld_leg',
+  GROOVE_WELD_LEG: 'groove_weld_leg',
+  // Draft symbols, read only by the draft kinds above: no `CodeSymbol` names them yet.
+  /** Which way an eccentric cone's tangent side faces, degrees round the axis from +X. */
+  FLAT_SIDE_AZIMUTH: 'flat_side_azimuth',
+  LEG_OUTSIDE_DIAMETER: 'leg_outside_diameter',
+  LEG_THICKNESS: 'leg_thickness',
+  /** From the top of the leg's weld to the underside of its base plate. */
+  LEG_LENGTH: 'leg_length',
+  /** How far down the shell the leg is welded, from its top. */
+  LEG_ATTACHMENT_LENGTH: 'leg_attachment_length',
+  PASS_PARTITION_THICKNESS: 'pass_partition_thickness',
   // §4.19, bellows.
   BELLOWS_INSIDE_DIAMETER: 'bellows_inside_diameter',
   CONVOLUTION_HEIGHT: 'convolution_height',
@@ -302,6 +329,32 @@ export interface AssemblyDefinition {
    * ports. A joint with none is drawn at the code minimum.
    */
   readonly joints?: Readonly<Record<string, JointParameters>>;
+  /**
+   * How the equipment was made, declared in layers — a standards profile, the project, the
+   * equipment, a joint — each overriding the one before: see `details/constructionDetails.ts`.
+   * Resolved into `joints` and into the parts' dimensions by `applyConstructionDetails` before
+   * anything is built; absent, nothing changes.
+   */
+  readonly details?: DetailLayers;
+}
+
+/** A construction detail's value: a length in millimetres, a ratio, or one of its named options. */
+export type DetailValue = number | string;
+
+/** Construction details keyed on their wire names (`Detail` in `details/constructionDetails.ts`). */
+export type ConstructionDetailValues = Readonly<Record<string, DetailValue>>;
+
+/** The layers construction details are declared in, from the least specific to the most. */
+export interface DetailLayers {
+  /** The entity's standards profile: what an EPC declares once for every equipment it builds. */
+  readonly profile?: { readonly name: string; readonly details: ConstructionDetailValues };
+  readonly project?: ConstructionDetailValues;
+  readonly equipment?: ConstructionDetailValues;
+  /**
+   * Per joint, keyed as {@link AssemblyDefinition.joints} is: `<idA>~<idB>` for two parts of the
+   * run, `<nozzleId>~<hostId>` for a nozzle in its host.
+   */
+  readonly joints?: Readonly<Record<string, ConstructionDetailValues>>;
 }
 
 /** §6.1.6.2: the thicker of two butt welded walls is faired "at least 3 to 1". */
@@ -315,7 +368,19 @@ export const MAXIMUM_TAPER_RATIO = 10;
 export interface JointParameters {
   /** Length over thickness step of the fairing on the thicker wall; the code minimum when unstated. */
   readonly taperRatio?: number;
+  /**
+   * Which surface runs on across a change of thickness, and so which side the taper is cut on:
+   * inside flush (the step outside), outside flush (the step inside) or mid-wall (half each).
+   * Unstated, the joint is drawn as it always was — inside flush, and only where the bores match.
+   */
+  readonly alignment?: AlignmentDatum;
+  /** A nozzle's corner where its neck meets its host's outside surface, rounded; 0 or unstated is sharp. */
+  readonly outsideCornerRadius?: number;
+  /** A nozzle's corner where its bore meets its host's inside surface, rounded; 0 or unstated is sharp. */
+  readonly insideCornerRadius?: number;
 }
+
+export type AlignmentDatum = 'inside_flush' | 'outside_flush' | 'mid_wall';
 
 /** Parts of the run that close it: drawn turned over when they close its bottom. */
 export const RUN_KINDS_THAT_CLOSE: ReadonlySet<string> = new Set([

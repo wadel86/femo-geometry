@@ -58,6 +58,33 @@ export {
 } from './ports/zones.ts';
 export { OUTLINE_FACTOR, zoneOutlines, type ZoneOutline } from './ports/zoneOutlines.ts';
 export {
+  KERNEL_AXISYMMETRY,
+  runSection,
+  sectionAt,
+  type AxisymmetryDeclaration,
+  type RunSection,
+  type SectionStation,
+} from './ports/section.ts';
+export {
+  DETAILS,
+  Detail,
+  detailSpec,
+  resolveDetail,
+  validDetailValue,
+  type DetailEffect,
+  type DetailKey,
+  type DetailSource,
+  type DetailSpec,
+  type EffectMeasurement,
+  type ResolvedValue,
+} from './details/constructionDetails.ts';
+export {
+  applyConstructionDetails,
+  withDetailNotes,
+  type AppliedDetail,
+  type ResolvedDetails,
+} from './details/apply.ts';
+export {
   GEOMETRY_FORMAT_VERSION,
   RefusedError,
   namingTolerance,
