@@ -465,9 +465,9 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     id: 'lifting_lug.longitudinal', article: 'CODAP C9.6', title: 'Lifting lug along the axis, on a pad', entry: 'component', status: 'captured',
     kinds: [Kind.LIFTING_LUG], focus: 'M',
     specimen: mountedOnCourse(Kind.LIFTING_LUG, {
-      lifting_lug_base_length: 300, lifting_lug_hole_height: 140, lifting_lug_hole_offset: 30, lifting_lug_hole_diameter: 50, lifting_lug_thickness: 30,
-      lifting_lug_top_radius: 60, lifting_lug_orientation: 0, pad_thickness: 16, lifting_lug_pad_length: 400, lifting_lug_pad_width: 160,
-    }, side(1000, 180)),
+      lifting_lug_base_length: 500, lifting_lug_hole_height: 260, lifting_lug_hole_offset: 50, lifting_lug_hole_diameter: 90, lifting_lug_thickness: 40,
+      lifting_lug_top_radius: 100, lifting_lug_orientation: 0, pad_thickness: 20, lifting_lug_pad_length: 640, lifting_lug_pad_width: 240,
+    }, side(1000, 0)),
     parameters: [
       Sym.LIFTING_LUG_BASE_LENGTH, Sym.LIFTING_LUG_HOLE_HEIGHT, Sym.LIFTING_LUG_HOLE_OFFSET, Sym.LIFTING_LUG_HOLE_DIAMETER, Sym.LIFTING_LUG_THICKNESS,
       Sym.LIFTING_LUG_TOP_RADIUS, Sym.LIFTING_LUG_ORIENTATION, Sym.PAD_THICKNESS, Sym.LIFTING_LUG_PAD_LENGTH, Sym.LIFTING_LUG_PAD_WIDTH,
@@ -483,8 +483,8 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     id: 'lifting_lug.circumferential', article: 'CODAP C9.6', title: 'Lifting lug round the axis', entry: 'component', status: 'captured',
     kinds: [Kind.LIFTING_LUG], focus: 'M',
     specimen: mountedOnCourse(Kind.LIFTING_LUG, {
-      lifting_lug_base_length: 300, lifting_lug_hole_height: 140, lifting_lug_hole_diameter: 50, lifting_lug_thickness: 30, lifting_lug_orientation: 90,
-    }, side(1000, 180)),
+      lifting_lug_base_length: 500, lifting_lug_hole_height: 260, lifting_lug_hole_diameter: 90, lifting_lug_thickness: 40, lifting_lug_orientation: 90,
+    }, side(1000, 270)),
     parameters: [
       Sym.LIFTING_LUG_BASE_LENGTH, Sym.LIFTING_LUG_HOLE_HEIGHT, Sym.LIFTING_LUG_HOLE_OFFSET, Sym.LIFTING_LUG_HOLE_DIAMETER, Sym.LIFTING_LUG_THICKNESS,
       Sym.LIFTING_LUG_TOP_RADIUS, Sym.LIFTING_LUG_ORIENTATION, Sym.PAD_THICKNESS,
