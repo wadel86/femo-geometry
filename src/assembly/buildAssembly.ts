@@ -228,7 +228,7 @@ export class AssemblyBuilder {
       const datum = parameters?.alignment;
       if (!taperable(below.junction, above.junction, datum !== undefined)) continue;
       const [thick, end, thin] =
-        below.junction.wall.thickness > above.junction.wall.thickness
+        weldedWidth(below.junction) > weldedWidth(above.junction)
           ? [lower, below.end, above.junction]
           : [upper, above.end, below.junction];
       const thickId = thick === lower ? run[index].id : run[index + 1].id;
@@ -251,12 +251,12 @@ export class AssemblyBuilder {
       // The code minimum keeps the key it always had, so no assembly drawn before is drawn again;
       // a declared datum keys on the thinner wall's bore too, which it is faired to.
       const key =
-        `${thick.key}|taper:${end}:${thin.wall.thickness}${ratio === MINIMUM_TAPER_RATIO ? '' : `:${ratio}`}` +
+        `${thick.key}|taper:${end}:${weldedWidth(thin)}${ratio === MINIMUM_TAPER_RATIO ? '' : `:${ratio}`}` +
         (datum === undefined ? '' : `:${datum}:${thin.insideDiameter}`);
       // Undeclared, the bores matched to within the tolerance and the thicker part's own is kept.
       const bore = datum === undefined ? thick.part[end]!.insideDiameter / 2 : thin.insideDiameter / 2;
       const tapered = this.remember(this.runCache, key, () =>
-        taper(this.kernel, thick.part, end, bore, thin.wall.thickness, ratio)
+        taper(this.kernel, thick.part, end, bore, weldedWidth(thin), ratio)
       );
       // Tapered, the part is no longer what its builder makes thicker: nothing is laid on it.
       if (tapered) {
@@ -620,6 +620,18 @@ function jointBetween(definition: AssemblyDefinition, a: string, b: string): Joi
 }
 
 /**
+ * What a run joint welds: the width of the end's face in the joint plane, from its bore to its outside.
+ * A cylinder's is its wall thickness; a cone's end, cut square to the axis, is t / cos α wide where its
+ * wall is t thick. Read as `wall.thickness`, a cylinder of t / cos α under a sharp cone (§4.3.11, which
+ * meets its cylinders on one mean radius) was tapered down to the cone's t at the weld and left a notch
+ * of t (1 / cos α − 1) under the cone's end — 3.09 × 9.28 mm at 30°, where the meshing session's wave 3
+ * found 264 inverted cells.
+ */
+function weldedWidth(j: Junction): number {
+  return (j.outsideDiameter - j.insideDiameter) / 2;
+}
+
+/**
  * Whether a taper can reconcile two ends: welded walls of unequal thickness, the thinner lying
  * within the thicker's. A face is bolted, not welded. Undeclared, the bores must match — inside
  * flush, as every joint was drawn before a datum could be declared; with a declared datum the
@@ -628,9 +640,9 @@ function jointBetween(definition: AssemblyDefinition, a: string, b: string): Joi
 function taperable(a: Junction, b: Junction, datumDeclared: boolean): boolean {
   if (a.face || b.face || a.wall.surface.kind === 'plane' || b.wall.surface.kind === 'plane') return false;
   const tolerance = Math.max(1e-3 * Math.max(a.insideDiameter, b.insideDiameter), 1e-6);
-  if (!(Math.abs(a.wall.thickness - b.wall.thickness) > 1e-6)) return false;
+  if (!(Math.abs(weldedWidth(a) - weldedWidth(b)) > 1e-6)) return false;
   if (!datumDeclared) return Math.abs(a.insideDiameter - b.insideDiameter) <= tolerance;
-  const [thick, thin] = a.wall.thickness > b.wall.thickness ? [a, b] : [b, a];
+  const [thick, thin] = weldedWidth(a) > weldedWidth(b) ? [a, b] : [b, a];
   return (
     thin.insideDiameter >= thick.insideDiameter - tolerance && thin.outsideDiameter <= thick.outsideDiameter + tolerance
   );

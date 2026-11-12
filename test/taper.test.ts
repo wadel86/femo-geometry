@@ -108,3 +108,31 @@ test('two openings overlap within 2.5·√(R·t), not within twice that', () => 
   close(far.distance, 470, 1);
   assert.equal(far.overlap, false, 'inside two zones, but not inside one');
 });
+
+test("a sharp cone's cylinders are welded to its end's full face, t / cos α wide: no taper, no notch", () => {
+  // §4.3.11's catalogue specimen: a 20 mm cone at 30° between cylinders of 20 / cos 30° = 23.094 mm, all on
+  // one bore. The cone's end, cut square to the axis, is 23.094 mm wide; the cylinders were tapered to the
+  // cone's 20 mm wall instead and left a 3.09 × 9.28 mm notch under each end.
+  const t = 20 / Math.cos(Math.PI / 6);
+  const definition: AssemblyDefinition = {
+    components: [
+      part('L', 'cylindrical_shell', { inside_diameter: 2000, thickness: t, course_length: 1000 }, 0),
+      part('C', 'conical_shell', { inside_diameter: 2000, small_end_diameter: 1200, half_apex_angle: 30, thickness: 20 }, 1),
+      part('U', 'cylindrical_shell', { inside_diameter: 1200, thickness: t, course_length: 1000 }, 2),
+    ],
+    placements: {},
+    reversed: [],
+  };
+  const built = new AssemblyBuilder(kernel).build(definition);
+  const resolved = resolveGeometry(definition, built, kernel, { mode: 'analysis' });
+  const port = (id: string) => resolved.parts.flatMap((p) => p.ports).find((p) => p.id === id)!;
+  for (const [cylinder, cone] of [['upper@L', 'lower@C'], ['lower@U', 'upper@C']]) {
+    close(port(cylinder).insideRadius, port(cone).insideRadius, 1e-6);
+    close(port(cylinder).outsideRadius, port(cone).outsideRadius, 1e-6);
+  }
+  // nothing was tapered: each cylinder is its own full course
+  for (const id of ['L', 'U']) {
+    const p = built.parts.find((q) => q.componentId === id)!;
+    assert.ok(!p.landmarks.some((l) => l.key.includes('taper')), `${id} was tapered`);
+  }
+});
