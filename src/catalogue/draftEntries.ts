@@ -27,7 +27,7 @@ export interface DeclaredJoint {
 
 export interface DraftEntry {
   readonly id: string;
-  /** The Part 4 article the entry answers. */
+  /** The article the entry answers: Part 4's, unless it names another code ("CODAP C9.6"). */
   readonly article: string;
   readonly title: string;
   readonly entry: 'component' | 'joint';
@@ -427,6 +427,125 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     specimen: vessel([course('S', 0), run('X', Kind.FLANGED_AND_FLUED_EXPANSION_JOINT, 1, { inside_diameter: 1500, thickness: 16 }), course('U', 2)]),
     focus: 'X', parameters: [Sym.INSIDE_DIAMETER, Sym.THICKNESS], ports: ['lower', 'upper'],
     note: "The brief's §4.20 flexible shell element is this Division's §4.18.12 flanged-and-flued joint, whose design §4.18.12.1 sends to Part 5. The catalogue carries only D and t, so its tori and plate are drawn to proportions, and said",
+  },
+
+  // CODAP 2005 Partie C — the parts it sizes and Part 4 does not. `article` names the CODAP clause.
+  {
+    id: 'conical_shell.offset_axes', article: 'CODAP C2.3.8', title: 'Conical shell joining two cylinders on offset axes', entry: 'component', status: 'captured',
+    kinds: [Kind.CONICAL_SHELL], focus: 'C',
+    specimen: vessel([
+      run('L', Kind.CYLINDRICAL_SHELL, 0, { inside_diameter: 2000, thickness: 20, course_length: 1000 }),
+      run('C', Kind.CONICAL_SHELL, 1, { inside_diameter: 2000, small_end_diameter: 1200, half_apex_angle: 30, thickness: 20, cone_axis_offset: 250 }),
+    ]),
+    parameters: [Sym.INSIDE_DIAMETER, Sym.SMALL_END_DIAMETER, Sym.HALF_APEX_ANGLE, Sym.THICKNESS, Sym.CONE_AXIS_OFFSET, Sym.KNUCKLE_RADIUS, Sym.FLARE_RADIUS],
+    ports: ['lower', 'upper'],
+    joint: { kind: 'butt_weld', between: ['L', 'C'], ports: ['upper', 'lower'] },
+    constructionDetails: CORRODED,
+    note:
+      'Not a kind: a conical_shell stating cone_axis_offset, δ, which is how the rules engine carries C2.3.8 (CodeSymbol.CONE_AXIS_OFFSET). Unstated or zero it is the symmetric cone. ' +
+      'α is the SYMMETRIC generatrix\'s, read as the engine reads it: L = (D − D_s)/(2·tan α), and the sides go to α_max = atan(((D − D_s)/2 + δ)/L) and its counterpart, α_max being what C2.3.8.2 runs C2.3.5 to C2.3.7 at. ' +
+      'Lofted as conical_shell.eccentric is, the offset drawn towards +X since nothing carries its direction; the course above the small end still meets the stacking limit that entry records',
+  },
+  {
+    id: 'flat_head.relief_groove', article: 'CODAP C3.2.6', title: 'Flat head with a relief groove', entry: 'component', status: 'captured',
+    kinds: [Kind.FLAT_HEAD], focus: 'F',
+    specimen: vessel([
+      course('S', 0),
+      run('F', Kind.FLAT_HEAD, 1, { inside_diameter: 1500, thickness: 60, relief_groove_radius: 10, groove_remaining_thickness: 40 }),
+    ]),
+    parameters: [Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.RELIEF_GROOVE_RADIUS, Sym.GROOVE_REMAINING_THICKNESS],
+    ports: ['lower'],
+    joint: { kind: 'butt_weld', between: ['S', 'F'], ports: ['upper', 'lower'] },
+    constructionDetails: [],
+    note:
+      'Figure C3.2.6: a plate e_f thick on a spigot as thick as the shell, butt-welded to it, the groove cut into the pressure face flush with the bore and leaving e_r under it. ' +
+      'A FLAT_HEAD with two more symbols rather than a kind: what changes is the corner, and C3.2.4 and C3.2.5 are the same head with other corners. The spigot\'s length is undimensioned and drawn e_s',
+  },
+  {
+    id: 'lifting_lug.longitudinal', article: 'CODAP C9.6', title: 'Lifting lug along the axis, on a pad', entry: 'component', status: 'captured',
+    kinds: [Kind.LIFTING_LUG], focus: 'M',
+    specimen: mountedOnCourse(Kind.LIFTING_LUG, {
+      lifting_lug_base_length: 300, lifting_lug_hole_height: 140, lifting_lug_hole_offset: 30, lifting_lug_hole_diameter: 50, lifting_lug_thickness: 30,
+      lifting_lug_top_radius: 60, lifting_lug_orientation: 0, pad_thickness: 16, lifting_lug_pad_length: 400, lifting_lug_pad_width: 160,
+    }, side(1000, 180)),
+    parameters: [
+      Sym.LIFTING_LUG_BASE_LENGTH, Sym.LIFTING_LUG_HOLE_HEIGHT, Sym.LIFTING_LUG_HOLE_OFFSET, Sym.LIFTING_LUG_HOLE_DIAMETER, Sym.LIFTING_LUG_THICKNESS,
+      Sym.LIFTING_LUG_TOP_RADIUS, Sym.LIFTING_LUG_ORIENTATION, Sym.PAD_THICKNESS, Sym.LIFTING_LUG_PAD_LENGTH, Sym.LIFTING_LUG_PAD_WIDTH,
+    ],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Draft kind: Part 4 sizes no lifting lug. Figure C9.6.2.4-1 in the Code\'s letters — b_1, a_1, a_2, and the pad b_3 by b_2 by e_2 (pad_thickness). ' +
+      'The plate\'s sides run straight from the ends of b_1 to touch the metal round the hole, whose radius no rule reads. Its plane holds the axis, which no extrusion reaches, so it is drawn revolved and cut to a slab',
+  },
+  {
+    id: 'lifting_lug.circumferential', article: 'CODAP C9.6', title: 'Lifting lug round the axis', entry: 'component', status: 'captured',
+    kinds: [Kind.LIFTING_LUG], focus: 'M',
+    specimen: mountedOnCourse(Kind.LIFTING_LUG, {
+      lifting_lug_base_length: 300, lifting_lug_hole_height: 140, lifting_lug_hole_diameter: 50, lifting_lug_thickness: 30, lifting_lug_orientation: 90,
+    }, side(1000, 180)),
+    parameters: [
+      Sym.LIFTING_LUG_BASE_LENGTH, Sym.LIFTING_LUG_HOLE_HEIGHT, Sym.LIFTING_LUG_HOLE_OFFSET, Sym.LIFTING_LUG_HOLE_DIAMETER, Sym.LIFTING_LUG_THICKNESS,
+      Sym.LIFTING_LUG_TOP_RADIUS, Sym.LIFTING_LUG_ORIENTATION, Sym.PAD_THICKNESS,
+    ],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note: 'Figure C9.6.2.4-2, with no pad: the plate square to the axis, extruded along it and cut to the shell\'s circle so its base follows it',
+  },
+  {
+    id: 'support_ring.cradle', article: 'CODAP C9.3.3', title: 'Support ring on a cradle', entry: 'component', status: 'captured',
+    kinds: [Kind.SUPPORT_RING], focus: 'M',
+    specimen: mountedOnCourse(Kind.SUPPORT_RING, {
+      ring_height: 120, ring_thickness: 20, support_opening_angle: 120, support_ring_links: 0, support_height: 600, support_post_width: 120,
+      support_lug_base_plate_thickness: 20,
+    }, side(1000, 0)),
+    parameters: [
+      Sym.RING_HEIGHT, Sym.RING_THICKNESS, Sym.SUPPORT_OPENING_ANGLE, Sym.SUPPORT_RING_LINKS, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH,
+      Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS,
+    ],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Draft kind: §4.15.3 carries a horizontal drum on saddles and has nothing for a ring. Figure C9.3.3.1.7-2: the ring, and two posts at ±δ_a/2 from the bottom on one base. ' +
+      'The ring is the flat bar C9.A5.3 computes; a T or built-up section is not drawn. Past δ_a = 180° the supports bear above the ring\'s middle and are refused as not built',
+  },
+  {
+    id: 'support_ring.two_links', article: 'CODAP C9.3.3', title: 'Support ring on two links', entry: 'component', status: 'captured',
+    kinds: [Kind.SUPPORT_RING], focus: 'M',
+    specimen: mountedOnCourse(Kind.SUPPORT_RING, {
+      ring_height: 120, ring_thickness: 20, support_opening_angle: 90, support_ring_links: 2, support_height: 800, support_post_width: 100,
+      support_lug_base_plate_thickness: 20,
+    }, side(1000, 0)),
+    parameters: [
+      Sym.RING_HEIGHT, Sym.RING_THICKNESS, Sym.SUPPORT_OPENING_ANGLE, Sym.SUPPORT_RING_LINKS, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH,
+      Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS,
+    ],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note: 'Figure C9.3.3.1.7-3: the same ring carried at two points, each post on its own base — the case C9.3.3.6 checks rather than C9.3.3.5',
+  },
+  {
+    id: 'leg_support.on_head', article: 'CODAP C9.5', title: 'Leg under a dished head', entry: 'component', status: 'captured',
+    kinds: [Kind.LEG_SUPPORT], focus: 'M',
+    specimen: vessel(
+      [
+        run('H', Kind.ELLIPSOIDAL_HEAD, 0, ELLIPSOIDAL),
+        course('S', 1),
+        on('M', Kind.LEG_SUPPORT, 'H', { leg_outside_diameter: 168.3, leg_thickness: 7.11, leg_length: 900, support_lug_base_plate_thickness: 20 }),
+      ],
+      { M: crown(450, 45) }
+    ),
+    parameters: [Sym.LEG_OUTSIDE_DIAMETER, Sym.LEG_THICKNESS, Sym.LEG_LENGTH, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['H', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'The §4.15.5 leg, hosted on a head instead of a course: a pipe parallel to the axis at the placement\'s distance from it, its end cut to the head\'s outside as a skirt on a head is. ' +
+      'C9.5.2.4 keeps legs within 0.4·D_i of the axis on an ellipsoidal head; the drawing does not enforce that, the rule does. Welded round its end, so leg_attachment_length is not read',
   },
 
   // ---------------------------------------------------------------- joints

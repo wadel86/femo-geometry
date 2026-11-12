@@ -29,7 +29,7 @@ import {
 } from './covers.ts';
 import { clampedConnection } from './clamps.ts';
 import { CONVOLUTED_BUILDERS } from './convoluted.ts';
-import { eccentricConicalShell } from './eccentric.ts';
+import { eccentricConicalShell, offsetConicalShell } from './eccentric.ts';
 import { TUBESHEET_BUILDERS } from './exchangers.ts';
 import { dividingPlates, obroundVessel, octagonalVessel, rectangularVessel } from './special.ts';
 import type {
@@ -330,6 +330,11 @@ export const cylindricalShell: RunBuilder = (component, context) => {
  * from the small end diameter `D_S`.
  */
 export const conicalShell: RunBuilder = (component, context) => {
+  // CODAP C2.3.8: offset axes make it a lofted body. With no small end the offset cannot be
+  // resolved, and the rules engine keeps the symmetric cone too.
+  if (optionalDimension(component, Sym.CONE_AXIS_OFFSET) !== undefined && optionalDimension(component, Sym.SMALL_END_DIAMETER) !== undefined) {
+    return offsetConicalShell(component, context);
+  }
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
   const thickness = requireDimension(component, Sym.THICKNESS);
   const alpha = requireDimension(component, Sym.HALF_APEX_ANGLE);
@@ -844,6 +849,7 @@ export const ellipsoidalHead: RunBuilder = (component, context) => {
 
 /** A flat end: a plate of thickness `t`, drawn to the outside diameter of what it closes. */
 export const flatHead: RunBuilder = (component, context) => {
+  if (optionalDimension(component, Sym.RELIEF_GROOVE_RADIUS) !== undefined) return reliefGrooveFlatHead(component, context);
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
   const thickness = requireDimension(component, Sym.THICKNESS);
   const a = diameter / 2;
@@ -879,6 +885,108 @@ export const flatHead: RunBuilder = (component, context) => {
     notes: [],
   };
 };
+
+/**
+ * CODAP C3.2.6, Figure C3.2.6: a flat head with a peripheral relief groove. The plate is `e_f`
+ * thick and carries a spigot as thick as the shell, `e_s`, which is butt-welded to it; the groove
+ * is cut into the PRESSURE face, its outer wall flush with the bore, so the metal left over it is
+ * `e_r`, measured from the outer face. The groove relieves the corner a welded flat end would
+ * have, which is why C3.2.6 credits it with C2's global plastic adaptation.
+ *
+ * `e_s` is the course's, read off the neighbour: the spigot exists to meet it.
+ */
+function reliefGrooveFlatHead(component: ComponentDefinition, context: RunContext): ReturnType<RunBuilder> {
+  const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
+  const thickness = requireDimension(component, Sym.THICKNESS);
+  const groove = requireDimension(component, Sym.RELIEF_GROOVE_RADIUS);
+  const remaining = requireDimension(component, Sym.GROOVE_REMAINING_THICKNESS);
+  const a = diameter / 2;
+  const neighbour = context.neighbourOutsideRadius;
+  if (neighbour === undefined || neighbour <= a) {
+    throw new BuildError(
+      component,
+      'has a relief groove, and its spigot is as thick as the course it is welded to, which it has none of',
+      scope('out_of_scope', 'neighbour', 'a course whose outside radius is larger than the bore', neighbour === undefined ? 'none' : mm(neighbour))
+    );
+  }
+  const shell = neighbour - a;
+  if (remaining >= thickness) {
+    throw new BuildError(
+      component,
+      `leaves ${mm(remaining)} at the bottom of its groove in a ${mm(thickness)} plate`,
+      scope('out_of_scope', Sym.GROOVE_REMAINING_THICKNESS, `< ${mm(thickness)}, the plate`, mm(remaining))
+    );
+  }
+  if (thickness - remaining < groove) {
+    throw new BuildError(
+      component,
+      `has a groove of ${mm(groove)} radius only ${mm(thickness - remaining)} deep`,
+      scope('out_of_scope', 'groove depth e_f − e_r', `≥ ${mm(groove)}, its radius: drawn as a half-round`, mm(thickness - remaining))
+    );
+  }
+  if (2 * groove >= a) {
+    throw new BuildError(component, `has a groove ${mm(2 * groove)} wide in a ${mm(diameter)} bore`, scope('out_of_scope', Sym.RELIEF_GROOVE_RADIUS, `< ${mm(a / 2)}`, mm(groove)));
+  }
+
+  // The spigot below the plate: Figure C3.2.6 draws it about as long as the shell is thick.
+  const spigot = Math.max(shell, groove);
+  const outer = a + shell;
+  const top = spigot + thickness;
+  const bottom = top - remaining;
+  const centre = bottom - groove;
+  const inner = a - 2 * groove;
+  const slot = centre - spigot > 1e-9 ? [line(inner, centre)] : [];
+  const notes: Note[] = [
+    note(
+      `The spigot below the plate is drawn ${mm(spigot)} long: Figure C3.2.6 does not dimension it`,
+      undefined,
+      scope('assumed', 'spigot length', 'not dimensioned by C3.2.6', mm(spigot))
+    ),
+    representedNote(
+      'The groove is drawn as a half-round of r_d on a straight slot to the pressure face',
+      'relief groove shape',
+      'Figure C3.2.6',
+      `a half-round of ${mm(groove)} on a slot ${mm(centre - spigot)} deep`,
+      true
+    ),
+  ];
+
+  return {
+    solid: context.kernel.revolve({
+      start: [a, 0],
+      steps: [line(outer, 0), line(outer, top), line(0, top), line(0, spigot), line(inner, spigot), ...slot, arc([a, centre], [a - groove, bottom])],
+    }),
+    height: top,
+    lower: {
+      insideDiameter: diameter,
+      outsideDiameter: 2 * outer,
+      straightLength: spigot,
+      wall: { surface: cylinderSurface(a + shell / 2), thickness: shell, meridian: DOWN },
+    },
+    upper: null,
+    landmarks: [
+      ...junctionLandmarks('lower', 0, diameter, 2 * outer, 'Spigot end'),
+      { key: 'groove-bottom', z: bottom, diameter: 2 * (a - groove), role: 'Relief groove bottom (e_r)' },
+      { key: 'upper-rim', z: top, diameter: 2 * outer, role: 'Plate rim (outer face)' },
+    ],
+    host: headCrownHost(
+      context,
+      inner,
+      thickness,
+      () => spigot,
+      () => top,
+      () => cavityProfile(a, a / 4, [line(a, centre), arc([inner, centre], [a - groove, bottom]), ...(slot.length ? [line(inner, spigot)] : []), line(0, spigot)]),
+      () => PLANE
+    ),
+    // Up the spigot's mid-wall, then along the plate's mid-plane to the axis.
+    meridian: [
+      [a + shell / 2, 0],
+      [a + shell / 2, spigot + thickness / 2],
+      [0, spigot + thickness / 2],
+    ],
+    notes,
+  };
+}
 
 /**
  * A bolted flange: a ring of bore `B`, outside diameter `A` and thickness `t`, with its hub

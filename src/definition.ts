@@ -57,6 +57,10 @@ export const Kind = {
   LEG_SUPPORT: 'leg_support',
   PASS_PARTITION_PLATE: 'pass_partition_plate',
   TUBE_BUNDLE: 'tube_bundle',
+  // CODAP 2005 Partie C parts that Part 4 does not size: C9.6's lifting lug and C9.3.3's
+  // support ring. Draft kinds for the same reason as the four above.
+  LIFTING_LUG: 'lifting_lug',
+  SUPPORT_RING: 'support_ring',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -65,6 +69,8 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.LEG_SUPPORT,
   Kind.PASS_PARTITION_PLATE,
   Kind.TUBE_BUNDLE,
+  Kind.LIFTING_LUG,
+  Kind.SUPPORT_RING,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -158,6 +164,42 @@ export const Sym = {
   /** How far down the shell the leg is welded, from its top. */
   LEG_ATTACHMENT_LENGTH: 'leg_attachment_length',
   PASS_PARTITION_THICKNESS: 'pass_partition_thickness',
+  /**
+   * CODAP C2.3.8's δ, on a `conical_shell`: how far apart the parallel axes of the two cylinders
+   * it joins are. Absent or zero, the cone is symmetric. A `CodeSymbol` of the rules engine
+   * already (`CONE_AXIS_OFFSET`), so this spelling is the engine's, not a draft one.
+   */
+  CONE_AXIS_OFFSET: 'cone_axis_offset',
+  /** CODAP C3.2.6's r_d: the radius of a flat head's relief groove. */
+  RELIEF_GROOVE_RADIUS: 'relief_groove_radius',
+  /** CODAP C3.2.6's e_r: what is left of the head at the bottom of its relief groove. */
+  GROOVE_REMAINING_THICKNESS: 'groove_remaining_thickness',
+  // CODAP C9.6, Figure C9.6.2.4-1: a lifting lug and its pad, in the Code's own letters.
+  /** b_1: the lug's length where it is welded to the shell or its pad. */
+  LIFTING_LUG_BASE_LENGTH: 'lifting_lug_base_length',
+  /** a_2: from the shell or pad to the centre of the hole. */
+  LIFTING_LUG_HOLE_HEIGHT: 'lifting_lug_hole_height',
+  /** a_1: the hole's offset from the middle of b_1, along it. Zero for a symmetric lug. */
+  LIFTING_LUG_HOLE_OFFSET: 'lifting_lug_hole_offset',
+  LIFTING_LUG_HOLE_DIAMETER: 'lifting_lug_hole_diameter',
+  LIFTING_LUG_THICKNESS: 'lifting_lug_thickness',
+  /** The radius of metal round the hole. No rule reads it; drawn as the hole's diameter if unsaid. */
+  LIFTING_LUG_TOP_RADIUS: 'lifting_lug_top_radius',
+  /** 0 when the lug's plane holds the vessel axis (C9.6.2.4-1), 90 when it is square to it (-2). */
+  LIFTING_LUG_ORIENTATION: 'lifting_lug_orientation',
+  /** b_3, along the lug's base, and b_2 across it; its thickness is `pad_thickness`, the Code's e_2. */
+  LIFTING_LUG_PAD_LENGTH: 'lifting_lug_pad_length',
+  LIFTING_LUG_PAD_WIDTH: 'lifting_lug_pad_width',
+  // CODAP C9.3.3.1.7: a support ring and what carries it, Figures C9.3.3.1.7-2 and -3. The ring
+  // itself is `ring_height` by `ring_thickness`, as a stiffening ring is.
+  /** δ_a: the angle between the two supports, at the axis, symmetric about the bottom. */
+  SUPPORT_OPENING_ANGLE: 'support_opening_angle',
+  /** 0 for a cradle — both posts on one base — and 2 for two links, each on its own. */
+  SUPPORT_RING_LINKS: 'support_ring_links',
+  /** From the bottom of the ring to the underside of the base plate. */
+  SUPPORT_HEIGHT: 'support_height',
+  /** A post's width in the ring's plane; along the axis it is as wide as the ring. */
+  SUPPORT_POST_WIDTH: 'support_post_width',
   // §4.19, bellows.
   BELLOWS_INSIDE_DIAMETER: 'bellows_inside_diameter',
   CONVOLUTION_HEIGHT: 'convolution_height',

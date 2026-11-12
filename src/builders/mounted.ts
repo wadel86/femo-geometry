@@ -15,7 +15,15 @@ import {
 import { jacketClosure, pressureReliefDevice } from './fittings.ts';
 import { requireWithinHost } from './placing.ts';
 import { passPartitionPlate, tubeBundle } from './exchangers.ts';
-import { halfPipeJacket, legSupport, lugSupport, saddleSupport, skirtSupport } from './supports.ts';
+import {
+  halfPipeJacket,
+  legSupport,
+  liftingLug,
+  lugSupport,
+  saddleSupport,
+  skirtSupport,
+  supportRing,
+} from './supports.ts';
 import type { MountedBuilder } from './types.ts';
 
 /**
@@ -84,4 +92,6 @@ export const MOUNTED_BUILDERS: Readonly<Record<string, MountedBuilder>> = {
   leg_support: legSupport,
   pass_partition_plate: passPartitionPlate,
   tube_bundle: tubeBundle,
+  lifting_lug: liftingLug,
+  support_ring: supportRing,
 };

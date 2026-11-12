@@ -12,6 +12,7 @@ import {
   representedNote,
   requireDimension,
   scope,
+  signedDimension,
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
@@ -361,6 +362,7 @@ export const lugSupport: MountedBuilder = (component, context) => {
  * It may run past the course's lower end: only its weld has to stay on its host.
  */
 export const legSupport: MountedBuilder = (component, context) => {
+  if (context.hostSurface.anchor === 'head_crown') return legOnHead(component, context);
   const { kernel, placement } = context;
   const course = cylinderOf(component, context, 'a leg');
   const diameter = requireDimension(component, Sym.LEG_OUTSIDE_DIAMETER);
@@ -403,6 +405,316 @@ export const legSupport: MountedBuilder = (component, context) => {
     solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
     footprint: weld / 2,
     attachment: { axial: weld, circumferentialDeg: (diameter / outside) * (180 / Math.PI), thickness: wall },
+    notes,
+  };
+};
+
+/**
+ * A leg under a dished head — CODAP C9.5, the vertical vessel standing on its bottom head rather
+ * than on its shell. The pipe stands parallel to the axis at the placement's distance from it,
+ * its top cut to the head's outside surface as a skirt on a head is, so the two meet on one
+ * surface; C9.5.2.2 wants a circular section, which a pipe is. `leg_length` runs from where it
+ * meets the head at its axis to the underside of its base plate; it is welded round its end, so
+ * `leg_attachment_length` means nothing here and is not read.
+ */
+function legOnHead(component: ComponentDefinition, context: MountedContext): MountedPart {
+  const { kernel, hostSurface, host, placement } = context;
+  const diameter = requireDimension(component, Sym.LEG_OUTSIDE_DIAMETER);
+  const wall = requireDimension(component, Sym.LEG_THICKNESS);
+  const length = requireDimension(component, Sym.LEG_LENGTH);
+  if (wall >= diameter / 2) {
+    throw new BuildError(component, `has a wall of ${mm(wall)} on a ${mm(diameter)} pipe`, scope('out_of_scope', Sym.LEG_THICKNESS, `< ${mm(diameter / 2)}`, mm(wall)));
+  }
+  if (!context.hostSolid) {
+    throw new NotDrawnError(component, `${host.name} offers no surface to cut the leg to`, scope('out_of_scope', 'host', 'a drawn head', `${host.name}, no solid`));
+  }
+  requireWithinHost(component, context, diameter / 2);
+  const notes: Note[] = [];
+  const statedBase = optionalDimension(component, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS);
+  const base = statedBase ?? Math.max(12, 2 * wall);
+  if (statedBase === undefined) notes.push(assumedNote(`Base plate thickness not stated — drawn ${mm(base)}`, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS, mm(base)));
+
+  const rho = placement.axialOffset;
+  const weld = hostSurface.frameAt(rho, 0).origin[2];
+  // The head's outside falls away from the axis, so the far side of the pipe meets it lowest.
+  const lowest = Math.min(weld, hostSurface.frameAt(Math.min(rho + diameter / 2, hostSurface.offsetRange[1]), 0).origin[2]) - 1;
+  const end = weld + length;
+  const half = 0.75 * diameter;
+  const pipe = kernel.tube({ origin: [rho, 0, 0], axis: [0, 0, 1] }, diameter / 2 - wall, diameter / 2, lowest, end);
+  const solids = [
+    kernel.cut(pipe, [context.hostSolid, hostSurface.cavity()]),
+    kernel.extrude(rectangle(rho - half, rho + half, -half, half), end, end + base),
+  ];
+  return {
+    solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
+    footprint: diameter / 2,
+    attachment: {
+      axial: diameter,
+      circumferentialDeg: rho > diameter / 2 ? Math.min(360, (diameter / rho) * (180 / Math.PI)) : 360,
+      thickness: wall,
+    },
+    notes,
+  };
+}
+
+/** The point where a line from `from` touches a circle, on the side `side` of the line to its centre. */
+function tangentPoint(from: Point2, centre: Point2, radius: number, side: 1 | -1): Point2 {
+  const dx = from[0] - centre[0];
+  const dy = from[1] - centre[1];
+  const distance = Math.hypot(dx, dy);
+  const turn = side * Math.acos(radius / distance);
+  const angle = Math.atan2(dy, dx) + turn;
+  return [centre[0] + radius * Math.cos(angle), centre[1] + radius * Math.sin(angle)];
+}
+
+/**
+ * A lifting lug — CODAP C9.6, Figure C9.6.2.4-1 and -2: a plate `b_1` long at the shell, its hole
+ * `a_2` out from it and `a_1` along it, its sides running straight from the ends of `b_1` to touch
+ * the metal round the hole, on a pad `b_3` by `b_2` when `pad_thickness` (the Code's `e_2`) is
+ * stated. Its plane holds the vessel axis (orientation 0) or is square to it (90), the two cases
+ * C9.6 sizes separately. On a cylindrical course: C9.6 also allows cones, spheres and the crowns of
+ * heads, which are not drawn yet.
+ *
+ * Square to the axis, the plate is an outline extruded along it. Along the axis it lies in a plane
+ * no extrusion reaches, so it is the outline REVOLVED and cut down to a slab `t` thick: in the
+ * half-plane of the slab a revolved outline is the outline itself, and its base lands on the shell's
+ * own circle.
+ */
+export const liftingLug: MountedBuilder = (component, context) => {
+  const { kernel, placement } = context;
+  const course = cylinderOf(component, context, 'a lifting lug');
+  const b1 = requireDimension(component, Sym.LIFTING_LUG_BASE_LENGTH);
+  const a2 = requireDimension(component, Sym.LIFTING_LUG_HOLE_HEIGHT);
+  const hole = requireDimension(component, Sym.LIFTING_LUG_HOLE_DIAMETER);
+  const t = requireDimension(component, Sym.LIFTING_LUG_THICKNESS);
+  const a1 = signedDimension(component, Sym.LIFTING_LUG_HOLE_OFFSET) ?? 0;
+  const notes: Note[] = [];
+  const stated = (symbol: string, label: string, assumed: number): number => {
+    const value = optionalDimension(component, symbol);
+    if (value !== undefined) return value;
+    notes.push(assumedNote(`${label} not stated — drawn ${mm(assumed)}`, symbol, mm(assumed)));
+    return assumed;
+  };
+  const orientation = signedDimension(component, Sym.LIFTING_LUG_ORIENTATION);
+  if (orientation === undefined) notes.push(assumedNote('Orientation not stated — drawn along the axis', Sym.LIFTING_LUG_ORIENTATION, '0°'));
+  else if (orientation !== 0 && orientation !== 90) {
+    throw new BuildError(
+      component,
+      `is turned ${orientation}° from the axis`,
+      scope('out_of_scope', Sym.LIFTING_LUG_ORIENTATION, '0 (along the axis) or 90 (round it), the two C9.6 sizes', `${orientation}°`)
+    );
+  }
+  const along = (orientation ?? 0) === 0;
+  const radius = stated(Sym.LIFTING_LUG_TOP_RADIUS, 'Metal round the hole', hole);
+  if (hole >= 2 * radius) {
+    throw new BuildError(component, `has a ${mm(hole)} hole in ${mm(radius)} of metal round it`, scope('out_of_scope', Sym.LIFTING_LUG_HOLE_DIAMETER, `< ${mm(2 * radius)}`, mm(hole)));
+  }
+  if (a2 - hole / 2 <= 0) {
+    throw new BuildError(component, `has its hole ${mm(a2)} out, under ${mm(hole / 2)} of its own radius`, scope('out_of_scope', Sym.LIFTING_LUG_HOLE_HEIGHT, `> ${mm(hole / 2)}`, mm(a2)));
+  }
+  const centre: Point2 = [a1, a2];
+  const corners: [Point2, Point2] = [[b1 / 2, 0], [-b1 / 2, 0]];
+  for (const corner of corners) {
+    if (Math.hypot(corner[0] - centre[0], corner[1] - centre[1]) <= radius) {
+      throw new BuildError(
+        component,
+        `has the end of its base inside the metal round its hole`,
+        scope('out_of_scope', Sym.LIFTING_LUG_BASE_LENGTH, `ends further than ${mm(radius)} from the hole`, mm(b1))
+      );
+    }
+  }
+
+  const padThickness = optionalDimension(component, Sym.PAD_THICKNESS);
+  const padLength = padThickness === undefined ? b1 : stated(Sym.LIFTING_LUG_PAD_LENGTH, 'Pad length b_3', 1.25 * b1);
+  const padWidth = padThickness === undefined ? t : stated(Sym.LIFTING_LUG_PAD_WIDTH, 'Pad width b_2', Math.max(4 * t, 100));
+  // Along the axis the base runs along it; round the axis, across it.
+  const axial = along ? padLength : padWidth;
+  requireWithinHost(component, context, axial / 2);
+
+  const z = placement.axialOffset;
+  const outside = course.outsideRadiusAt(z);
+  const contact = outside + (padThickness ?? 0);
+  // The outline in the lug's own plane: u along its base, v out from the shell. It reaches below
+  // the shell's circle so that cutting it to that circle leaves no gap under the ends of `b_1`.
+  const sag = contact - Math.sqrt(Math.max(0, contact * contact - (b1 / 2) ** 2)) + 1;
+  const right = tangentPoint(corners[0], centre, radius, 1);
+  const left = tangentPoint(corners[1], centre, radius, -1);
+  const from = Math.atan2(right[1] - a2, right[0] - a1);
+  let to = Math.atan2(left[1] - a2, left[0] - a1);
+  if (to <= from) to += 2 * Math.PI;
+  const middle = (from + to) / 2;
+  const top: Point2 = [a1 + radius * Math.cos(middle), a2 + radius * Math.sin(middle)];
+  type Uv = readonly [number, number];
+  const outline = (map: (p: Uv) => Point2): Profile => ({
+    start: map([-b1 / 2, -sag]),
+    steps: [
+      { kind: 'line', to: map([b1 / 2, -sag]) },
+      { kind: 'line', to: map(corners[0]) },
+      { kind: 'line', to: map(right) },
+      { kind: 'arc', to: map(left), through: map(top) },
+      { kind: 'line', to: map(corners[1]) },
+    ],
+  });
+  const reach = a2 + radius;
+  const shellCylinder = kernel.revolve({
+    start: [0, z - axial - b1],
+    steps: [
+      { kind: 'line', to: [contact, z - axial - b1] },
+      { kind: 'line', to: [contact, z + axial + b1] },
+      { kind: 'line', to: [0, z + axial + b1] },
+    ],
+  });
+
+  let plate: Solid;
+  let pin: Solid;
+  if (along) {
+    // (u, v) → (r, z): u along the axis, v out from the shell.
+    const revolved = kernel.revolve(outline(([u, v]) => [contact + v, z + u]));
+    const slab = kernel.extrude(rectangle(contact - sag - 1, contact + reach + 1, -t / 2, t / 2), z - b1, z + b1);
+    plate = kernel.intersect(revolved, slab);
+    pin = kernel.tube({ origin: [contact + a2, 0, z + a1], axis: [0, 1, 0] }, 0, hole / 2, -t, t);
+    notes.push(
+      representedNote(
+        `Along the axis the plate is its outline revolved and cut to ${mm(t)}: its sides are surfaces of revolution, off flat by at most ${mm((t / 2) ** 2 / (2 * contact))}`,
+        'lug faces',
+        'flat',
+        'revolved about the vessel axis'
+      )
+    );
+  } else {
+    // (u, v) → (x, y): u round the course, v out from it.
+    plate = kernel.extrude(outline(([u, v]) => [contact + v, u]), z - t / 2, z + t / 2);
+    pin = kernel.tube({ origin: [contact + a2, a1, 0], axis: [0, 0, 1] }, 0, hole / 2, z - t, z + t);
+  }
+  const solids: Solid[] = [kernel.cut(plate, [shellCylinder, pin])];
+
+  if (padThickness !== undefined) {
+    // The pad wraps the course: b_3 along the lug's base, b_2 across it.
+    const arcLength = along ? padWidth : padLength;
+    const half = arcLength / 2 / outside;
+    const [ix, iy] = polar(outside, half);
+    const [ox, oy] = polar(contact, half);
+    solids.push(
+      kernel.extrude(
+        {
+          start: [ix, -iy],
+          steps: [
+            { kind: 'line', to: [ox, -oy] },
+            { kind: 'arc', to: [ox, oy], through: [contact, 0] },
+            { kind: 'line', to: [ix, iy] },
+            { kind: 'arc', to: [ix, -iy], through: [outside, 0] },
+          ],
+        },
+        z - axial / 2,
+        z + axial / 2
+      )
+    );
+  }
+
+  return {
+    solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
+    footprint: axial / 2,
+    attachment: {
+      axial,
+      circumferentialDeg: ((along ? padWidth : padLength) / outside) * (180 / Math.PI),
+      thickness: padThickness ?? t,
+    },
+    notes,
+  };
+};
+
+/**
+ * A support ring — CODAP C9.3.3.1.7: a ring `ring_height` by `ring_thickness` round a horizontal
+ * course, and what carries it — two posts down to the ground at ±δ_a/2 from the bottom, on one
+ * base plate for a cradle (Figure C9.3.3.1.7-2) or each on its own for two links (-3). Azimuth 0
+ * is the bottom, as for a saddle. C9.3.3.1.7 allows δ_a up to 330°, the links then bearing on
+ * brackets above the ring's middle; a vertical post from there would pass through the vessel, so
+ * past 180° the supports are not drawn.
+ */
+export const supportRing: MountedBuilder = (component, context) => {
+  const { kernel, placement } = context;
+  const course = cylinderOf(component, context, 'a support ring');
+  const height = requireDimension(component, Sym.RING_HEIGHT);
+  const thickness = requireDimension(component, Sym.RING_THICKNESS);
+  const opening = requireDimension(component, Sym.SUPPORT_OPENING_ANGLE);
+  const notes: Note[] = [];
+  const stated = (symbol: string, label: string, assumed: number): number => {
+    const value = optionalDimension(component, symbol);
+    if (value !== undefined) return value;
+    notes.push(assumedNote(`${label} not stated — drawn ${mm(assumed)}`, symbol, mm(assumed)));
+    return assumed;
+  };
+  if (opening < 30 || opening > 330) {
+    throw new BuildError(component, `opens ${opening}° between its supports`, scope('out_of_scope', Sym.SUPPORT_OPENING_ANGLE, '30° to 330°, C9.3.3.1.7-1', `${opening}°`));
+  }
+  if (opening >= 180) {
+    throw new NotDrawnError(
+      component,
+      `with ${opening}° between its supports, they bear above the ring's middle, where a post down to the ground would pass through the vessel`,
+      scope('not_built', Sym.SUPPORT_OPENING_ANGLE, '< 180°, posts down to the ground', `${opening}°`)
+    );
+  }
+  const links = signedDimension(component, Sym.SUPPORT_RING_LINKS);
+  if (links === undefined) notes.push(assumedNote('Support not stated — drawn as a cradle, both posts on one base', Sym.SUPPORT_RING_LINKS, '0'));
+  else if (links !== 0 && links !== 2) {
+    throw new BuildError(component, `is carried by ${links} links`, scope('out_of_scope', Sym.SUPPORT_RING_LINKS, '0 (a cradle) or 2 (two links)', `${links}`));
+  }
+  requireWithinHost(component, context, thickness / 2);
+
+  const z = placement.axialOffset;
+  const outside = course.outsideRadiusAt(z);
+  const ring = outside + height;
+  const drop = stated(Sym.SUPPORT_HEIGHT, 'Support height', Math.max(150, 0.25 * outside));
+  const width = stated(Sym.SUPPORT_POST_WIDTH, 'Post width', Math.max(80, 4 * thickness));
+  const basePlate = stated(Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS, 'Base plate thickness', 16);
+  // x runs from the axis down through the bottom of the ring, as for a saddle.
+  const base = ring + drop;
+  const baseTop = base - basePlate;
+  const half = (opening * DEG) / 2;
+  const [px, py] = polar(ring, half);
+  if (baseTop <= px) {
+    throw new BuildError(
+      component,
+      `stands ${mm(drop)} under its ring, which leaves its posts no length`,
+      scope('out_of_scope', Sym.SUPPORT_HEIGHT, `> ${mm(px + basePlate - ring)}`, mm(drop))
+    );
+  }
+
+  const solids: Solid[] = [
+    kernel.revolve({
+      start: [outside, z - thickness / 2],
+      steps: [
+        { kind: 'line', to: [ring, z - thickness / 2] },
+        { kind: 'line', to: [ring, z + thickness / 2] },
+        { kind: 'line', to: [outside, z + thickness / 2] },
+      ],
+    }),
+  ];
+  // Each post starts inside the ring's circle and is cut back to it, so it sits on the ring.
+  const ringDisc = kernel.revolve({
+    start: [0, z - thickness],
+    steps: [
+      { kind: 'line', to: [ring, z - thickness] },
+      { kind: 'line', to: [ring, z + thickness] },
+      { kind: 'line', to: [0, z + thickness] },
+    ],
+  });
+  for (const y of [-py, py]) {
+    const reachIn = Math.sqrt(Math.max(0, ring * ring - (Math.abs(y) + width / 2) ** 2)) - 1;
+    const post = kernel.extrude(rectangle(Math.min(reachIn, px - 1), baseTop, y - width / 2, y + width / 2), z - thickness / 2, z + thickness / 2);
+    solids.push(kernel.cut(post, [ringDisc]));
+  }
+  const foot = Math.max(width, 2 * thickness);
+  if ((links ?? 0) === 0) {
+    solids.push(kernel.extrude(rectangle(baseTop, base, -py - foot / 2, py + foot / 2), z - foot / 2, z + foot / 2));
+  } else {
+    for (const y of [-py, py]) solids.push(kernel.extrude(rectangle(baseTop, base, y - foot / 2, y + foot / 2), z - foot / 2, z + foot / 2));
+  }
+
+  return {
+    solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
+    footprint: thickness / 2,
+    attachment: { axial: thickness, circumferentialDeg: 360, thickness },
     notes,
   };
 };
