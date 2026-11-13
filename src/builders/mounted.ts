@@ -20,6 +20,7 @@ import {
   legSupport,
   liftingLug,
   lugSupport,
+  ringSupport,
   saddleSupport,
   skirtSupport,
   supportRing,
@@ -94,4 +95,5 @@ export const MOUNTED_BUILDERS: Readonly<Record<string, MountedBuilder>> = {
   tube_bundle: tubeBundle,
   lifting_lug: liftingLug,
   support_ring: supportRing,
+  ring_support: ringSupport,
 };

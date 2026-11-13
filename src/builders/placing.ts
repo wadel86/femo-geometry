@@ -1,9 +1,40 @@
 // What every mounted builder checks before it draws: that its anchor is on the surface its host
 // offers, and that the part fits there.
 import { AnchorError, scope, type ComponentDefinition } from '../definition.ts';
+import type { GeometryKernel, Profile, Solid } from '../kernel/GeometryKernel.ts';
 import type { MountedContext } from './types.ts';
 
 export const mm = (value: number): string => `${Number(value.toPrecision(5))} mm`;
+
+/**
+ * A plate standing in a plane that holds the vessel axis — a rib, a gusset: its outline in the
+ * meridian half-plane (r, z), `thickness` across, turned to `azimuth`. No extrusion reaches that
+ * plane, so the outline is revolved and cut to a slab, as a lifting lug along the axis is: its
+ * edges at a constant r land exactly on the cylinder they are welded to, and its flat faces are
+ * off flat by at most thickness²/(8·r).
+ */
+export function radialPlate(
+  kernel: GeometryKernel,
+  outline: Profile,
+  reach: number,
+  zRange: readonly [number, number],
+  thickness: number,
+  azimuth: number
+): Solid {
+  const slab = kernel.extrude(
+    {
+      start: [0, -thickness / 2],
+      steps: [
+        { kind: 'line', to: [reach + 1, -thickness / 2] },
+        { kind: 'line', to: [reach + 1, thickness / 2] },
+        { kind: 'line', to: [0, thickness / 2] },
+      ],
+    },
+    Math.min(...zRange) - 1,
+    Math.max(...zRange) + 1
+  );
+  return kernel.rotateZ(kernel.intersect(kernel.revolve(outline), slab), azimuth);
+}
 
 /**
  * Refuses an anchor whose part would not fit on the host where it is placed.

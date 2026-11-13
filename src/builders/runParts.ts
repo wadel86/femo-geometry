@@ -44,6 +44,7 @@ import type {
   WallSurface,
 } from './types.ts';
 import { PLANE, cylinderSurface, sphereSurface } from './walls.ts';
+import { radialPlate } from './placing.ts';
 import { ellipseOffset, fitBezier } from './bezierFit.ts';
 
 const DEG = Math.PI / 180;
@@ -847,9 +848,31 @@ export const ellipsoidalHead: RunBuilder = (component, context) => {
   });
 };
 
+/**
+ * What makes a flat end other than a plain plate, by the symbol that says so. Each changes a
+ * different thing — the corner, the rim, the back face, the middle — and no rule sizes two at once.
+ */
+const FLAT_HEAD_VARIANTS = [
+  Sym.RELIEF_GROOVE_RADIUS,
+  Sym.KNUCKLE_RADIUS,
+  Sym.RADIAL_STIFFENER_COUNT,
+  Sym.ANNULUS_INSIDE_DIAMETER,
+] as const;
+
 /** A flat end: a plate of thickness `t`, drawn to the outside diameter of what it closes. */
 export const flatHead: RunBuilder = (component, context) => {
-  if (optionalDimension(component, Sym.RELIEF_GROOVE_RADIUS) !== undefined) return reliefGrooveFlatHead(component, context);
+  const variants = FLAT_HEAD_VARIANTS.filter((symbol) => optionalDimension(component, symbol) !== undefined);
+  if (variants.length > 1) {
+    throw new BuildError(
+      component,
+      `states ${variants.map((v) => v.replace(/_/g, ' ')).join(' and ')}, which belong to different flat ends`,
+      scope('out_of_scope', variants[1], `one of ${FLAT_HEAD_VARIANTS.join(', ')}`, variants.join(', '))
+    );
+  }
+  if (variants[0] === Sym.RELIEF_GROOVE_RADIUS) return reliefGrooveFlatHead(component, context);
+  if (variants[0] === Sym.KNUCKLE_RADIUS) return knuckledRimFlatHead(component, context);
+  if (variants[0] === Sym.RADIAL_STIFFENER_COUNT) return stiffenedFlatHead(component, context);
+  if (variants[0] === Sym.ANNULUS_INSIDE_DIAMETER) return annularFlatHead(component, context);
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
   const thickness = requireDimension(component, Sym.THICKNESS);
   const a = diameter / 2;
@@ -983,6 +1006,241 @@ function reliefGrooveFlatHead(component: ComponentDefinition, context: RunContex
       [a + shell / 2, 0],
       [a + shell / 2, spigot + thickness / 2],
       [0, spigot + thickness / 2],
+    ],
+    notes,
+  };
+}
+
+/**
+ * EN 13445-3 §10.4.3, Figure 10.4-1: a flat end with a knuckled rim — a plate dished down at its
+ * edge through a knuckle of inside radius `r` onto a straight flange, butt-welded to the shell. A
+ * torispherical head whose crown radius has gone to infinity, so it is drawn as one: the knuckle
+ * centred on the tangent line, the crown a plane. §10.4.2.2 a) wants r ≥ e_s and r ≥ 1.3·e_af;
+ * the plate is drawn as thick as its knuckle, which the clause allows (e ≥ e_af).
+ */
+function knuckledRimFlatHead(component: ComponentDefinition, context: RunContext): ReturnType<RunBuilder> {
+  const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
+  const thickness = requireDimension(component, Sym.THICKNESS);
+  const knuckle = requireDimension(component, Sym.KNUCKLE_RADIUS);
+  const a = diameter / 2;
+  if (knuckle >= a) {
+    throw new BuildError(
+      component,
+      `has a knuckle radius (${mm(knuckle)}) as large as its radius`,
+      scope('out_of_scope', Sym.KNUCKLE_RADIUS, `< ${mm(a)}, the inside radius`, mm(knuckle))
+    );
+  }
+  if (knuckle < 1.3 * thickness) {
+    throw new BuildError(
+      component,
+      `has a knuckle of ${mm(knuckle)} on a ${mm(thickness)} plate`,
+      scope('out_of_scope', Sym.KNUCKLE_RADIUS, `≥ 1.3·e = ${mm(1.3 * thickness)}, EN 13445-3 10.4.2.2 a)`, mm(knuckle))
+    );
+  }
+  const shell = context.neighbourOutsideRadius === undefined ? undefined : context.neighbourOutsideRadius - a;
+  if (shell !== undefined && shell > 0 && knuckle < shell) {
+    throw new BuildError(
+      component,
+      `has a knuckle of ${mm(knuckle)} on a ${mm(shell)} shell`,
+      scope('out_of_scope', Sym.KNUCKLE_RADIUS, `≥ e_s = ${mm(shell)}, EN 13445-3 10.4.2.2 a)`, mm(knuckle))
+    );
+  }
+
+  const xc = a - knuckle;
+  const outer = knuckle + thickness;
+  const meanKnuckle = knuckle + thickness / 2;
+  const at45 = (radius: number): Point2 => [xc + radius * Math.SQRT1_2, radius * Math.SQRT1_2];
+  const zOf = (rho: number, radius: number): number =>
+    rho <= xc ? radius : Math.sqrt(Math.max(0, radius ** 2 - (rho - xc) ** 2));
+  const surfaceAt = (rho: number): WallSurface => {
+    if (rho <= xc) return PLANE;
+    const cos = Math.min(1, Math.max(1e-9, (rho - xc) / meanKnuckle));
+    return { kind: 'torus', principalRadii: [meanKnuckle, rho / cos] };
+  };
+
+  return formedHead(component, context, a, thickness, {
+    outside: [arc([xc, outer], at45(outer)), line(0, outer)],
+    insideTop: knuckle,
+    inside: [line(xc, knuckle), arc([a, 0], at45(knuckle))],
+    insideUp: [arc([xc, knuckle], at45(knuckle)), line(0, knuckle)],
+    zInside: (rho) => zOf(rho, knuckle),
+    zOutside: (rho) => zOf(rho, outer),
+    surfaceAt,
+    tangentSurface: { kind: 'torus', principalRadii: [meanKnuckle, a + thickness / 2] },
+    // The knuckle's mid-surface up to the plate, then the plate's mid-plane to the axis.
+    meridian: [...arcPoints([xc, 0], meanKnuckle, 0, Math.PI / 2, 16), [0, meanKnuckle]],
+    height: outer,
+    landmarks: [
+      { key: 'knuckle-flat-inside', z: knuckle, diameter: 2 * xc, role: 'Knuckle-to-plate tangent line (inside)' },
+      { key: 'knuckle-flat-outside', z: outer, diameter: 2 * xc, role: 'Knuckle-to-plate tangent line (outside)' },
+    ],
+    notes: [],
+  });
+}
+
+/**
+ * EN 13445-3 §21, Figures 21.2-1 to 21.2-4: a flat end stiffened by `n_V` radial ribs on its outer
+ * face, `h` high and `e_R` thick, welded at the middle to a central ring of outside diameter `d_1`
+ * and wall `e_C` — or to a solid core when `e_C` is not stated. The plate is drawn to `d_4` where
+ * it overhangs the shell (Figure 21.2-1 a), otherwise to the shell's outside (b); bolted, it sits
+ * on its flange as `flat_head.bolted` does. Each rib runs from the ring to the plate's rim and is
+ * chamfered at its outer end, which §21.1 allows and does not dimension.
+ */
+function stiffenedFlatHead(component: ComponentDefinition, context: RunContext): ReturnType<RunBuilder> {
+  const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
+  const thickness = requireDimension(component, Sym.THICKNESS);
+  const count = requireDimension(component, Sym.RADIAL_STIFFENER_COUNT);
+  const height = requireDimension(component, Sym.RADIAL_STIFFENER_HEIGHT);
+  const rib = requireDimension(component, Sym.RADIAL_STIFFENER_THICKNESS);
+  const centre = requireDimension(component, Sym.CENTRAL_RING_DIAMETER);
+  const ringWall = optionalDimension(component, Sym.CENTRAL_RING_THICKNESS);
+  const plate = optionalDimension(component, Sym.PLATE_OUTSIDE_DIAMETER);
+  const a = diameter / 2;
+  if (!Number.isInteger(count) || count < 3 || count > 24) {
+    throw new BuildError(
+      component,
+      `has ${count} radial stiffeners`,
+      scope('out_of_scope', Sym.RADIAL_STIFFENER_COUNT, 'a whole number from 3 to 24, EN 13445-3 21.1', `${count}`)
+    );
+  }
+  const reach = Math.max(a, context.neighbourOutsideRadius ?? a);
+  if (plate !== undefined && plate / 2 < reach) {
+    throw new BuildError(
+      component,
+      `is ${mm(plate)} across and does not cover the ${mm(2 * reach)} it closes`,
+      scope('out_of_scope', Sym.PLATE_OUTSIDE_DIAMETER, `≥ ${mm(2 * reach)}`, mm(plate))
+    );
+  }
+  const rim = plate === undefined ? reach : plate / 2;
+  const core = centre / 2;
+  if (rim - core <= height) {
+    throw new BuildError(
+      component,
+      `leaves its ribs ${mm(rim - core)} between a ${mm(centre)} ring and the rim, no longer than they are high`,
+      scope('out_of_scope', Sym.CENTRAL_RING_DIAMETER, `< ${mm(2 * (rim - height))}`, mm(centre))
+    );
+  }
+  if (count * rib >= Math.PI * centre) {
+    throw new BuildError(
+      component,
+      `has ${count} ribs of ${mm(rib)} round a ${mm(centre)} ring, which they overlap`,
+      scope('out_of_scope', Sym.RADIAL_STIFFENER_THICKNESS, `< ${mm((Math.PI * centre) / count)}, the ring's circumference over n_V`, mm(rib))
+    );
+  }
+  if (ringWall !== undefined && ringWall >= core) {
+    throw new BuildError(component, `has a central ring of ${mm(centre)} with a ${mm(ringWall)} wall`, scope('out_of_scope', Sym.CENTRAL_RING_THICKNESS, `< ${mm(core)}`, mm(ringWall)));
+  }
+
+  const { kernel } = context;
+  const top = thickness + height;
+  // The chamfer drops the rib's outer end to 40 % of its height over 60 % of it, at 45°.
+  const chamfer = 0.6 * height;
+  const outline: Profile = {
+    start: [core - rib, thickness],
+    steps: [line(rim, thickness), line(rim, top - chamfer), line(rim - chamfer, top), line(core - rib, top)],
+  };
+  // Started inside the ring and cut back to its outside, so every rib sits on it.
+  const coreSolid = kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, 0, core, thickness - 1, top + 1);
+  const ribs = Array.from({ length: count }, (_, k) =>
+    kernel.cut(radialPlate(kernel, outline, rim, [thickness, top], rib, (k * 360) / count), [coreSolid])
+  );
+  const ring = kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, ringWall === undefined ? 0 : core - ringWall, core, thickness, top);
+
+  return {
+    solid: kernel.revolve({ start: [0, 0], steps: [line(rim, 0), line(rim, thickness), line(0, thickness)] }),
+    extraSolids: [ring, ...ribs],
+    height: top,
+    // Welded where the shell meets it, however far the plate overhangs.
+    lower: { insideDiameter: diameter, outsideDiameter: 2 * reach, wall: { surface: PLANE, thickness, meridian: [1, 0] } },
+    upper: null,
+    landmarks: [
+      { key: 'lower-rim', z: 0, diameter: 2 * reach, role: 'Plate on the shell (inner face)', junction: 'lower' },
+      { key: 'upper-rim', z: thickness, diameter: 2 * rim, role: 'Plate rim (outer face, d_4)' },
+      { key: 'central-ring', z: thickness, diameter: centre, role: ringWall === undefined ? 'Central core (d_1)' : 'Central ring (d_1)' },
+    ],
+    host: headCrownHost(context, a, thickness, () => 0, () => thickness, () => cavityProfile(a, a / 4, [line(0, 0)]), () => PLANE),
+    meridian: [
+      [(a + rim) / 2, thickness / 2],
+      [0, thickness / 2],
+    ],
+    notes: [
+      note(
+        `The ribs' outer ends are chamfered over ${mm(chamfer)}: §21.1 allows a chamfer and does not dimension it`,
+        undefined,
+        scope('assumed', 'rib chamfer', 'not dimensioned by EN 13445-3 21.1', `45° over ${mm(chamfer)}`)
+      ),
+      representedNote(
+        'The rib-to-plate and rib-to-ring welds (§21.7, continuous or intermittent) are not drawn',
+        'rib welds',
+        'fillet or partial penetration, sized by §21.7',
+        'the rib standing on the plate',
+        true
+      ),
+    ],
+  };
+}
+
+/**
+ * EN 13445-3 §10.7.3: an annular flat end — a plate between two concentric shells, its outer edge
+ * on the course below and its bore `D_Y` on the narrower course above. §10.7.3 sizes it as a
+ * rectangular plate of width (D_X − D_Y)/2 supported on both edges, so both are ports. The inner
+ * shell is drawn standing on the plate's outer face; one passing through it is not drawn.
+ */
+function annularFlatHead(component: ComponentDefinition, context: RunContext): ReturnType<RunBuilder> {
+  const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
+  const thickness = requireDimension(component, Sym.THICKNESS);
+  const bore = requireDimension(component, Sym.ANNULUS_INSIDE_DIAMETER);
+  if (bore >= diameter) {
+    throw new BuildError(
+      component,
+      `has a bore of ${mm(bore)} in a ${mm(diameter)} end`,
+      scope('out_of_scope', Sym.ANNULUS_INSIDE_DIAMETER, `< ${mm(diameter)}, D_X`, mm(bore))
+    );
+  }
+  const a = diameter / 2;
+  const b = bore / 2;
+  const rim = Math.max(a, context.neighbourOutsideRadius ?? a);
+  const inner = context.aboveOutsideRadius;
+  if (inner !== undefined && inner >= a) {
+    throw new BuildError(
+      component,
+      `carries a course ${mm(2 * inner)} across in a ${mm(diameter)} end, leaving no annulus`,
+      scope('out_of_scope', 'outside diameter of the course above', `< ${mm(diameter)}, D_X`, mm(2 * inner))
+    );
+  }
+  const notes: Note[] = [
+    representedNote(
+      'The inner shell is drawn standing on the plate\'s outer face, its bore flush with the plate\'s; one passing through the plate is not drawn',
+      'inner shell',
+      'through or onto the plate',
+      'standing on its outer face'
+    ),
+  ];
+  const innerOutside = inner ?? b + thickness;
+  if (inner === undefined) {
+    notes.push(
+      note(
+        `No course stands in the bore: the upper port is drawn as a wall ${mm(thickness)} thick`,
+        undefined,
+        scope('assumed', 'inner shell wall', 'the course above', mm(thickness))
+      )
+    );
+  }
+
+  return {
+    solid: context.kernel.revolve({ start: [b, 0], steps: [line(rim, 0), line(rim, thickness), line(b, thickness)] }),
+    height: thickness,
+    lower: { insideDiameter: diameter, outsideDiameter: 2 * rim, wall: { surface: PLANE, thickness, meridian: [1, 0] } },
+    upper: { insideDiameter: bore, outsideDiameter: 2 * innerOutside, wall: { surface: PLANE, thickness, meridian: [-1, 0] } },
+    landmarks: [
+      { key: 'lower-rim', z: 0, diameter: 2 * rim, role: 'Plate rim (inner face)', junction: 'lower' },
+      { key: 'upper-rim', z: thickness, diameter: 2 * rim, role: 'Plate rim (outer face)' },
+      ...junctionLandmarks('upper', thickness, bore, 2 * innerOutside, 'Plate bore (D_Y)'),
+    ],
+    // The plate's mid-plane, from over the outer wall to over the inner one.
+    meridian: [
+      [(a + rim) / 2, thickness / 2],
+      [(b + innerOutside) / 2, thickness / 2],
     ],
     notes,
   };

@@ -158,6 +158,8 @@ export interface RunContext {
   /** For a sphere: the openings of its neighbours below and above, which it is cut to meet. */
   readonly belowInsideDiameter?: number;
   readonly aboveInsideDiameter?: number;
+  /** For an annular flat end: the outside radius of the course standing in its bore. */
+  readonly aboveOutsideRadius?: number;
 }
 
 export type RunBuilder = (component: ComponentDefinition, context: RunContext) => RunPart;

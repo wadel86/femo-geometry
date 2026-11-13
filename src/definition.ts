@@ -61,6 +61,9 @@ export const Kind = {
   // support ring. Draft kinds for the same reason as the four above.
   LIFTING_LUG: 'lifting_lug',
   SUPPORT_RING: 'support_ring',
+  // EN 13445-3 §16.13: a ring round a vertical vessel, carried on local supports. A draft kind
+  // for the same reason; CODAP's support_ring is a horizontal vessel's, standing on the ground.
+  RING_SUPPORT: 'ring_support',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -71,6 +74,7 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
   Kind.SUPPORT_RING,
+  Kind.RING_SUPPORT,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -200,6 +204,71 @@ export const Sym = {
   SUPPORT_HEIGHT: 'support_height',
   /** A post's width in the ring's plane; along the axis it is as wide as the ring. */
   SUPPORT_POST_WIDTH: 'support_post_width',
+  // EN 13445-3 §21, Figures 21.2-1 to 21.2-4: a flat end stiffened by radial ribs on its outer face.
+  /** n_V: how many ribs, evenly spaced; §21.1 keeps it within 3 to 24. */
+  RADIAL_STIFFENER_COUNT: 'radial_stiffener_count',
+  /** h: how far a rib stands off the plate. */
+  RADIAL_STIFFENER_HEIGHT: 'radial_stiffener_height',
+  /** e_R. */
+  RADIAL_STIFFENER_THICKNESS: 'radial_stiffener_thickness',
+  /** d_1: the outside diameter of the central ring or core the ribs are welded to. */
+  CENTRAL_RING_DIAMETER: 'central_ring_diameter',
+  /** e_C: the central ring's wall. Unstated, the centre is a solid core. */
+  CENTRAL_RING_THICKNESS: 'central_ring_thickness',
+  /** d_4: the plate's outside diameter, where it overhangs the shell (Figure 21.2-1 a). */
+  PLATE_OUTSIDE_DIAMETER: 'plate_outside_diameter',
+  /** EN 13445-3 §10.7.3's D_Y: the bore of an annular flat end, where an inner shell meets it. */
+  ANNULUS_INSIDE_DIAMETER: 'annulus_inside_diameter',
+  // EN 13445-3 §16.12.5, Figures 16.12-7 to 16.12-10: a skirt's base, in the Code's letters.
+  /** 1 a plain base plate, 2 with gussets, 3 with chairs, 4 with a top ring. */
+  SKIRT_BASE_TYPE: 'skirt_base_type',
+  /** b_1: the base plate's radial width. */
+  BASE_PLATE_WIDTH: 'base_plate_width',
+  /** b_2: how far the base plate reaches past the skirt's outside. */
+  BASE_PLATE_PROJECTION: 'base_plate_projection',
+  /** e_4. */
+  BASE_PLATE_THICKNESS: 'base_plate_thickness',
+  /** n_B. */
+  ANCHOR_BOLT_COUNT: 'anchor_bolt_count',
+  /** d_B0. */
+  ANCHOR_BOLT_DIAMETER: 'anchor_bolt_diameter',
+  /** b_3: from the skirt's outside to the bolt circle. */
+  ANCHOR_BOLT_OFFSET: 'anchor_bolt_offset',
+  /** h_1: the gussets' height (Type 2), or the whole base assembly's (Types 3 and 4). */
+  BASE_GUSSET_HEIGHT: 'base_gusset_height',
+  /** e_7: a gusset's or support plate's thickness. */
+  BASE_GUSSET_THICKNESS: 'base_gusset_thickness',
+  /** b_6: the arc between the two plates flanking a bolt. Unstated on Types 2 and 4, one plate between bolts. */
+  BASE_GUSSET_SPACING: 'base_gusset_spacing',
+  /** b_5: the top plate's radial reach past the skirt's outside. */
+  TOP_PLATE_WIDTH: 'top_plate_width',
+  /** b_4: a Type 3 chair's top plate, round the circumference. */
+  TOP_PLATE_LENGTH: 'top_plate_length',
+  /** e_5. */
+  TOP_PLATE_THICKNESS: 'top_plate_thickness',
+  /** Figure 16.12-1's h: the forged ring a Geometry A skirt hangs from. */
+  SKIRT_RING_HEIGHT: 'skirt_ring_height',
+  // EN 13445-3 §16.12.4, Figures 16.12-5 and -6: access openings through a skirt.
+  SKIRT_OPENING_DIAMETER: 'skirt_opening_diameter',
+  /** 1, or 2 facing each other. */
+  SKIRT_OPENING_COUNT: 'skirt_opening_count',
+  /** From the skirt's free end — its base — to the opening's centre. */
+  SKIRT_OPENING_ELEVATION: 'skirt_opening_elevation',
+  // EN 13445-3 §16.13, Figures 16.13-1 and 16.13-2: a ring support on a vertical vessel.
+  /** 0 a solid rectangle, 1 a box, 2 a U, 3 an L (Figure 16.13-2). */
+  RING_SUPPORT_SECTION: 'ring_support_section',
+  /** b: the ring's radial width. */
+  RING_SUPPORT_WIDTH: 'ring_support_width',
+  /** h: the ring's height along the axis. */
+  RING_SUPPORT_HEIGHT: 'ring_support_height',
+  /** e_3 = e_4 = e_5: the plates a built-up section is made of. */
+  RING_SUPPORT_PLATE_THICKNESS: 'ring_support_plate_thickness',
+  /** n_s: 2, 3, 4, 6 or 8, the counts Figures 16.13-3 to -6 tabulate. */
+  RING_SUPPORT_COUNT: 'ring_support_count',
+  /** 0 integral, welded to the vessel (Figure 16.13-1 a); 1 independent, loose round it (b). */
+  RING_SUPPORT_INDEPENDENT: 'ring_support_independent',
+  /** t_0: the gap between an independent ring and the vessel. */
+  RING_SUPPORT_CLEARANCE: 'ring_support_clearance',
   // §4.19, bellows.
   BELLOWS_INSIDE_DIAMETER: 'bellows_inside_diameter',
   CONVOLUTION_HEIGHT: 'convolution_height',

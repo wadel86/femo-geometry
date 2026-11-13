@@ -130,6 +130,33 @@ const BELLOWS = {
   convolution_count: 6, end_tangent_length: 30,
 };
 
+// EN 13445-3 §16.12: a skirt on the knuckle of a bottom head, as skirt_support's specimen, with a
+// base of Figure 16.12-7's proportions under it unless `base` is false.
+const SKIRT = [Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.COURSE_LENGTH];
+const BASE = [
+  Sym.SKIRT_BASE_TYPE, Sym.BASE_PLATE_WIDTH, Sym.BASE_PLATE_PROJECTION, Sym.BASE_PLATE_THICKNESS,
+  Sym.ANCHOR_BOLT_COUNT, Sym.ANCHOR_BOLT_DIAMETER, Sym.ANCHOR_BOLT_OFFSET,
+];
+const BASE_PLATE = {
+  skirt_base_type: 1, base_plate_width: 160, base_plate_projection: 120, base_plate_thickness: 25,
+  anchor_bolt_count: 12, anchor_bolt_diameter: 30, anchor_bolt_offset: 60,
+};
+const skirtWithBase = (dimensions: Record<string, number>, base = true) =>
+  vessel(
+    [
+      run('H', Kind.ELLIPSOIDAL_HEAD, 0, ELLIPSOIDAL),
+      course('S', 1),
+      on('M', Kind.SKIRT_SUPPORT, 'H', { inside_diameter: 1490, thickness: 12, course_length: 1000, ...(base ? BASE_PLATE : {}), ...dimensions }),
+    ],
+    { M: crown(0) }
+  );
+
+// EN 13445-3 §16.13: what every ring support states besides its plates.
+const RING_SUPPORT = [
+  Sym.RING_SUPPORT_SECTION, Sym.RING_SUPPORT_WIDTH, Sym.RING_SUPPORT_HEIGHT, Sym.RING_SUPPORT_COUNT, Sym.RING_SUPPORT_INDEPENDENT,
+  Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH,
+];
+
 // ---------------------------------------------------------------- the entries
 
 export const DRAFT_ENTRIES: readonly DraftEntry[] = [
@@ -548,6 +575,202 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'C9.5.2.4 keeps legs within 0.4·D_i of the axis on an ellipsoidal head; the drawing does not enforce that, the rule does. Welded round its end, so leg_attachment_length is not read',
   },
 
+  // ---------------------------------------------------------------- EN 13445-3 parts Part 4 does not size
+  {
+    id: 'flat_head.knuckled_rim', article: 'EN 13445-3 §10.4.3', title: 'Flat end with a knuckled rim', entry: 'component', status: 'captured',
+    kinds: [Kind.FLAT_HEAD], focus: 'F',
+    specimen: vessel([
+      course('S', 0, { inside_diameter: 1500, thickness: 30, course_length: 2000 }),
+      run('F', Kind.FLAT_HEAD, 1, { inside_diameter: 1500, thickness: 30, knuckle_radius: 60, straight_flange_length: 50 }),
+    ]),
+    parameters: [Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.KNUCKLE_RADIUS, Sym.STRAIGHT_FLANGE_LENGTH],
+    ports: ['lower'],
+    joint: { kind: 'butt_weld', between: ['S', 'F'], ports: ['upper', 'lower'] },
+    constructionDetails: [],
+    note:
+      'Figure 10.4-1 a): a plate turned down through a knuckle onto a straight flange — a torispherical head whose crown radius has gone to infinity, and drawn as one. ' +
+      'A FLAT_HEAD stating knuckle_radius rather than a kind, as the relief groove is: what changes is the corner. §10.4.2.2 a)\'s r ≥ e_s and r ≥ 1.3·e_af are refusals. ' +
+      'The plate is drawn as thick as its knuckle, which §10.4.3 allows (e ≥ e_af); a thicker plate is not drawn',
+  },
+  {
+    id: 'flat_head.radial_stiffeners', article: 'EN 13445-3 §21', title: 'Flat end with radial stiffeners, welded', entry: 'component', status: 'captured',
+    kinds: [Kind.FLAT_HEAD], focus: 'F',
+    specimen: vessel([
+      course('S', 0),
+      run('F', Kind.FLAT_HEAD, 1, {
+        inside_diameter: 1500, thickness: 40, radial_stiffener_count: 8, radial_stiffener_height: 200, radial_stiffener_thickness: 20,
+        central_ring_diameter: 300, central_ring_thickness: 25, plate_outside_diameter: 1600,
+      }),
+    ]),
+    parameters: [
+      Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.RADIAL_STIFFENER_COUNT, Sym.RADIAL_STIFFENER_HEIGHT, Sym.RADIAL_STIFFENER_THICKNESS,
+      Sym.CENTRAL_RING_DIAMETER, Sym.CENTRAL_RING_THICKNESS, Sym.PLATE_OUTSIDE_DIAMETER,
+    ],
+    ports: ['lower'],
+    joint: { kind: 'butt_weld', between: ['S', 'F'], ports: ['upper', 'lower'] },
+    constructionDetails: [],
+    note:
+      'Part 4 has no stiffened flat end. Figure 21.2-1 a): n_V ribs h by e_R on the outer face, welded to a central ring d_1 by e_C, the plate overhanging the shell to d_4. ' +
+      'The ribs are chamfered at their outer ends over 0.6·h, which §21.1 allows and does not dimension; their welds (§21.7) are not drawn. Without e_C the centre is a solid core. ' +
+      'Figure 21.2-2\'s plate set inside a shell that runs past it is not drawn',
+  },
+  {
+    id: 'flat_head.radial_stiffeners_bolted', article: 'EN 13445-3 §21', title: 'Flat end with radial stiffeners, bolted', entry: 'component', status: 'captured',
+    kinds: [Kind.FLAT_HEAD, Kind.INTEGRAL_FLANGE], focus: 'F',
+    specimen: vessel([
+      course('S', 0),
+      run('G', Kind.INTEGRAL_FLANGE, 1, { flange_bore: 1500, flange_outside_diameter: 1800, thickness: 90, hub_small_end_thickness: 16, hub_large_end_thickness: 30, hub_length: 80 }),
+      run('F', Kind.FLAT_HEAD, 2, {
+        inside_diameter: 1500, thickness: 60, radial_stiffener_count: 6, radial_stiffener_height: 150, radial_stiffener_thickness: 16,
+        central_ring_diameter: 200, plate_outside_diameter: 1800,
+      }),
+    ]),
+    parameters: [
+      Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.RADIAL_STIFFENER_COUNT, Sym.RADIAL_STIFFENER_HEIGHT, Sym.RADIAL_STIFFENER_THICKNESS,
+      Sym.CENTRAL_RING_DIAMETER, Sym.PLATE_OUTSIDE_DIAMETER,
+    ],
+    ports: ['lower'],
+    constructionDetails: [],
+    note:
+      'Figures 21.2-3 and 21.2-4: the same plate bolted to a flange, d_4 its outside diameter and the ribs running out to it; a solid core at the middle (no e_C). ' +
+      'Whether the joint adds a bending moment at the rim (§21.5) or not (§21.4) is the rule\'s question, not the drawing\'s; the bolts and gasket are not drawn, as on flat_head.bolted',
+  },
+  {
+    id: 'flat_head.annular', article: 'EN 13445-3 §10.7.3', title: 'Annular flat end', entry: 'component', status: 'captured',
+    kinds: [Kind.FLAT_HEAD, Kind.CYLINDRICAL_SHELL], focus: 'F',
+    specimen: vessel([
+      course('S', 0),
+      run('F', Kind.FLAT_HEAD, 1, { inside_diameter: 1500, thickness: 40, annulus_inside_diameter: 800 }),
+      course('I', 2, { inside_diameter: 800, thickness: 12, course_length: 1000 }),
+    ]),
+    parameters: [Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.ANNULUS_INSIDE_DIAMETER],
+    ports: ['lower', 'upper'],
+    joint: { kind: 'butt_weld', between: ['F', 'I'], ports: ['upper', 'lower'] },
+    constructionDetails: [],
+    note:
+      'A plate between two concentric shells, D_X the outer one\'s bore and D_Y its own, which §10.7.3 sizes as a rectangular plate of width (D_X − D_Y)/2 supported on both edges — so both edges are ports. ' +
+      'The inner course stands on the plate\'s outer face, its bore flush with the plate\'s; an inner shell passing through the plate is not drawn. No nozzle can be hosted on it yet',
+  },
+  {
+    id: 'skirt_support.base_plate', article: 'EN 13445-3 §16.12.5', title: 'Skirt on a plain base plate (Type 1)', entry: 'component', status: 'captured',
+    kinds: [Kind.SKIRT_SUPPORT], focus: 'M',
+    specimen: skirtWithBase({ skirt_base_type: 1 }),
+    parameters: [...SKIRT, ...BASE],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['H', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Part 4 sizes a skirt and stops at its foot. Figure 16.12-7: a base plate b_1 wide reaching b_2 past the skirt, e_4 thick, drilled for n_B bolts d_B0 at b_3 from the skirt. ' +
+      'The holes are drawn at the bolt\'s diameter, the bolts, nuts and grout are not',
+  },
+  {
+    id: 'skirt_support.base_gussets', article: 'EN 13445-3 §16.12.5', title: 'Skirt base with gussets (Type 2)', entry: 'component', status: 'captured',
+    kinds: [Kind.SKIRT_SUPPORT], focus: 'M',
+    specimen: skirtWithBase({ skirt_base_type: 2, base_gusset_height: 250, base_gusset_thickness: 16 }),
+    parameters: [...SKIRT, ...BASE, Sym.BASE_GUSSET_HEIGHT, Sym.BASE_GUSSET_THICKNESS, Sym.BASE_GUSSET_SPACING],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['H', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note: 'Figure 16.12-8 Version A: one gusset h_1 by e_7 midway between bolts. Stating b_6 gives Version B, a pair flanking each bolt',
+  },
+  {
+    id: 'skirt_support.base_chairs', article: 'EN 13445-3 §16.12.5', title: 'Skirt base with chairs (Type 3)', entry: 'component', status: 'captured',
+    kinds: [Kind.SKIRT_SUPPORT], focus: 'M',
+    specimen: skirtWithBase({
+      skirt_base_type: 3, anchor_bolt_count: 8, base_gusset_height: 300, base_gusset_thickness: 16, base_gusset_spacing: 100,
+      top_plate_width: 120, top_plate_length: 160, top_plate_thickness: 25,
+    }),
+    parameters: [...SKIRT, ...BASE, Sym.BASE_GUSSET_HEIGHT, Sym.BASE_GUSSET_THICKNESS, Sym.BASE_GUSSET_SPACING, Sym.TOP_PLATE_WIDTH, Sym.TOP_PLATE_LENGTH, Sym.TOP_PLATE_THICKNESS],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['H', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note: 'Figure 16.12-9: at each bolt a chair — two support plates b_6 apart under a top plate b_4 by b_5 by e_5, drilled for the bolt; h_1 is the whole assembly, base plate to top plate',
+  },
+  {
+    id: 'skirt_support.base_top_ring', article: 'EN 13445-3 §16.12.5', title: 'Skirt base with a top ring (Type 4)', entry: 'component', status: 'captured',
+    kinds: [Kind.SKIRT_SUPPORT], focus: 'M',
+    specimen: skirtWithBase({
+      skirt_base_type: 4, base_gusset_height: 300, base_gusset_thickness: 16, base_gusset_spacing: 100, top_plate_width: 120, top_plate_thickness: 25,
+    }),
+    parameters: [...SKIRT, ...BASE, Sym.BASE_GUSSET_HEIGHT, Sym.BASE_GUSSET_THICKNESS, Sym.BASE_GUSSET_SPACING, Sym.TOP_PLATE_WIDTH, Sym.TOP_PLATE_THICKNESS],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['H', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note: 'Figure 16.12-10 Version B: a continuous top ring b_5 by e_5 on support plates b_6 apart either side of each bolt',
+  },
+  {
+    id: 'skirt_support.ring_hung', article: 'EN 13445-3 §16.12.3', title: 'Skirt hung from a support ring (Geometry A)', entry: 'component', status: 'captured',
+    kinds: [Kind.SKIRT_SUPPORT], focus: 'M',
+    specimen: vessel(
+      [run('H', Kind.ELLIPSOIDAL_HEAD, 0, ELLIPSOIDAL), course('S', 1), on('M', Kind.SKIRT_SUPPORT, 'S', { inside_diameter: 1600, thickness: 12, course_length: 1200, skirt_ring_height: 150 })],
+      { M: side(500) }
+    ),
+    parameters: [...SKIRT, Sym.SKIRT_RING_HEIGHT],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Figure 16.12-1: the skirt stands off the shell under a ring h high welded to it, the vessel\'s weight passing through the ring rather than a knuckle. ' +
+      'The ring is drawn as a plain rectangle and the skirt under it; the downstand the figure forges for the skirt\'s butt weld is not drawn',
+  },
+  {
+    id: 'skirt_support.lapped', article: 'EN 13445-3 §16.12.3', title: 'Skirt lapped over the shell (Geometry C)', entry: 'component', status: 'captured',
+    kinds: [Kind.SKIRT_SUPPORT], focus: 'M',
+    specimen: vessel(
+      [run('H', Kind.ELLIPSOIDAL_HEAD, 0, ELLIPSOIDAL), course('S', 1), on('M', Kind.SKIRT_SUPPORT, 'S', { inside_diameter: 1532, thickness: 12, course_length: 1200 })],
+      { M: side(300) }
+    ),
+    parameters: SKIRT,
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Figure 16.12-3: not a new drawing — a course-hosted skirt whose bore is the course\'s outside is lapped over it, and now says so. Its top fillet weld is not drawn. ' +
+      'Geometry B, the skirt on the knuckle, is skirt_support itself',
+  },
+  {
+    id: 'skirt_support.access_openings', article: 'EN 13445-3 §16.12.4', title: 'Skirt with access openings', entry: 'component', status: 'captured',
+    kinds: [Kind.SKIRT_SUPPORT], focus: 'M',
+    specimen: skirtWithBase({ skirt_opening_diameter: 500, skirt_opening_count: 2, skirt_opening_elevation: 600 }, false),
+    parameters: [...SKIRT, Sym.SKIRT_OPENING_DIAMETER, Sym.SKIRT_OPENING_COUNT, Sym.SKIRT_OPENING_ELEVATION],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['H', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Figures 16.12-5 and -6: one opening, or two facing each other, at an elevation from the skirt\'s base, which §16.12.4 deducts from the skirt\'s section. ' +
+      'Drawn as plain holes at the placement\'s azimuth; a frame or sleeve round them is not drawn',
+  },
+  {
+    id: 'ring_support.integral', article: 'EN 13445-3 §16.13', title: 'Ring support welded to a vertical vessel', entry: 'component', status: 'captured',
+    kinds: [Kind.RING_SUPPORT], focus: 'M',
+    specimen: mountedOnCourse(Kind.RING_SUPPORT, {
+      ring_support_section: 1, ring_support_width: 200, ring_support_height: 250, ring_support_plate_thickness: 16, ring_support_count: 4,
+      ring_support_independent: 0, support_height: 600, support_post_width: 120,
+    }, side(1200)),
+    parameters: [...RING_SUPPORT, Sym.RING_SUPPORT_PLATE_THICKNESS],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Draft kind: §4.15 has no ring support. Figure 16.13-1 a), a box section b by h welded to the shell, on n_s supports — 2, 3, 4, 6 or 8, the counts the figures tabulate. ' +
+      'Solid, U and L sections (Figure 16.13-2 column I) are drawn the same way. The supports are posts under the ring\'s outer edge: §16.13 reads only the forces F_S they react',
+  },
+  {
+    id: 'ring_support.independent', article: 'EN 13445-3 §16.13', title: 'Independent ring support', entry: 'component', status: 'captured',
+    kinds: [Kind.RING_SUPPORT], focus: 'M',
+    specimen: mountedOnCourse(Kind.RING_SUPPORT, {
+      ring_support_section: 2, ring_support_width: 200, ring_support_height: 250, ring_support_plate_thickness: 16, ring_support_count: 8,
+      ring_support_independent: 1, ring_support_clearance: 3, support_height: 600, support_post_width: 120,
+    }, side(1200)),
+    parameters: [...RING_SUPPORT, Sym.RING_SUPPORT_PLATE_THICKNESS, Sym.RING_SUPPORT_CLEARANCE],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Figure 16.13-1 b): a U, its web against the vessel, loose t_0 off the shell and resting on a bearing ring welded under it — the only metal joined to the shell. ' +
+      '§16.13.4 d) forbids a flexible layer between the two rings; none is drawn. Only a box or a U is drawn independent, as Figure 16.13-2 column II has it',
+  },
+
   // ---------------------------------------------------------------- joints
   {
     id: 'head_to_shell', article: '§4.3', title: 'Head to shell', entry: 'joint', status: 'captured', meshing: 'head_to_shell',
@@ -689,6 +912,14 @@ export const DECLARATIONS = [
       'in the definition and the backend, a host surface per non-circular builder, non-circular closures, a plate influence length in place of √(R·t), and the meshing session told first — a contract four parties read, not a catalogue pass. ' +
       'Meanwhile nothing is lost by the wait: §4.12 is closed-form end to end, all twelve types, so the rules engine reaches a verdict that no geometry feeds. Layer 1 excludes non-circular sections by design. ' +
       'It closes when the engine and meshing sessions agree the anchor, and not before.',
+  },
+  {
+    article: 'EN 13445-3 §10.7.2',
+    title: 'Non-circular flat ends (rectangular, square, elliptical, oblong)',
+    decision: 'stays with §4.12: not drawn, the annular end of §10.7.3 is',
+    reason:
+      'A non-circular flat end closes a non-circular vessel, so it meets the §4.12 decision\'s wall from the other side: its edge is no pair of diameters, so it has no port, and the vessel it would close has none to meet it. ' +
+      'Drawing the plate alone would be a picture, not an entry. It opens with the surface_uv anchor and non-circular closures of ROADMAP.md §2, together with §4.12; §10.7.3\'s annular plate needs neither and is captured.',
   },
 ] as const;
 

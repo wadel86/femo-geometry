@@ -169,6 +169,7 @@ export class AssemblyBuilder {
 
       const neighbour = closesBottom ? above : below;
       const sphere = component.kind === Kind.SPHERICAL_SHELL;
+      const annular = component.kind === Kind.FLAT_HEAD && component.dimensions[Sym.ANNULUS_INSIDE_DIAMETER] !== undefined;
       const context = {
         neighbourOutsideRadius: outsideRadiusOf(neighbour),
         neighbourInsideDiameter: insideDiameterOf(neighbour),
@@ -179,6 +180,8 @@ export class AssemblyBuilder {
         // Only a sphere is cut to its neighbours; nothing else's cache key carries them.
         belowInsideDiameter: sphere ? insideDiameterOf(below) : undefined,
         aboveInsideDiameter: sphere ? insideDiameterOf(above) : undefined,
+        // An annular flat end meets the course in its bore on that course's own wall.
+        aboveOutsideRadius: annular ? outsideRadiusOf(above) : undefined,
       };
       const key = stableStringify({ kind: component.kind, dimensions: component.dimensions, context });
 

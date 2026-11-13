@@ -16,8 +16,8 @@ import {
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
-import type { Point2, Profile, Solid } from '../kernel/GeometryKernel.ts';
-import { mm, requireWithinHost } from './placing.ts';
+import type { GeometryKernel, Point2, Profile, Solid } from '../kernel/GeometryKernel.ts';
+import { mm, radialPlate, requireWithinHost } from './placing.ts';
 import type { CourseShape, MountedBuilder, MountedContext, MountedPart } from './types.ts';
 
 const DEG = Math.PI / 180;
@@ -215,44 +215,303 @@ export const saddleSupport: MountedBuilder = (component, context) => {
   };
 };
 
+/** An annulus of the meridian half-plane, from `r0` to `r1` and `z0` to `z1`, revolved. */
+function annulus(kernel: GeometryKernel, r0: number, r1: number, z0: number, z1: number): Solid {
+  return kernel.revolve({
+    start: [r0, z0],
+    steps: [
+      { kind: 'line', to: [r1, z0] },
+      { kind: 'line', to: [r1, z1] },
+      { kind: 'line', to: [r0, z1] },
+    ],
+  });
+}
+
 /**
  * A skirt — §4.15.4: a cylinder hanging from the course, from its placement downwards; or,
- * hosted on a head, welded to the head's knuckle.
+ * hosted on a head, welded to the head's knuckle. EN 13445-3 §16.12 names the three ways a skirt
+ * meets its vessel: through a support ring welded to the shell (Geometry A, Figure 16.12-1, drawn
+ * when `skirt_ring_height` is stated), on the knuckle (B, the head-hosted skirt) and lapped over
+ * the shell (C, Figure 16.12-3, a course-hosted skirt whose bore is the course's outside). Its base
+ * (§16.12.5.4) and its access openings (§16.12.4) are drawn when stated, on any of the three.
  */
 export const skirtSupport: MountedBuilder = (component, context) => {
   if (context.hostSurface.anchor === 'head_crown') return skirtOnHead(component, context);
   const { kernel, placement } = context;
-  cylinderOf(component, context, 'a skirt');
+  const course = cylinderOf(component, context, 'a skirt');
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
   const thickness = requireDimension(component, Sym.THICKNESS);
   const length = requireDimension(component, Sym.COURSE_LENGTH);
+  const ringHeight = optionalDimension(component, Sym.SKIRT_RING_HEIGHT);
   requireWithinHost(component, context, 0);
 
   const top = placement.axialOffset;
   const a = diameter / 2;
-  return {
-    solids: [
-      kernel.revolve({
-        start: [a, top - length],
-        steps: [
-          { kind: 'line', to: [a + thickness, top - length] },
-          { kind: 'line', to: [a + thickness, top] },
-          { kind: 'line', to: [a, top] },
-        ],
-      }),
-    ],
-    footprint: 0,
-    attachment: { axial: thickness, circumferentialDeg: 360, thickness },
-    notes: [
+  const outer = a + thickness;
+  const shell = course.outsideRadiusAt(top);
+  const notes: Note[] = [];
+  const solids: Solid[] = [];
+  let skirtTop = top;
+  let attachment = { axial: thickness, circumferentialDeg: 360, thickness };
+  if (ringHeight !== undefined) {
+    if (a <= shell) {
+      throw new BuildError(
+        component,
+        `hangs from a support ring and so stands off the shell, but its ${mm(diameter)} bore does not clear the ${mm(2 * shell)} course`,
+        scope('out_of_scope', Sym.INSIDE_DIAMETER, `> ${mm(2 * shell)}, the course's outside (EN 13445-3 Figure 16.12-1)`, mm(diameter))
+      );
+    }
+    const [low] = context.hostSurface.offsetRange;
+    if (top - ringHeight < low) {
+      throw new BuildError(
+        component,
+        `has a ${mm(ringHeight)} support ring placed ${mm(top - low)} up its course`,
+        scope('out_of_scope', Sym.SKIRT_RING_HEIGHT, `≤ ${mm(top - low)}, the course below the placement`, mm(ringHeight))
+      );
+    }
+    solids.push(annulus(kernel, shell, outer, top - ringHeight, top));
+    skirtTop = top - ringHeight;
+    attachment = { axial: ringHeight, circumferentialDeg: 360, thickness: outer - shell };
+    notes.push(
+      representedNote(
+        'Geometry A (EN 13445-3 Figure 16.12-1): the support ring is drawn as a plain rectangle welded to the shell over its height, the skirt standing under it; the downstand the figure forges for the skirt\'s butt weld is not drawn',
+        'support ring section',
+        'Figure 16.12-1',
+        `a rectangle ${mm(ringHeight)} by ${mm(outer - shell)}`,
+        true
+      )
+    );
+  } else if (Math.abs(a - shell) <= 1) {
+    notes.push(
+      representedNote(
+        'Geometry C (EN 13445-3 Figure 16.12-3): lapped over the course from its placement downwards; the fillet weld at its top is not drawn',
+        'lap weld',
+        "a fillet at the skirt's top",
+        'the skirt touching the course',
+        true
+      )
+    );
+  } else {
+    notes.push(
       representedNote(
         'Drawn from its placement on the course downwards, not welded to a knuckle',
         'skirt top',
         'cut to the surface it is welded to',
         'square, from its placement downwards'
-      ),
-    ],
+      )
+    );
+  }
+
+  const end = skirtTop - length;
+  const skirt = skirtOpenings(component, kernel, annulus(kernel, a, outer, end, skirtTop), outer, end, -1, length, placement.azimuth, notes);
+  return {
+    solids: [skirt, ...solids, ...skirtBase(component, kernel, a, outer, end, -1, notes)],
+    footprint: 0,
+    attachment,
+    notes,
   };
 };
+
+/**
+ * A skirt's access openings — EN 13445-3 §16.12.4, Figures 16.12-5 and -6: one, or two facing
+ * each other, `skirt_opening_elevation` up from the skirt's free end. `away` is the direction
+ * along z that leads off the skirt's end, away from the vessel.
+ */
+function skirtOpenings(
+  component: ComponentDefinition,
+  kernel: GeometryKernel,
+  skirt: Solid,
+  outer: number,
+  end: number,
+  away: 1 | -1,
+  length: number,
+  azimuth: number,
+  notes: Note[]
+): Solid {
+  const diameter = optionalDimension(component, Sym.SKIRT_OPENING_DIAMETER);
+  if (diameter === undefined) return skirt;
+  const elevation = requireDimension(component, Sym.SKIRT_OPENING_ELEVATION);
+  const stated = signedDimension(component, Sym.SKIRT_OPENING_COUNT);
+  if (stated === undefined) notes.push(assumedNote('Opening count not stated — drawn as one', Sym.SKIRT_OPENING_COUNT, '1'));
+  else if (stated !== 1 && stated !== 2) {
+    throw new BuildError(component, `has ${stated} access openings`, scope('out_of_scope', Sym.SKIRT_OPENING_COUNT, '1, or 2 facing each other (Figures 16.12-5 and -6)', `${stated}`));
+  }
+  if (elevation - diameter / 2 <= 0 || elevation + diameter / 2 >= length) {
+    throw new BuildError(
+      component,
+      `has a ${mm(diameter)} opening ${mm(elevation)} up a ${mm(length)} skirt`,
+      scope('out_of_scope', Sym.SKIRT_OPENING_ELEVATION, `between ${mm(diameter / 2)} and ${mm(length - diameter / 2)}, the opening within the skirt`, mm(elevation))
+    );
+  }
+  const phi = azimuth * DEG;
+  const reach = outer + 10;
+  const tool = kernel.tube(
+    { origin: [0, 0, end - away * elevation], axis: [Math.cos(phi), Math.sin(phi), 0] },
+    0,
+    diameter / 2,
+    (stated ?? 1) === 2 ? -reach : 0,
+    reach
+  );
+  notes.push(
+    representedNote(
+      'The access openings are drawn as plain holes: a frame or sleeve round them is not drawn',
+      'opening reinforcement',
+      'a frame or sleeve, if any',
+      'none',
+      true
+    )
+  );
+  return kernel.cut(skirt, [tool]);
+}
+
+/**
+ * A skirt's base — EN 13445-3 §16.12.5.4, Figures 16.12-7 to 16.12-10, in the Code's letters: a base
+ * plate `b_1` wide reaching `b_2` past the skirt, `e_4` thick, drilled for `n_B` anchor bolts `d_B0`
+ * on a circle `b_3` out from the skirt; then, by type, gussets `h_1` high and `e_7` thick (2), chairs
+ * — two support plates `b_6` apart under a top plate `b_4` by `b_5` by `e_5` — at each bolt (3), or a
+ * continuous top ring `b_5` by `e_5` on support plates (4). Types 2 and 4 put one plate midway
+ * between bolts when `b_6` is not stated (Version A) and a pair flanking each bolt when it is (B).
+ * `away` leads off the skirt's free end `end` into the foundation; the plate lies beyond it.
+ */
+function skirtBase(
+  component: ComponentDefinition,
+  kernel: GeometryKernel,
+  inner: number,
+  outer: number,
+  end: number,
+  away: 1 | -1,
+  notes: Note[]
+): Solid[] {
+  const type = signedDimension(component, Sym.SKIRT_BASE_TYPE);
+  if (type === undefined) return [];
+  if (type !== 1 && type !== 2 && type !== 3 && type !== 4) {
+    throw new BuildError(component, `has a base of type ${type}`, scope('out_of_scope', Sym.SKIRT_BASE_TYPE, '1, 2, 3 or 4 (EN 13445-3 16.12.5.4.1)', `${type}`));
+  }
+  const width = requireDimension(component, Sym.BASE_PLATE_WIDTH);
+  const projection = requireDimension(component, Sym.BASE_PLATE_PROJECTION);
+  const plateThickness = requireDimension(component, Sym.BASE_PLATE_THICKNESS);
+  const bolts = requireDimension(component, Sym.ANCHOR_BOLT_COUNT);
+  const bolt = requireDimension(component, Sym.ANCHOR_BOLT_DIAMETER);
+  const offset = requireDimension(component, Sym.ANCHOR_BOLT_OFFSET);
+  if (!Number.isInteger(bolts) || bolts < 2) {
+    throw new BuildError(component, `has ${bolts} anchor bolts`, scope('out_of_scope', Sym.ANCHOR_BOLT_COUNT, 'a whole number, at least 2', `${bolts}`));
+  }
+  const plateOuter = outer + projection;
+  const plateInner = plateOuter - width;
+  if (plateInner > inner) {
+    throw new BuildError(
+      component,
+      `has a ${mm(width)} base plate that does not reach under the skirt's wall`,
+      scope('out_of_scope', Sym.BASE_PLATE_WIDTH, `≥ ${mm(projection + outer - inner)}, b_2 and the skirt's wall`, mm(width))
+    );
+  }
+  if (offset - bolt / 2 <= 0 || offset + bolt / 2 >= projection) {
+    throw new BuildError(
+      component,
+      `puts ${mm(bolt)} bolts ${mm(offset)} out on a plate reaching ${mm(projection)}`,
+      scope('out_of_scope', Sym.ANCHOR_BOLT_OFFSET, `between ${mm(bolt / 2)} and ${mm(projection - bolt / 2)}: the hole on the plate, clear of the skirt`, mm(offset))
+    );
+  }
+
+  // u runs back from the skirt's free end towards the vessel; the plate lies at u from −e_4 to 0.
+  const back = (u: number) => end - away * u;
+  const span = (u0: number, u1: number): [number, number] => [Math.min(back(u0), back(u1)), Math.max(back(u0), back(u1))];
+  const circle = outer + offset;
+  const boltAngles = Array.from({ length: bolts }, (_, k) => ((k + 0.5) * 360) / bolts);
+  const holes = ([z0, z1]: readonly [number, number]) =>
+    boltAngles.map((angle) =>
+      kernel.tube({ origin: [circle * Math.cos(angle * DEG), circle * Math.sin(angle * DEG), 0], axis: [0, 0, 1] }, 0, bolt / 2, z0 - 1, z1 + 1)
+    );
+  const plateRange = span(-plateThickness, 0);
+  const solids: Solid[] = [kernel.cut(annulus(kernel, plateInner, plateOuter, ...plateRange), holes(plateRange))];
+  notes.push(
+    representedNote(
+      `Anchor bolt holes drawn at the bolts' nominal diameter, ⌀${mm(bolt)}; the clearance and the bolts are not drawn`,
+      'anchor bolt holes',
+      'a clearance hole for d_B0',
+      `⌀${mm(bolt)}`,
+      true
+    )
+  );
+  if (type === 1) return solids;
+
+  const height = requireDimension(component, Sym.BASE_GUSSET_HEIGHT);
+  const plate = requireDimension(component, Sym.BASE_GUSSET_THICKNESS);
+  const spacing = type === 3 ? requireDimension(component, Sym.BASE_GUSSET_SPACING) : optionalDimension(component, Sym.BASE_GUSSET_SPACING);
+  if (spacing !== undefined && spacing - plate <= bolt) {
+    throw new BuildError(
+      component,
+      `flanks its ${mm(bolt)} bolts with plates ${mm(spacing)} apart`,
+      scope('out_of_scope', Sym.BASE_GUSSET_SPACING, `> ${mm(bolt + plate)}, d_B0 and e_7`, mm(spacing))
+    );
+  }
+  const half = spacing === undefined ? 0 : (spacing / 2 / circle) * (180 / Math.PI);
+  const plateAngles =
+    spacing === undefined ? boltAngles.map((angle) => angle - 180 / bolts) : boltAngles.flatMap((angle) => [angle - half, angle + half]);
+  const radialOutline = (points: readonly Point2[]): Profile => ({
+    start: points[0],
+    steps: points.slice(1).map((to) => ({ kind: 'line' as const, to })),
+  });
+
+  if (type === 2) {
+    // A triangle with a short square edge at the plate's rim, as Figure 16.12-8 draws it.
+    const gusset = radialOutline([
+      [outer, back(0)],
+      [plateOuter, back(0)],
+      [plateOuter, back(0.25 * height)],
+      [outer, back(height)],
+    ]);
+    solids.push(...plateAngles.map((angle) => radialPlate(kernel, gusset, plateOuter, span(0, height), plate, angle)));
+    return solids;
+  }
+
+  const topWidth = requireDimension(component, Sym.TOP_PLATE_WIDTH);
+  const topThickness = requireDimension(component, Sym.TOP_PLATE_THICKNESS);
+  const standing = height - plateThickness - topThickness;
+  if (standing <= 0) {
+    throw new BuildError(
+      component,
+      `is ${mm(height)} high, which leaves no support plate between its ${mm(plateThickness)} and ${mm(topThickness)} plates`,
+      scope('out_of_scope', Sym.BASE_GUSSET_HEIGHT, `> e_4 + e_5 = ${mm(plateThickness + topThickness)}`, mm(height))
+    );
+  }
+  if (topWidth < offset + bolt / 2) {
+    throw new BuildError(
+      component,
+      `has a top plate reaching ${mm(topWidth)}, short of its bolts at ${mm(offset)}`,
+      scope('out_of_scope', Sym.TOP_PLATE_WIDTH, `≥ b_3 + d_B0/2 = ${mm(offset + bolt / 2)}`, mm(topWidth))
+    );
+  }
+  const support = radialOutline([
+    [outer, back(0)],
+    [outer + topWidth, back(0)],
+    [outer + topWidth, back(standing)],
+    [outer, back(standing)],
+  ]);
+  solids.push(...plateAngles.map((angle) => radialPlate(kernel, support, outer + topWidth, span(0, standing), plate, angle)));
+  const topRange = span(standing, standing + topThickness);
+  if (type === 4) {
+    solids.push(kernel.cut(annulus(kernel, outer, outer + topWidth, ...topRange), holes(topRange)));
+    return solids;
+  }
+
+  const length = requireDimension(component, Sym.TOP_PLATE_LENGTH);
+  if (length <= spacing! + plate) {
+    throw new BuildError(
+      component,
+      `has a ${mm(length)} top plate over support plates ${mm(spacing!)} apart`,
+      scope('out_of_scope', Sym.TOP_PLATE_LENGTH, `> b_6 + e_7 = ${mm(spacing! + plate)}`, mm(length))
+    );
+  }
+  // Each chair's top plate, flat, cut to the skirt's outside where it meets it.
+  const skirtCore = kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, 0, outer, topRange[0] - 1, topRange[1] + 1);
+  for (const angle of boltAngles) {
+    const block = kernel.extrude(rectangle(Math.max(0, outer - length), outer + topWidth, -length / 2, length / 2), ...topRange);
+    const hole = kernel.tube({ origin: [circle, 0, 0], axis: [0, 0, 1] }, 0, bolt / 2, topRange[0] - 1, topRange[1] + 1);
+    solids.push(kernel.rotateZ(kernel.cut(block, [skirtCore, hole]), angle));
+  }
+  return solids;
+}
 
 /**
  * A skirt welded to a head's knuckle, the usual way a tall column stands: where it meets the head
@@ -294,12 +553,25 @@ function skirtOnHead(component: ComponentDefinition, context: MountedContext): M
   const weld = hostSurface.frameAt(middle, 0).origin[2];
   const lowest = Math.min(headOutside.origin[2], hostSurface.frameAt(outer, 0).origin[2]) - 1;
   const tube = kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, inner, outer, lowest, weld + length);
+  // In the head's frame the skirt runs up, away from the vessel, to its free end.
+  const notes: Note[] = [];
+  const skirt = skirtOpenings(
+    component,
+    kernel,
+    kernel.cut(tube, [context.hostSolid, hostSurface.cavity()]),
+    outer,
+    weld + length,
+    1,
+    length,
+    context.placement.azimuth,
+    notes
+  );
   return {
-    solids: [kernel.cut(tube, [context.hostSolid, hostSurface.cavity()])],
+    solids: [skirt, ...skirtBase(component, kernel, inner, outer, weld + length, 1, notes)],
     footprint: 0,
     attachment: { axial: thickness, circumferentialDeg: 360, thickness },
     anchorOffset: middle,
-    notes: [],
+    notes,
   };
 }
 
@@ -715,6 +987,108 @@ export const supportRing: MountedBuilder = (component, context) => {
     solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
     footprint: thickness / 2,
     attachment: { axial: thickness, circumferentialDeg: 360, thickness },
+    notes,
+  };
+};
+
+/**
+ * A ring support on a vertical vessel — EN 13445-3 §16.13, Figures 16.13-1 and 16.13-2: a ring `b`
+ * wide and `h` high round the course, centred on its placement, carried on `n_s` local supports.
+ * Integral (Figure 16.13-1 a), it is welded to the shell and a U or an L opens towards it, the
+ * shell closing the section; independent (b), it sits loose `t_0` off the shell on a bearing ring
+ * welded under it, and only a box or a U — its web against the vessel — is drawn that way, which
+ * is what Figure 16.13-2 tabulates. The supports stand for whatever carries the ring — legs, beams,
+ * brackets — that §16.13 reads only as the forces F_S at the reaction circle, so they are drawn as
+ * plain posts under its outer edge.
+ */
+export const ringSupport: MountedBuilder = (component, context) => {
+  const { kernel, placement } = context;
+  const course = cylinderOf(component, context, 'a ring support');
+  const notes: Note[] = [];
+  const stated = (symbol: string, label: string, assumed: number): number => {
+    const value = optionalDimension(component, symbol);
+    if (value !== undefined) return value;
+    notes.push(assumedNote(`${label} not stated — drawn ${mm(assumed)}`, symbol, mm(assumed)));
+    return assumed;
+  };
+  const section = signedDimension(component, Sym.RING_SUPPORT_SECTION);
+  if (section === undefined) notes.push(assumedNote('Section not stated — drawn solid', Sym.RING_SUPPORT_SECTION, '0, a solid rectangle'));
+  else if (section !== 0 && section !== 1 && section !== 2 && section !== 3) {
+    throw new BuildError(component, `has a section of type ${section}`, scope('out_of_scope', Sym.RING_SUPPORT_SECTION, '0 solid, 1 box, 2 U or 3 L (Figure 16.13-2)', `${section}`));
+  }
+  const shape = section ?? 0;
+  const width = requireDimension(component, Sym.RING_SUPPORT_WIDTH);
+  const height = requireDimension(component, Sym.RING_SUPPORT_HEIGHT);
+  const count = requireDimension(component, Sym.RING_SUPPORT_COUNT);
+  if (![2, 3, 4, 6, 8].includes(count)) {
+    throw new BuildError(component, `stands on ${count} supports`, scope('out_of_scope', Sym.RING_SUPPORT_COUNT, '2, 3, 4, 6 or 8, the counts Figures 16.13-3 to 16.13-6 give', `${count}`));
+  }
+  const loose = signedDimension(component, Sym.RING_SUPPORT_INDEPENDENT) ?? 0;
+  if (loose !== 0 && loose !== 1) {
+    throw new BuildError(component, `is neither integral nor independent (${loose})`, scope('out_of_scope', Sym.RING_SUPPORT_INDEPENDENT, '0 integral or 1 independent', `${loose}`));
+  }
+  if (loose === 1 && shape !== 1 && shape !== 2) {
+    throw new BuildError(
+      component,
+      'is independent with a section Figure 16.13-2 draws integral only',
+      scope('out_of_scope', Sym.RING_SUPPORT_SECTION, '1 box or 2 U, the independent sections of Figure 16.13-2', `${shape}`)
+    );
+  }
+  const plate = shape === 0 ? undefined : requireDimension(component, Sym.RING_SUPPORT_PLATE_THICKNESS);
+  if (plate !== undefined && (width / plate <= 5 || height / plate <= 5)) {
+    throw new BuildError(
+      component,
+      `is built of ${mm(plate)} plate into a ${mm(width)} by ${mm(height)} section`,
+      scope('out_of_scope', Sym.RING_SUPPORT_PLATE_THICKNESS, `< ${mm(Math.min(width, height) / 5)}: b/e > 5 and h/e > 5 (EN 13445-3 16.13.4 c)`, mm(plate))
+    );
+  }
+  const clearance = loose === 1 ? stated(Sym.RING_SUPPORT_CLEARANCE, 'Clearance t_0', 2) : 0;
+  const bearing = plate ?? 0;
+  requireWithinHost(component, context, height / 2 + bearing);
+
+  const z = placement.axialOffset;
+  const shell = course.outsideRadiusAt(z);
+  const r0 = shell + clearance;
+  const r1 = r0 + width;
+  const z0 = z - height / 2;
+  const z1 = z + height / 2;
+  const box = annulus(kernel, r0, r1, z0, z1);
+  const e = plate ?? 0;
+  let ring: Solid;
+  if (shape === 0) ring = box;
+  else if (shape === 1) ring = kernel.cut(box, [annulus(kernel, r0 + e, r1 - e, z0 + e, z1 - e)]);
+  // A U opens towards the shell when it is welded to it, away from it when it is loose.
+  else if (shape === 2) ring = kernel.cut(box, [loose === 1 ? annulus(kernel, r0 + e, r1 + 1, z0 + e, z1 - e) : annulus(kernel, r0 - 1, r1 - e, z0 + e, z1 - e)]);
+  // An L: a leg up the shell and a flange along the bottom.
+  else ring = kernel.cut(box, [annulus(kernel, r0 + e, r1 + 1, z0 + e, z1 + 1)]);
+
+  const solids: Solid[] = [ring];
+  let inner = r0;
+  if (loose === 1) {
+    // The bearing ring the loose ring sits on, welded to the shell under it and reaching 2·e under its web.
+    solids.push(annulus(kernel, shell, r0 + 2 * bearing, z0 - bearing, z0));
+    inner = r0 + 2 * bearing;
+  }
+  const drop = stated(Sym.SUPPORT_HEIGHT, 'Support height', Math.max(150, 2 * height));
+  const post = Math.min(stated(Sym.SUPPORT_POST_WIDTH, 'Support width', Math.max(80, width / 2)), r1 - inner);
+  for (let k = 0; k < count; k++) {
+    const block = kernel.extrude(rectangle(r1 - post, r1, -post / 2, post / 2), z0 - drop, z0);
+    solids.push(kernel.rotateZ(block, placement.azimuth + (k * 360) / count));
+  }
+  notes.push(
+    representedNote(
+      `The ${count} supports are drawn as plain posts under the ring's outer edge: §16.13 reads them only as the forces F_S they react`,
+      'ring supports',
+      'legs, beams or brackets',
+      `posts ${mm(post)} square`,
+      true
+    )
+  );
+
+  return {
+    solids,
+    footprint: height / 2 + bearing,
+    attachment: loose === 1 ? { axial: bearing, circumferentialDeg: 360, thickness: bearing } : { axial: height, circumferentialDeg: 360, thickness: plate ?? width },
     notes,
   };
 };
