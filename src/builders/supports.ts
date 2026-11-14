@@ -335,12 +335,25 @@ export const lugSupport: MountedBuilder = (component, context) => {
   }
   requireWithinHost(component, context, height / 2 + base);
 
-  const inner = outside - 1;
+  // Each plate's inner face IS the shell's outside surface. Drawn flat 1 mm inside it, a plate overlapped the
+  // shell in a lens along its middle (959 mm3 on the reference lug) and stood off it at its edges, where the
+  // surface had already fallen below the flat (1.7 mm at the gussets' outer faces): started below the surface
+  // across the plates' whole width and cut by it, a plate bears on the shell and nowhere enters it.
+  const half = gap / 2 + plate / 2;
+  const inner = Math.sqrt(Math.max(outside * outside - half * half, 0)) - 1;
+  const shell = kernel.revolve({
+    start: [0, z - height / 2 - base - 1],
+    steps: [
+      { kind: 'line', to: [outside, z - height / 2 - base - 1] },
+      { kind: 'line', to: [outside, z + height / 2 + 1] },
+      { kind: 'line', to: [0, z + height / 2 + 1] },
+    ],
+  });
   const solids = [
     kernel.extrude(rectangle(inner, outside + reach, gap / 2 - plate / 2, gap / 2 + plate / 2), z - height / 2, z + height / 2),
     kernel.extrude(rectangle(inner, outside + reach, -gap / 2 - plate / 2, -gap / 2 + plate / 2), z - height / 2, z + height / 2),
-    kernel.extrude(rectangle(inner, outside + reach, -gap / 2 - plate / 2, gap / 2 + plate / 2), z - height / 2 - base, z - height / 2),
-  ];
+    kernel.extrude(rectangle(inner, outside + reach, -half, half), z - height / 2 - base, z - height / 2),
+  ].map((solid) => kernel.cut(solid, [shell]));
   return {
     solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
     footprint: height / 2 + base,

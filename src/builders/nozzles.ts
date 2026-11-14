@@ -152,7 +152,13 @@ function nozzle(aimer: Aimer): MountedBuilder {
             { kind: 'line', to: [radius, z + reach + 1] },
           ],
         });
-        const around = kernel.tube(frame, outside, reach, -frame.wall, padThickness + reach + 1);
+        // The tube starts below the host's outside surface at the pad's EDGE, where that surface has fallen
+        // furthest from the neck's origin: started a wall below the origin, it clipped the band flat wherever
+        // the surface lay deeper (reach 212 on a 766 course: beyond 155.7 mm off the neck's plane the pad lifted
+        // off the shell and thinned, beyond 206.8 mm it was not there at all, and its edge carried the clip's
+        // lines as vertices).
+        const sag = radius - Math.sqrt(Math.max(radius * radius - reach * reach, 0));
+        const around = kernel.tube(frame, outside, reach, -Math.max(frame.wall, sag + 1), padThickness + reach + 1);
         solids.push(kernel.intersect(band, around));
       }
     }
