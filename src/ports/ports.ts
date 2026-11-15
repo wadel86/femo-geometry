@@ -487,11 +487,16 @@ function mismatches(a: Port, b: Port): { issues: string[]; findings: Scope[] } {
     );
   }
   const walls = a.kind === 'axial_edge' && b.kind === 'axial_edge' && a.surface.kind !== 'plane' && b.surface.kind !== 'plane';
-  if (walls && Math.abs(a.thickness - b.thickness) > 1e-6) {
-    issues.push(`Thickness steps from ${mm(a.thickness)} to ${mm(b.thickness)} — a taper is not drawn`);
+  // What is welded is each end's face in the joint plane, bore to outside: a cylinder's wall thickness, a
+  // cone's t / cos α (`weldedWidth` in buildAssembly). Read as the wall thickness, a sharp cone's 20 mm met
+  // its 23.094 mm cylinders as a step although the faces agree to the micron.
+  const width = (p: Port) =>
+    p.insideRadius !== undefined && p.outsideRadius !== undefined ? p.outsideRadius - p.insideRadius : p.thickness;
+  if (walls && Math.abs(width(a) - width(b)) > 1e-6) {
+    issues.push(`Thickness steps from ${mm(width(a))} to ${mm(width(b))} — a taper is not drawn`);
     // The taper is drawn only on a cylinder long enough for it: anything else keeps the step.
     findings.push(
-      scope('out_of_scope', 'thickness step', 'faired 3:1 on a cylindrical end long enough for it', `${mm(a.thickness)} to ${mm(b.thickness)}, not faired`)
+      scope('out_of_scope', 'thickness step', 'faired 3:1 on a cylindrical end long enough for it', `${mm(width(a))} to ${mm(width(b))}, not faired`)
     );
   }
   return { issues, findings };
