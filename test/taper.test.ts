@@ -51,9 +51,26 @@ test('a thicker head is tapered 3:1 on the outside down to the shell it is welde
   close(kernel.volume(full.parts[0].solids[0]) - kernel.volume(H.solids[0]), removed, 0.01 * removed);
 });
 
-test('a straight flange shorter than the taper leaves the step, and it is still refused', () => {
-  // A 2 mm step needs 6 mm of straight wall; 4 mm of flange is not enough.
+test('a straight flange shorter than the taper is faired by weld metal built up on the shell', () => {
+  // A 2 mm step needs 6 mm of straight wall; 4 mm of flange is not enough to cut, so the shell is
+  // built up instead, §4.2.5.2.c.4 (user decision, 2026-11-20): 2 mm over 6, the head untouched.
   const definition = vessel(16, 4);
+  const model = new AssemblyBuilder(kernel).build(definition);
+  const resolved = resolveGeometry(definition, model, kernel, { mode: 'analysis' });
+  assert.deepEqual(resolved.refusals, []);
+  const S = model.parts.find((p) => p.componentId === 'S')!;
+  close(S.landmarks.find((l) => l.key === 'lower-buildup')!.z, 6, 1e-9);
+  assert.equal(model.parts.find((p) => p.componentId === 'H')!.landmarks.find((l) => l.key === 'lower-taper'), undefined);
+});
+
+test('a step neither wall is long enough to fair is left, and it is still refused', () => {
+  // 4 mm of flange cannot be cut, 4 mm of shell cannot carry 6 mm of build-up.
+  const definition: AssemblyDefinition = {
+    ...vessel(16, 4),
+    components: vessel(16, 4).components.map((c) =>
+      c.id === 'S' ? { ...c, dimensions: { ...c.dimensions, course_length: 4 } } : c
+    ),
+  };
   const resolved = resolveGeometry(definition, new AssemblyBuilder(kernel).build(definition), kernel, { mode: 'analysis' });
   assert.ok(resolved.refusals.some((r) => /taper is not drawn/.test(r.message)));
 });

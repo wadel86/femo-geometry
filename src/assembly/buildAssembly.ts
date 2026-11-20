@@ -230,11 +230,12 @@ export class AssemblyBuilder {
       // Undeclared, a joint is what it always was: inside flush, tapered only where the bores match.
       const datum = parameters?.alignment;
       if (!taperable(below.junction, above.junction, datum !== undefined)) continue;
-      const [thick, end, thin] =
+      const [thick, end, thin, thinPart, thinEnd] =
         weldedWidth(below.junction) > weldedWidth(above.junction)
-          ? [lower, below.end, above.junction]
-          : [upper, above.end, below.junction];
+          ? [lower, below.end, above.junction, upper, above.end]
+          : [upper, above.end, below.junction, lower, below.end];
       const thickId = thick === lower ? run[index].id : run[index + 1].id;
+      const thinId = thinPart === lower ? run[index].id : run[index + 1].id;
       const ratio = parameters?.taperRatio ?? MINIMUM_TAPER_RATIO;
       if (!(ratio >= MINIMUM_TAPER_RATIO && ratio <= MAXIMUM_TAPER_RATIO)) {
         // Outside its range the step is left as it is, and said: never faired at a ratio not asked for.
@@ -264,6 +265,21 @@ export class AssemblyBuilder {
       // Tapered, the part is no longer what its builder makes thicker: nothing is laid on it.
       if (tapered) {
         runParts.set(thickId, { ...thick, part: tapered, key, thicken: undefined });
+        continue;
+      }
+      // The thicker end cannot be cut — a cone, whose end face is t / cos α wide, or a knuckle or
+      // a flare that leaves its cylinder at the very end — so the transition is weld metal built up
+      // on the thinner part instead, §4.2.5.2.c.4 (user decision, 2026-11-20): nothing is removed
+      // from either wall, and the faces agree in the joint plane.
+      const thickEnd = thick.part[end]!;
+      const builtKey =
+        `${thinPart.key}|buildup:${thinEnd}:${thickEnd.insideDiameter}:${thickEnd.outsideDiameter}` +
+        (ratio === MINIMUM_TAPER_RATIO ? '' : `:${ratio}`);
+      const built = this.remember(this.runCache, builtKey, () =>
+        buildUp(this.kernel, thinPart.part, thinEnd, thickEnd.insideDiameter / 2, thickEnd.outsideDiameter / 2, ratio)
+      );
+      if (built) {
+        runParts.set(thinId, { ...thinPart, part: built, key: builtKey, thicken: undefined });
       }
     }
 
@@ -745,6 +761,97 @@ function taper(
               role: `${ratio}:1 taper to the thinner wall (inside${sides === 'both sides' ? ', mid-wall' : ''})`,
             },
           ]
+        : []),
+    ],
+  };
+}
+
+/**
+ * The thinner part with weld metal built up on its end until its face is the thicker end's,
+ * `[inside, outside]` in the joint plane — §4.2.5.2.c.4, "additional weld metal beyond what would
+ * otherwise be the edge of the weld". A ring of triangular section on whichever side steps, its
+ * slope `ratio`:1 along the axis, so the transition is the 3:1 taper the thicker end could not be
+ * cut to: a cone's end face is t / cos α wide and a 3:1 line measured on the axis never comes back
+ * out through its wall, and a knuckle or a flare leaves its cylinder at the very end. Nothing is
+ * removed from either part. Null where the end is not a cylinder for the build-up's length, and
+ * the step is then left, and reported.
+ */
+function buildUp(
+  kernel: GeometryKernel,
+  part: RunPart,
+  end: 'lower' | 'upper',
+  inside: number,
+  outside: number,
+  ratio: number
+): RunPart | null {
+  const junction = part[end]!;
+  if (junction.wall.surface.kind !== 'cylinder') return null;
+  const ownInside = junction.insideDiameter / 2;
+  const ownOutside = junction.outsideDiameter / 2;
+  const outer = Math.max(0, outside - ownOutside);
+  const inner = Math.max(0, ownInside - inside);
+  if (!(outer > 1e-9 || inner > 1e-9)) return null;
+  const length = ratio * Math.max(outer, inner);
+  const z = end === 'lower' ? 0 : part.height;
+  const into = end === 'lower' ? 1 : -1;
+  const straight =
+    junction.straightLength ??
+    (end === 'lower' ? (part.tangentLine ?? part.height) : part.height - (part.tangentLine ?? 0));
+  if (length > straight + 1e-9) return null;
+
+  // Each ring reaches a little into the wall it is laid on, so the fuse joins two overlapping
+  // solids rather than two that only touch.
+  const overlap = Math.min(1, (ownOutside - ownInside) / 4);
+  let solid = part.solid;
+  if (outer > 1e-9) {
+    solid = kernel.fuse(
+      solid,
+      kernel.revolve({
+        start: [ownOutside - overlap, z],
+        steps: [
+          { kind: 'line', to: [outside, z] },
+          { kind: 'line', to: [ownOutside, z + into * ratio * outer] },
+          { kind: 'line', to: [ownOutside - overlap, z + into * ratio * outer] },
+        ],
+      })
+    );
+  }
+  if (inner > 1e-9) {
+    solid = kernel.fuse(
+      solid,
+      kernel.revolve({
+        start: [ownInside + overlap, z],
+        steps: [
+          { kind: 'line', to: [inside, z] },
+          { kind: 'line', to: [ownInside, z + into * ratio * inner] },
+          { kind: 'line', to: [ownInside + overlap, z + into * ratio * inner] },
+        ],
+      })
+    );
+  }
+
+  const keyOutside = `${end}-outside`;
+  const keyInside = `${end}-inside`;
+  const width = outside - inside;
+  return {
+    ...part,
+    solid,
+    [end]: {
+      ...junction,
+      insideDiameter: 2 * inside,
+      outsideDiameter: 2 * outside,
+      // The face is now the thicker end's, and so is the mid-surface the weld joins on.
+      wall: { ...junction.wall, surface: cylinderSurface(inside + width / 2), thickness: width },
+    },
+    landmarks: [
+      ...part.landmarks.map((l) =>
+        l.key === keyOutside ? { ...l, diameter: 2 * outside } : l.key === keyInside ? { ...l, diameter: 2 * inside } : l
+      ),
+      ...(outer > 1e-9
+        ? [{ key: `${end}-buildup`, z: z + into * ratio * outer, diameter: 2 * ownOutside, role: `${ratio}:1 weld metal build-up to the thicker end (outside), §4.2.5.2.c.4` }]
+        : []),
+      ...(inner > 1e-9
+        ? [{ key: `${end}-buildup-inside`, z: z + into * ratio * inner, diameter: 2 * ownInside, role: `${ratio}:1 weld metal build-up to the thicker end (inside), §4.2.5.2.c.4` }]
         : []),
     ],
   };
