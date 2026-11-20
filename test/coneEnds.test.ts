@@ -46,10 +46,11 @@ test("a cone stated on the shells' bores meets both of them, its mid-surface ecc
   // …and the small end's mid-surfaces stand (t_shell − t / cos α) / 2 apart: 3.547 mm, kept.
   const small = port('upper@C').meanRadius! - port('lower@S2').meanRadius!;
   assert.ok(Math.abs(small - (across - 16) / 2) < 1e-6, `${small}`);
-  // The one finding left is real: a sharp 20 mm end on a 16 mm shell, which no taper can fair.
+  // What is left is real and is not about the radius: a sharp cone's end face is t / cos α =
+  // 23.094 mm wide, against 22 and 16 mm shells, and no taper is drawn on a cone's end.
   assert.deepEqual(
     resolved.joints.flatMap((j) => j.findings.map((f) => `${j.id}: ${f.parameter}`)),
-    ['C:upper~S2:lower: thickness step']
+    ['S1:upper~C:lower: thickness step', 'C:upper~S2:lower: thickness step']
   );
 });
 
