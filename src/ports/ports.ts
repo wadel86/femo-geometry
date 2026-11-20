@@ -11,6 +11,7 @@ import {
   Kind,
   Sym,
   scope,
+  type AlignmentDatum,
   type AssemblyDefinition,
   type ComponentDefinition,
   type Scope,
@@ -175,7 +176,7 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
       kind: up.kind === 'flange_face' && down.kind === 'flange_face' ? 'bolted' : 'butt_weld',
       ports: [up.id, down.id],
       sourceRule: 'run adjacency',
-      ...mismatches(up, down),
+      ...mismatches(up, down, alignmentOf(definition, below.componentId, above.componentId)),
     });
   }
 
@@ -462,16 +463,30 @@ function junctionPort(part: BuiltPart, side: 'lower' | 'upper', junction: Juncti
   });
 }
 
+/** The datum a run joint declares, in either order of its two parts; inside flush when unstated. */
+function alignmentOf(definition: AssemblyDefinition, a: string, b: string): AlignmentDatum {
+  return (definition.joints?.[`${a}~${b}`] ?? definition.joints?.[`${b}~${a}`])?.alignment ?? 'inside_flush';
+}
+
 /**
- * What two ends of the run that meet do not agree on. A step in mean radius is a misfit; a step
- * in thickness between two walls is a taper someone has to draw. A plate meeting a wall has a
- * thickness of its own and no step.
+ * What two ends of the run that meet do not agree on. Two walls must agree on the surface their
+ * joint's datum runs on — the bore unless another is declared, since every diameter the
+ * catalogue states is an inside one (user decision, 2026-11-20). Their mid-surfaces may then
+ * step, by half the difference of the walls across the joint plane: that is the weld's real
+ * eccentricity, a cone's end plane cutting its wall at t / cos α, and not a misfit. A face or a
+ * plate keeps the mean radius. A step in thickness between two walls is a taper someone has to
+ * draw. A plate meeting a wall has a thickness of its own and no step.
  */
-function mismatches(a: Port, b: Port): { issues: string[]; findings: Scope[] } {
+function mismatches(a: Port, b: Port, datum: AlignmentDatum): { issues: string[]; findings: Scope[] } {
   const issues: string[] = [];
   const findings: Scope[] = [];
-  const ra = a.meanRadius ?? 0;
-  const rb = b.meanRadius ?? 0;
+  const walls = a.kind === 'axial_edge' && b.kind === 'axial_edge' && a.surface.kind !== 'plane' && b.surface.kind !== 'plane';
+  const surface = walls ? datum : 'mid_wall';
+  const radiusOf = (port: Port) =>
+    (surface === 'inside_flush' ? port.insideRadius : surface === 'outside_flush' ? port.outsideRadius : port.meanRadius) ?? 0;
+  const which = surface === 'inside_flush' ? 'inside' : surface === 'outside_flush' ? 'outside' : 'mean';
+  const ra = radiusOf(a);
+  const rb = radiusOf(b);
   const tolerance = Math.max(1e-3 * Math.max(ra, rb), 1e-6);
   // Two circles of one radius on different centres do not meet: what an eccentric cone's small
   // end presents to a course that the run, stacked on one axis, still places on it.
@@ -481,12 +496,11 @@ function mismatches(a: Port, b: Port): { issues: string[]; findings: Scope[] } {
     findings.push(scope('mismatch', 'centre of the joint circle, across the axis', `coincident within ${mm(tolerance)}`, `${mm(apart)} apart`));
   }
   if (Math.abs(ra - rb) > tolerance) {
-    issues.push(`Mean radii differ: ${mm(ra)} against ${mm(rb)}`);
+    issues.push(`${which[0].toUpperCase()}${which.slice(1)} radii differ: ${mm(ra)} against ${mm(rb)}`);
     findings.push(
-      scope('mismatch', 'mean radius at the joint, in its plane', `equal within ${mm(tolerance)}`, `${mm(ra)} against ${mm(rb)}`)
+      scope('mismatch', `${which} radius at the joint, in its plane`, `equal within ${mm(tolerance)}`, `${mm(ra)} against ${mm(rb)}`)
     );
   }
-  const walls = a.kind === 'axial_edge' && b.kind === 'axial_edge' && a.surface.kind !== 'plane' && b.surface.kind !== 'plane';
   // What is welded is each end's face in the joint plane, bore to outside: a cylinder's wall thickness, a
   // cone's t / cos α (`weldedWidth` in buildAssembly). Read as the wall thickness, a sharp cone's 20 mm met
   // its 23.094 mm cylinders as a step although the faces agree to the micron.
