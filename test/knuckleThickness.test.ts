@@ -8,7 +8,8 @@ import { test } from 'node:test';
 import { AssemblyBuilder } from '../src/assembly/buildAssembly.ts';
 import { resolveGeometry } from '../src/assembly/resolve.ts';
 import type { AssemblyDefinition } from '../src/definition.ts';
-import { kernel, part } from './fixtures.ts';
+import { applyConstructionDetails } from '../src/details/apply.ts';
+import { kernel, part, shellSide } from './fixtures.ts';
 
 const close = (actual: number, expected: number, tolerance: number) =>
   assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} is not ${expected} ± ${tolerance}`);
@@ -99,4 +100,35 @@ test('a build-up longer than the straight cone is refused, by how much', () => {
   const refusal = resolved.refusals.find((r) => r.parameter === 'build-up along the cone');
   assert.ok(refusal, JSON.stringify(resolved.refusals));
   assert.equal(refusal.reason, 'out_of_scope');
+});
+
+test('a pad on a cone with a thicker knuckle is cut from the whole part thickened, arcs and all', () => {
+  // Demo E's N2: the pad is the host rebuilt 20 mm thicker. Rebuilt with only the cone's wall
+  // thickened, the 20 mm flare met a 40 mm cone and was refused as too short to fair.
+  const definition: AssemblyDefinition = {
+    ...reducer({ knuckle_thickness: 22, flare_thickness: 20 }),
+    components: [
+      ...reducer({ knuckle_thickness: 22, flare_thickness: 20 }).components,
+      part('N', 'axial_nozzle', {
+        nozzle_inside_diameter: 200, nozzle_thickness: 16, nozzle_outward_projection: 250, pad_width: 100, pad_thickness: 20,
+      }, 0, 'C'),
+    ],
+    placements: { N: shellSide(411.6, 90) },
+  };
+  const model = new AssemblyBuilder(kernel).build(definition);
+  const resolved = resolveGeometry(definition, model, kernel, { mode: 'analysis' });
+  assert.deepEqual(resolved.refusals.filter((r) => r.componentId === 'N' || r.componentId === 'C'), []);
+  assert.ok(kernel.isValid(model.parts.find((p) => p.componentId === 'N')!.solids[1]));
+});
+
+test('corroded, the knuckle and the flare lose the allowance with the cone', () => {
+  const definition: AssemblyDefinition = {
+    ...reducer({ knuckle_thickness: 22, flare_thickness: 20 }),
+    details: { equipment: { corroded_model: 'corroded', corrosion_allowance: 3, corroded_surfaces: 'inside' } },
+  };
+  const { definition: effective } = applyConstructionDetails(definition);
+  const c = effective.components.find((x) => x.id === 'C')!.dimensions;
+  assert.equal(c.thickness, 17);
+  assert.equal(c.knuckle_thickness, 19);
+  assert.equal(c.flare_thickness, 17);
 });
