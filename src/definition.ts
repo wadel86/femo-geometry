@@ -85,6 +85,9 @@ export const Sym = {
   CROWN_RADIUS: 'crown_radius',
   KNUCKLE_RADIUS: 'knuckle_radius',
   FLARE_RADIUS: 'flare_radius',
+  /** §4.3.12's t_k and t_f: a knuckle or flare formed from plate other than the cone's own. */
+  KNUCKLE_THICKNESS: 'knuckle_thickness',
+  FLARE_THICKNESS: 'flare_thickness',
   HEAD_HEIGHT: 'head_height',
   SMALL_END_DIAMETER: 'small_end_diameter',
   HALF_APEX_ANGLE: 'half_apex_angle',

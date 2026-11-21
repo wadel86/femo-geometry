@@ -222,10 +222,15 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
   },
   {
     id: 'conical_transition.knuckle_and_flare', article: '§4.3.12', title: 'Conical transition, knuckle and flare', entry: 'component', status: 'captured',
-    kinds: [Kind.CONICAL_SHELL, Kind.CYLINDRICAL_SHELL], specimen: transition({ knuckle_radius: 200, flare_radius: 100 }), focus: 'C',
-    parameters: [Sym.INSIDE_DIAMETER, Sym.SMALL_END_DIAMETER, Sym.HALF_APEX_ANGLE, Sym.THICKNESS, Sym.COURSE_LENGTH, Sym.KNUCKLE_RADIUS, Sym.FLARE_RADIUS],
+    // Eq. (4.3.63) wants t_k at least the cylinder's: a 22 mm knuckle on a 22 mm shell, turning into a 20 mm cone.
+    kinds: [Kind.CONICAL_SHELL, Kind.CYLINDRICAL_SHELL], focus: 'C',
+    specimen: transition({ knuckle_radius: 200, flare_radius: 100, knuckle_thickness: 22, flare_thickness: 20 }, 22, 20),
+    parameters: [
+      Sym.INSIDE_DIAMETER, Sym.SMALL_END_DIAMETER, Sym.HALF_APEX_ANGLE, Sym.THICKNESS, Sym.COURSE_LENGTH,
+      Sym.KNUCKLE_RADIUS, Sym.FLARE_RADIUS, Sym.KNUCKLE_THICKNESS, Sym.FLARE_THICKNESS,
+    ],
     ports: ['lower', 'upper'],
-    note: 'Knuckle and flare tangent to the cone and to their cylinders, both inside radii; each end is a cylinder of D or D_S, on its own bore. No straight flange: a thicker cone cannot be faired to a thinner cylinder, and that step is refused',
+    note: 'Knuckle and flare tangent to the cone and to their cylinders, both inside radii, each at its own thickness t_k or t_f; each end is a cylinder of D or D_S, on its own bore. An arc thicker or thinner than the cone is faired into it 3:1 by weld metal on the thinner side; a step to the shell beyond is built up on the thinner shell',
   },
 
   // §4.4
