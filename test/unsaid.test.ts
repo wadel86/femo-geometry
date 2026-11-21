@@ -148,9 +148,15 @@ test('a pad on a head is the head thickened: it lies on the head and nowhere in 
   close(kernel.volume(pad), Math.PI * (316 ** 2 - 166 ** 2) * 20, 0.05 * Math.PI * (316 ** 2 - 166 ** 2) * 20);
   assert.deepEqual(refusals(vessel(0, 150)).filter((r) => r.componentId === 'N'), []);
 
-  // Off the crown the neck stands parallel to the vessel axis, not normal to the head: said.
-  const off = refusals(vessel(400, 150)).filter((r) => r.componentId === 'N');
-  assert.deepEqual(off.map((r) => r.reason), ['represented']);
+  // Off the crown the neck stands parallel to the vessel axis, not normal to the head: the pad is
+  // ringed by the ellipse whose trace lies its width out along the head, so nothing is refused.
+  assert.deepEqual(refusals(vessel(400, 150)).filter((r) => r.componentId === 'N'), []);
+  const offPad = new AssemblyBuilder(kernel).build(vessel(400, 150)).parts.find((p) => p.componentId === 'N')!.solids[1];
+  assert.ok(kernel.isValid(offPad));
+  assert.ok(kernel.volume(kernel.intersect(offPad, headSolid)) < 1, 'off the crown too, the pad lies on the head');
+  // Square to the meridian the neck is normal to the head: 166 + 150 either side.
+  close(kernel.bounds(offPad).max[1], 316, 1e-3);
+  close(kernel.bounds(offPad).min[1], -316, 1e-3);
   // Past the head's inside radius it would leave its host: out of scope, and not drawn.
   const past = refusals(vessel(400, 400)).filter((r) => r.componentId === 'N');
   assert.equal(past[0].reason, 'out_of_scope');

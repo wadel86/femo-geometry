@@ -148,6 +148,13 @@ export interface GeometryKernel {
   tube(frame: Frame, innerRadius: number, outerRadius: number, from: number, to: number): Solid;
 
   /**
+   * A solid cylinder of elliptical section along `frame.axis`, from `from` to `to` measured along
+   * it: semi-axis `radiusAcross` along `across` (a unit vector square to the axis), `radiusOther`
+   * square to both. What a pad round a neck that leans on its host is cut from.
+   */
+  ellipticPrism(frame: Frame, across: Vec3, radiusAcross: number, radiusOther: number, from: number, to: number): Solid;
+
+  /**
    * A prism: a closed outline of the XY plane — a section across the vessel axis, `r` read as
    * x and `z` as y — extruded along Z from `from` to `to`. What is not a solid of revolution
    * (a saddle, a lug, a rectangular box) is one of these.

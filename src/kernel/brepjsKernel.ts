@@ -52,6 +52,7 @@ import type {
   FaceInfo,
   Frame,
   GeometryKernel,
+  Point2,
   Profile,
   Solid,
   StepProduct,
@@ -146,6 +147,28 @@ class BrepjsKernel implements GeometryKernel {
     const phi = (Math.atan2(ay, ax) * 180) / Math.PI;
     if (Math.abs(theta) > 1e-9) shape = rotate(shape, theta, { axis: [0, 1, 0] });
     if (Math.abs(phi) > 1e-9) shape = rotate(shape, phi, { axis: [0, 0, 1] });
+    return asSolid(translate(shape, [frame.origin[0], frame.origin[1], frame.origin[2]]));
+  }
+
+  ellipticPrism(frame: Frame, across: Vec3, radiusAcross: number, radiusOther: number, from: number, to: number): Solid {
+    const [a, b] = [radiusAcross, radiusOther];
+    const quarter = (end: Point2) => ({ kind: 'ellipse' as const, to: end, radiusR: a, radiusZ: b, counterClockwise: true });
+    const section = drawing({ start: [a, 0], steps: [quarter([0, b]), quarter([-a, 0]), quarter([0, -b]), quarter([a, 0])] });
+    let shape: Shape = section.sketchOnPlane('XY').extrude(to - from);
+    if (from !== 0) shape = translate(shape, [0, 0, from]);
+
+    // The same tilt as tube(): θ about Y, then φ about Z. It carries X to X' and Y to Y'; a spin ψ
+    // about Z first puts the section's X — its `radiusAcross` — where `across` lands.
+    const [ax, ay, az] = frame.axis;
+    const theta = Math.acos(Math.max(-1, Math.min(1, az)));
+    const phi = Math.atan2(ay, ax);
+    const X: Vec3 = [Math.cos(theta) * Math.cos(phi), Math.cos(theta) * Math.sin(phi), -Math.sin(theta)];
+    const Y: Vec3 = [-Math.sin(phi), Math.cos(phi), 0];
+    const dot = (p: Vec3, q: Vec3) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+    const psi = (Math.atan2(dot(across, Y), dot(across, X)) * 180) / Math.PI;
+    if (Math.abs(psi) > 1e-9) shape = rotate(shape, psi, { axis: [0, 0, 1] });
+    if (Math.abs(theta) > 1e-12) shape = rotate(shape, (theta * 180) / Math.PI, { axis: [0, 1, 0] });
+    if (Math.abs(phi) > 1e-12) shape = rotate(shape, (phi * 180) / Math.PI, { axis: [0, 0, 1] });
     return asSolid(translate(shape, [frame.origin[0], frame.origin[1], frame.origin[2]]));
   }
 
