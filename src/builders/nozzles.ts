@@ -13,7 +13,6 @@ import {
   notBuiltNote,
   note,
   optionalDimension,
-  representedNote,
   requireDimension,
   scope,
   type ComponentDefinition,
@@ -95,9 +94,10 @@ function nozzle(aimer: Aimer): MountedBuilder {
         // Anywhere else, the pad is the host's own wall thickened outward, within its reach of the
         // neck's axis: its inner face IS the host's outside surface, a knuckle's or a cone's alike.
         const reach = outside + padWidth;
-        const along = reach * (footprint / outside);
         const [low, high] = hostSurface.offsetRange;
         const at = context.placement.axialOffset;
+        const lean = leanOf(frame, hostSurface.wallAt(at).meridian, outside, padWidth);
+        const along = footprint * lean.alongMeridian;
         const fits = hostSurface.anchor === 'head_crown' ? at + reach <= high : at - along >= low && at + along <= high;
         if (fits && !context.thickenedHost) {
           // Tapered at a joint, the host is no longer what its builder would make thicker.
@@ -120,25 +120,17 @@ function nozzle(aimer: Aimer): MountedBuilder {
             )
           );
         } else if (context.thickenedHost) {
-          const around = kernel.tube(frame, outside, reach, -(through + 2 * reach), padThickness + 2 * reach);
+          const [from, to] = [-(through + 2 * reach), padThickness + 2 * reach];
+          // A neck normal to the surface is ringed by a circle. One that leans on it is ringed by
+          // the ellipse whose trace on the surface lies the pad's width outside the opening's, in
+          // both directions: the width is the rules', measured along the surface (§4.5.9.2 reads it
+          // in the meridian plane, where a 30° cone leaves the neck 60° off its normal).
+          const around = lean.across
+            ? kernel.cut(kernel.ellipticPrism(frame, lean.across, lean.radiusAcross, reach, from, to), [kernel.tube(frame, 0, outside, from - 1, to + 1)])
+            : kernel.tube(frame, outside, reach, from, to);
           const thick = context.thickenedHost(padThickness);
           solids.push(kernel.cut(kernel.intersect(thick, around), [context.hostSolid ?? hostSurface.cavity(), hostSurface.cavity()]));
           pad = { reach, thickness: padThickness };
-          // Not normal to the surface, the reach is measured square to the neck rather than along it.
-          const wallHere = hostSurface.wallAt(at);
-          const phi = (context.placement.azimuth * Math.PI) / 180;
-          const axialRadial = frame.axis[0] * Math.cos(phi) + frame.axis[1] * Math.sin(phi);
-          const normality = Math.abs(axialRadial * wallHere.meridian[1] - frame.axis[2] * wallHere.meridian[0]);
-          if (normality < 0.999) {
-            notes.push(
-              representedNote(
-                `Reinforcing pad's width measured square to the neck, ${Math.round((Math.acos(Math.min(1, normality)) * 180) / Math.PI)}° off the surface's normal`,
-                'pad width',
-                `${mm(padWidth)} along the surface`,
-                `${mm(padWidth)} square to the neck's axis`
-              )
-            );
-          }
         }
       } else {
         pad = { reach: outside + padWidth, thickness: padThickness };
@@ -198,6 +190,50 @@ function nozzle(aimer: Aimer): MountedBuilder {
     };
     return part;
   };
+}
+
+/**
+ * How a neck leans on its host where it pierces it, and what that does to a pad `width` wide
+ * measured along the surface.
+ *
+ * Square to the neck the surface is foreshortened by cos θ along the direction its normal leans
+ * in (`across`) and not at all square to that, so a circle round the neck traces an ellipse on
+ * the surface 1/cos θ long. The pad's edge lies `width` outside the opening's trace along the
+ * surface, which square to the neck is `outside + width·cos θ` along `across` and `outside + width`
+ * square to it — exact in both directions on the tangent plane.
+ *
+ * `alongMeridian` is the pad's reach along the host's meridian over the opening's, both traced
+ * on the surface, so a footprint measured for the opening scales to the pad's.
+ */
+function leanOf(
+  frame: HostFrame,
+  meridian: readonly [number, number],
+  outside: number,
+  width: number
+): { readonly across?: Vec3; readonly radiusAcross: number; readonly alongMeridian: number } {
+  const a = frame.axis;
+  const phi = Math.atan2(frame.origin[1], frame.origin[0]);
+  const [dr, dz] = meridian;
+  const normal: Vec3 = [dz * Math.cos(phi), dz * Math.sin(phi), -dr];
+  const tangent: Vec3 = [dr * Math.cos(phi), dr * Math.sin(phi), dz];
+  const dot = (p: Vec3, q: Vec3) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+  const cos = Math.min(1, Math.abs(dot(a, normal)));
+  const lean: Vec3 = [normal[0] - dot(a, normal) * a[0], normal[1] - dot(a, normal) * a[1], normal[2] - dot(a, normal) * a[2]];
+  const sin = Math.hypot(...lean);
+  if (sin < 1e-6) return { radiusAcross: outside + width, alongMeridian: (outside + width) / outside };
+
+  const across: Vec3 = [lean[0] / sin, lean[1] / sin, lean[2] / sin];
+  const other: Vec3 = [a[1] * across[2] - a[2] * across[1], a[2] * across[0] - a[0] * across[2], a[0] * across[1] - a[1] * across[0]];
+  // `across` traced along the neck onto the tangent plane, and the meridian's share of it and of `other`.
+  const shift = dot(across, normal) / dot(a, normal);
+  const traced: Vec3 = [across[0] - shift * a[0], across[1] - shift * a[1], across[2] - shift * a[2]];
+  const length = Math.hypot(...traced);
+  const onTraced = dot(tangent, traced) / length;
+  const onOther = dot(tangent, other);
+  const reachAlong = (radiusAcross: number, radiusOther: number) =>
+    Math.hypot((radiusAcross / cos) * onTraced, radiusOther * onOther);
+  const radiusAcross = outside + width * cos;
+  return { across, radiusAcross, alongMeridian: reachAlong(radiusAcross, outside + width) / reachAlong(outside, outside) };
 }
 
 /**
