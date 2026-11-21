@@ -318,6 +318,9 @@ function corrode(
       if (d[Sym.SMALL_END_DIAMETER] !== undefined) set(Sym.SMALL_END_DIAMETER, d[Sym.SMALL_END_DIAMETER] + grow, 'D_s');
     }
     thin(Sym.THICKNESS, inside + outside);
+    // A knuckle and a flare are the same wetted wall, formed from their own plate.
+    thin(Sym.KNUCKLE_THICKNESS, inside + outside, 't_k');
+    thin(Sym.FLARE_THICKNESS, inside + outside, 't_f');
   } else if (kind === Kind.ECCENTRIC_CONICAL_SHELL) {
     // Drawn with a wall t WIDE in every section, so the allowance comes off horizontally too.
     if (inside > 0) {
@@ -376,7 +379,7 @@ function corrode(
     return { component, notes: [] };
   }
 
-  for (const symbol of [Sym.THICKNESS, Sym.NOZZLE_THICKNESS, Sym.PAD_THICKNESS, Sym.PASS_PARTITION_THICKNESS]) {
+  for (const symbol of [Sym.THICKNESS, Sym.KNUCKLE_THICKNESS, Sym.FLARE_THICKNESS, Sym.NOZZLE_THICKNESS, Sym.PAD_THICKNESS, Sym.PASS_PARTITION_THICKNESS]) {
     if (d[symbol] !== undefined && !(d[symbol] > 0)) {
       return {
         component,

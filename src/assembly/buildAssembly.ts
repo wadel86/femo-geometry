@@ -210,7 +210,13 @@ export class AssemblyBuilder {
         wall === undefined
           ? undefined
           : (extra: number): Solid => {
-              const thicker = { ...component, dimensions: { ...component.dimensions, [Sym.THICKNESS]: wall + extra } };
+              // Every wall it states, a knuckle's or a flare's too: thickened alone, the cone would
+              // meet its own arcs in steps that are not there.
+              const dimensions: Record<string, number> = { ...component.dimensions, [Sym.THICKNESS]: wall + extra };
+              for (const own of [Sym.KNUCKLE_THICKNESS, Sym.FLARE_THICKNESS]) {
+                if (dimensions[own] !== undefined) dimensions[own] += extra;
+              }
+              const thicker = { ...component, dimensions };
               const thickKey = stableStringify({ kind: component.kind, dimensions: thicker.dimensions, context });
               return this.remember(this.runCache, thickKey, () => builder(thicker, { kernel: this.kernel, ...context })).solid;
             };

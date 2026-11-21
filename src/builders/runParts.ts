@@ -394,11 +394,15 @@ export const conicalShell: RunBuilder = (component, context) => {
   // the end is §4.3.11's sharp corner, at the cone's own section.
   const knuckle = optionalDimension(component, Sym.KNUCKLE_RADIUS);
   const flare = optionalDimension(component, Sym.FLARE_RADIUS);
+  // §4.3.12's t_k and t_f: formed from their own plate, on the cone's bore. Unstated, the cone's wall.
+  const tk = knuckle !== undefined ? (optionalDimension(component, Sym.KNUCKLE_THICKNESS) ?? thickness) : thickness;
+  const tf = flare !== undefined ? (optionalDimension(component, Sym.FLARE_THICKNESS) ?? thickness) : thickness;
+  const flareWall = Math.max(thickness, tf);
   const halfTurn = Math.tan((alpha * DEG) / 2);
   const slant = length / cosA;
   for (const [symbol, radius, limit, what] of [
     [Sym.KNUCKLE_RADIUS, knuckle, a0, `${mm(a0)}, the large end's inside radius`],
-    [Sym.FLARE_RADIUS, flare, thickness, `> ${mm(thickness)}, the wall, so the flare's outside has a radius`],
+    [Sym.FLARE_RADIUS, flare, flareWall, `> ${mm(flareWall)}, the wall, so the flare's outside has a radius`],
   ] as const) {
     if (radius === undefined) continue;
     if (symbol === Sym.KNUCKLE_RADIUS ? !(radius > 0 && radius < limit) : !(radius > limit)) {
@@ -431,13 +435,63 @@ export const conicalShell: RunBuilder = (component, context) => {
   const coneLow = knuckle !== undefined ? onKnuckle(knuckle, a)[1] : 0;
   const coneHigh = flare !== undefined ? onFlare(flare, a)[1] : height;
 
+  // A knuckle or flare thicker or thinner than the cone meets it at its tangent line in a step,
+  // faired 3:1 by weld metal on whichever is thinner (§4.2.5.2.c.4; user decision 2026-11-20:
+  // a torus or a cone is never cut thinner). On the cone the build-up runs along its meridian; on
+  // the arc, round it.
+  const TAPER = 3;
+  const alongCone = (p: Point2, d: number): Point2 => [p[0] - d * sinA, p[1] + d * cosA];
+  const dk = tk - thickness;
+  const df = tf - thickness;
+  const fair = 1e-9;
+  const buildUp: { key: string; at: Point2; role: string }[] = [];
+  const onCone = (dk > fair ? TAPER * dk : 0) + (df > fair ? TAPER * df : 0);
+  const straight = slant - ((knuckle ?? 0) + (flare ?? 0)) * halfTurn;
+  if (onCone > straight + fair) {
+    throw new BuildError(
+      component,
+      `has no room on its straight length to fair its knuckle or flare into the cone: ${mm(onCone)} of ${mm(straight)}`,
+      scope('out_of_scope', 'build-up along the cone', `≤ ${mm(straight)}, the straight cone between knuckle and flare`, mm(onCone))
+    );
+  }
+  const knuckleSteps = (): ProfileStep[] => {
+    const outer = knuckle! + tk;
+    if (dk > fair) {
+      const toe = alongCone(onKnuckle(knuckle! + thickness, a), TAPER * dk);
+      buildUp.push({ key: 'knuckle-cone-buildup', at: toe, role: `${TAPER}:1 weld metal build-up on the cone to the ${mm(tk)} knuckle, §4.2.5.2.c.4` });
+      return [line(a0 + tk, 0), arc(onKnuckle(outer, a), onKnuckle(outer, a / 2)), line(...toe)];
+    }
+    if (dk < -fair) {
+      const end = a - (TAPER * -dk) / outer;
+      if (!(end > 0)) {
+        throw new BuildError(component, `has a knuckle too short to take its build-up to the cone's wall`, scope('out_of_scope', Sym.KNUCKLE_THICKNESS, `≥ ${mm(thickness - (a * outer) / TAPER)}`, mm(tk)));
+      }
+      buildUp.push({ key: 'knuckle-cone-buildup', at: onKnuckle(outer, end), role: `${TAPER}:1 weld metal build-up on the knuckle to the ${mm(thickness)} cone, §4.2.5.2.c.4` });
+      return [line(a0 + tk, 0), arc(onKnuckle(outer, end), onKnuckle(outer, end / 2)), line(...onKnuckle(knuckle! + thickness, a))];
+    }
+    return [line(a0 + tk, 0), arc(onKnuckle(outer, a), onKnuckle(outer, a / 2))];
+  };
+  const flareSteps = (): ProfileStep[] => {
+    const outer = flare! - tf;
+    if (df > fair) {
+      const toe = alongCone(onFlare(flare! - thickness, a), -TAPER * df);
+      buildUp.push({ key: 'flare-cone-buildup', at: toe, role: `${TAPER}:1 weld metal build-up on the cone to the ${mm(tf)} flare, §4.2.5.2.c.4` });
+      return [line(...toe), line(...onFlare(outer, a)), arc([a1 + tf, height], onFlare(outer, a / 2))];
+    }
+    if (df < -fair) {
+      const end = a - (TAPER * -df) / outer;
+      if (!(end > 0)) {
+        throw new BuildError(component, `has a flare too short to take its build-up to the cone's wall`, scope('out_of_scope', Sym.FLARE_THICKNESS, `≥ ${mm(thickness - (a * outer) / TAPER)}`, mm(tf)));
+      }
+      buildUp.push({ key: 'flare-cone-buildup', at: onFlare(outer, end), role: `${TAPER}:1 weld metal build-up on the flare to the ${mm(thickness)} cone, §4.2.5.2.c.4` });
+      return [line(...onFlare(flare! - thickness, a)), line(...onFlare(outer, end)), arc([a1 + tf, height], onFlare(outer, end / 2))];
+    }
+    return [line(...onFlare(outer, a)), arc([a1 + tf, height], onFlare(outer, a / 2))];
+  };
+
   const outsideSteps: ProfileStep[] = [
-    ...(knuckle !== undefined
-      ? [line(a0 + thickness, 0), arc(onKnuckle(knuckle + thickness, a), onKnuckle(knuckle + thickness, a / 2))]
-      : [line(a0 + across, 0)]),
-    ...(flare !== undefined
-      ? [line(...onFlare(flare - thickness, a)), arc([a1 + thickness, height], onFlare(flare - thickness, a / 2))]
-      : [line(a1 + across, height)]),
+    ...(knuckle !== undefined ? knuckleSteps() : [line(a0 + across, 0)]),
+    ...(flare !== undefined ? flareSteps() : [line(a1 + across, height)]),
   ];
   const insideDown: ProfileStep[] = [
     ...(flare !== undefined
@@ -474,10 +528,11 @@ export const conicalShell: RunBuilder = (component, context) => {
     const inside = side === 'lower' ? a0 : a1;
     const z = side === 'lower' ? 0 : height;
     if (curved) {
+      const wall = side === 'lower' ? tk : tf;
       return {
         insideDiameter: 2 * inside,
-        outsideDiameter: 2 * (inside + thickness),
-        wall: { surface: cylinderSurface(inside + thickness / 2), thickness, meridian: side === 'lower' ? DOWN : UP },
+        outsideDiameter: 2 * (inside + wall),
+        wall: { surface: cylinderSurface(inside + wall / 2), thickness: wall, meridian: side === 'lower' ? DOWN : UP },
         straightLength: 0,
       };
     }
@@ -492,7 +547,7 @@ export const conicalShell: RunBuilder = (component, context) => {
   const tangent = (key: string, centreSide: 'knuckle' | 'flare', role: string): Landmark[] => {
     const at = (radius: number) => (centreSide === 'knuckle' ? onKnuckle(radius, a) : onFlare(radius, a));
     const inner = at(centreSide === 'knuckle' ? knuckle! : flare!);
-    const outer = at(centreSide === 'knuckle' ? knuckle! + thickness : flare! - thickness);
+    const outer = at(centreSide === 'knuckle' ? knuckle! + tk : flare! - tf);
     return [
       { key: `${key}-inside`, z: inner[1], diameter: 2 * inner[0], role: `${role} (inside)` },
       { key: `${key}-outside`, z: outer[1], diameter: 2 * outer[0], role: `${role} (outside)` },
@@ -509,6 +564,7 @@ export const conicalShell: RunBuilder = (component, context) => {
       ...junctionLandmarks('upper', height, upper.insideDiameter, upper.outsideDiameter, flare !== undefined ? 'Small end, flare to cylinder' : 'Small end'),
       ...(knuckle !== undefined ? tangent('knuckle-cone', 'knuckle', 'Knuckle-to-cone tangent line') : []),
       ...(flare !== undefined ? tangent('flare-cone', 'flare', 'Flare-to-cone tangent line') : []),
+      ...buildUp.map((b) => ({ key: b.key, z: b.at[1], diameter: 2 * b.at[0], role: b.role })),
     ],
     host: {
       anchor: 'shell_side',
@@ -536,9 +592,10 @@ export const conicalShell: RunBuilder = (component, context) => {
       wallAt: (offset) => ({ surface: surfaceAt(offset), thickness, meridian: upward }),
     },
     meridian: [
-      ...(knuckle !== undefined ? arcPoints(kc, knuckle + thickness / 2, 0, a, 16) : [[a0 + across / 2, 0] as Point2]),
+      // On each arc, its own mid-surface: a knuckle thicker than the cone steps out by half the difference.
+      ...(knuckle !== undefined ? arcPoints(kc, knuckle + tk / 2, 0, a, 16) : [[a0 + across / 2, 0] as Point2]),
       ...(flare !== undefined
-        ? arcPoints(fc, flare - thickness / 2, Math.PI + a, Math.PI, 16)
+        ? arcPoints(fc, flare - tf / 2, Math.PI + a, Math.PI, 16)
         : [[a1 + across / 2, height] as Point2]),
     ],
     notes,
