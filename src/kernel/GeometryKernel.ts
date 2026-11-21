@@ -165,6 +165,8 @@ export interface GeometryKernel {
    * A solid tube of circular section `tubeRadius`, its centre swept along a right-handed helix
    * about Z of radius `radius` and pitch `pitch`, from `(radius, 0, from)` up `height`. Circular,
    * so its section is the same however the sweep turns it: what a half-pipe coil is cut from.
+   * The seam of its side surface runs along the side facing the axis, at radius
+   * `radius − tubeRadius`, so a cut along the surface of radius `radius` never meets it.
    */
   helicalTube(radius: number, pitch: number, from: number, height: number, tubeRadius: number): Solid;
 

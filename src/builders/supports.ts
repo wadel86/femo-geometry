@@ -1146,10 +1146,11 @@ export const halfPipeJacket: MountedBuilder = (component, context) => {
       { kind: 'line', to: [0, high + 1] },
     ],
   });
-  const coil = kernel.cut(kernel.helicalTube(outside, pitch, z, rise, reach), [
-    kernel.helicalTube(outside, pitch, z, rise, radius),
-    shellOutside,
-  ]);
+  // Started half a turn from azimuth 0, where every surface of revolution has its seam — the
+  // shell's and the cutter's alike. Started on it, each end face's foot crossed that seam and
+  // left a patch of footprint a millimetre wide.
+  const tube = (tubeRadius: number) => kernel.rotateZ(kernel.helicalTube(outside, pitch, z, rise, tubeRadius), 180);
+  const coil = kernel.cut(tube(reach), [tube(radius), shellOutside]);
   return {
     solids: [coil],
     footprint: 0,

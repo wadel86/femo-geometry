@@ -122,7 +122,19 @@ class BrepjsKernel implements GeometryKernel {
     // The section square to the helix at its start, where it leaves (radius, 0, from).
     const lead = Math.hypot(2 * Math.PI * radius, pitch);
     const tangent: [number, number, number] = [0, (2 * Math.PI * radius) / lead, pitch / lead];
-    const section = unwrap(wire([circle(tubeRadius, { at: [radius, 0, from], axis: tangent })]));
+    const centre: [number, number, number] = [radius, 0, from];
+    let section: Shape = unwrap(wire([circle(tubeRadius, { at: centre, axis: tangent })])) as Shape;
+    // OpenCascade starts the circle where its own frame says, which for this tangent is the
+    // section's axial point — on a surface of radius `radius`, so a coil cut along that surface
+    // had its weld line within a micron of the seam and kept a sliver face between the two.
+    // Turned so the seam faces the axis; Frenet's frame keeps it there all along the helix.
+    const [px, py, pz] = curvePointAt(section as never, 0);
+    const u: Vec3 = [px - centre[0], py - centre[1], pz - centre[2]];
+    const inward: Vec3 = [-1, 0, 0];
+    const cross: Vec3 = [u[1] * inward[2] - u[2] * inward[1], u[2] * inward[0] - u[0] * inward[2], u[0] * inward[1] - u[1] * inward[0]];
+    const sine = cross[0] * tangent[0] + cross[1] * tangent[1] + cross[2] * tangent[2];
+    const turn = (Math.atan2(sine, u[0] * inward[0] + u[1] * inward[1] + u[2] * inward[2]) * 180) / Math.PI;
+    if (Math.abs(turn) > 1e-9) section = rotate(section, turn, { at: centre, axis: tangent });
     // Frenet's frame is well defined all along a helix, and a circle does not care how it turns.
     return asSolid(unwrap(sweep(section as never, spine, { frenet: true })) as Shape);
   }

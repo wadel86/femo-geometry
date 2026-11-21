@@ -58,6 +58,16 @@ test('a half-pipe coil is one helix on the shell; only its unstated pitch is ref
   const halfAnnulus = (Math.PI * (44.45 ** 2 - 38.95 ** 2)) / 2;
   const volume = kernel.volume(coil);
   assert.ok(volume > halfAnnulus * lead * 5 && volume < 1.05 * halfAnnulus * lead * 5, `coil volume ${volume}`);
+  // Nothing a mesher cannot fill: two helical sides, two end faces and the footprint strips, with
+  // no sliver where a sweep's seam met the shell (0.6 µm wide, 25.6 m long, before) and no patch
+  // where an end face's foot crossed the seam of the shell's surface.
+  const topology = kernel.topology(coil);
+  const smallest = Math.min(...topology.faces.map((f) => f.area));
+  assert.ok(smallest > 100, `smallest face ${smallest} mm²`);
+  const span = (b: { min: readonly number[]; max: readonly number[] }) => Math.hypot(...b.max.map((v, i) => v - b.min[i]));
+  const shortest = Math.min(...topology.edges.map((e) => span(e.bounds)));
+  assert.ok(shortest > 1, `shortest edge spans ${shortest} mm`);
+  assert.equal(topology.faces.filter((f) => f.surface === 'other').length, 2, 'one inner and one outer helical side');
 
   const found = refusals(definition).filter((r) => r.componentId === 'J');
   assert.deepEqual(found.map((r) => r.reason), ['assumed']);
