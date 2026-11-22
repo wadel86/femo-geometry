@@ -30,8 +30,10 @@ import { RUN_BUILDERS } from '../builders/runParts.ts';
 import { cylinderSurface } from '../builders/walls.ts';
 import type {
   Attachment,
+  BaffleSet,
   Copies,
   Crotch,
+  FluidIdealisation,
   HostFrame,
   HostSurface,
   Idealisation,
@@ -118,6 +120,8 @@ export interface BuiltPart {
   readonly carriedTangentLine?: RunPart['carriedTangentLine'];
   /** Where the part is drawn as an idealisation of itself, and what that left out. */
   readonly idealisations?: readonly Idealisation[];
+  /** How the part stands in a fluid domain, in its own frame; absent, a wall. */
+  readonly fluid?: FluidIdealisation;
   /** For a mounted part: its placement in its host's frame, mirrored when the host is turned over. */
   readonly localPlacement?: Placement;
   readonly neck?: Neck;
@@ -128,6 +132,8 @@ export interface BuiltPart {
   readonly standsAt?: number;
   /** For a tube bundle: its pattern and where its tubes end, in its host's frame. */
   readonly bundle?: TubeBundle;
+  /** For segmental baffles: where each stands and which way its window faces, in its host's frame. */
+  readonly baffles?: BaffleSet;
   readonly notes: readonly Note[];
   /** Why a part is not drawn, or failed: the parameter, the limit and the value seen. */
   readonly scope?: Scope;
@@ -457,6 +463,8 @@ export class AssemblyBuilder {
         ...(mounted.butt ? { butt: mounted.butt } : {}),
         ...(mounted.standsAt !== undefined ? { standsAt: mounted.standsAt } : {}),
         ...(mounted.bundle ? { bundle: mounted.bundle } : {}),
+        ...(mounted.baffles ? { baffles: mounted.baffles } : {}),
+        ...(mounted.fluid ? { fluid: mounted.fluid } : {}),
         notes: stated
           ? mounted.notes
           : [
@@ -525,6 +533,7 @@ export class AssemblyBuilder {
         ...(entry.part.crotch ? { crotch: entry.part.crotch } : {}),
         ...(entry.part.carriedTangentLine ? { carriedTangentLine: entry.part.carriedTangentLine } : {}),
         idealisations: entry.part.idealisations,
+        ...(entry.part.fluid ? { fluid: entry.part.fluid } : {}),
         notes,
       });
     });

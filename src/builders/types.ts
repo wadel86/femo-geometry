@@ -166,6 +166,8 @@ export interface RunPart {
   /** For a transition ring carrying a head's knuckle: the head's tangent line, inside the ring. */
   readonly carriedTangentLine?: { readonly z: number; readonly meridianPoint: Point2; readonly radius: number; readonly thickness: number };
   readonly idealisations?: readonly Idealisation[];
+  /** How the part stands in a fluid domain; absent, a wall. */
+  readonly fluid?: FluidIdealisation;
   /** Assumptions the drawing had to make, which the user should see. */
   readonly notes: readonly Note[];
 }
@@ -182,6 +184,36 @@ export interface Idealisation {
   /** What the idealisation left out, in the part's own frame and millimetres. */
   readonly data: Readonly<Record<string, number | string>>;
 }
+
+/**
+ * How a part stands in a fluid domain — declared by the part, so the derivation needs to know
+ * nothing about what a bundle or a baffle is. Every solid here is in the part's own frame (a
+ * mounted part's: its host's). Absent, the part is a wall: all its solids bound the fluid.
+ *
+ * - `wall` — subtracted from the domain; `exclude` lists solids that are not wall, by index
+ *   into the part's solids (a tubesheet's tube stubs, which belong to the bundle).
+ * - `porous` — not subtracted: its ENVELOPE becomes a named cell zone with a principal axis,
+ *   carved into sub-zones of their own (a bundle's pass lanes), with an optional `bypass`
+ *   region whose part outside the envelope is a zone of free fluid (the bundle-to-shell annulus).
+ * - `baffle` — a zero-thickness internal face per baffle: where a plane cuts the domain, clipped
+ *   to a region (the side of the cut the plate stands on).
+ * - `none` — not in the fluid at all.
+ */
+export type FluidIdealisation =
+  | { readonly role: 'wall'; readonly exclude?: readonly number[] }
+  | {
+      readonly role: 'porous';
+      readonly name: string;
+      readonly envelope: Solid;
+      readonly axis: Vec3;
+      readonly subZones?: readonly { readonly name: string; readonly solid: Solid }[];
+      readonly bypass?: { readonly name: string; readonly solid: Solid };
+    }
+  | {
+      readonly role: 'baffle';
+      readonly faces: readonly { readonly name: string; readonly origin: Vec3; readonly normal: Vec3; readonly region: Solid }[];
+    }
+  | { readonly role: 'none' };
 
 export interface RunContext {
   readonly kernel: GeometryKernel;
@@ -257,11 +289,15 @@ export interface MountedPart {
   readonly standsAt?: number;
   /** For a tube bundle: the pattern its tubes repeat, and where they end. */
   readonly bundle?: TubeBundle;
+  /** For segmental baffles: where they stand and how they are cut. */
+  readonly baffles?: BaffleSet;
   /**
    * Where the part really stands on its host when its own dimensions decide it rather than its
    * placement — a skirt on a head meets the knuckle where its diameter says.
    */
   readonly anchorOffset?: number;
+  /** How the part stands in a fluid domain; absent, a wall. */
+  readonly fluid?: FluidIdealisation;
   readonly notes: readonly Note[];
 }
 
@@ -295,6 +331,30 @@ export interface TubeBundle {
   readonly tubeThickness: number;
   /** Where the tubes end, along the host's axis in its frame: lower then upper. */
   readonly ends: readonly [number, number];
+  /** The pass lanes cleared from the pattern: their clear width and the azimuth each runs at. */
+  readonly lanes?: { readonly width: number; readonly azimuths: readonly number[] };
+  /** The design's own tube count, where it states one beside the drawn pattern (`N_t`). */
+  readonly statedCount?: number;
+}
+
+/**
+ * A set of single-segmental baffles across a shell's bore: where each stands and which way its
+ * window faces, and the clearances that are drawn on the shell side but not the tube side.
+ */
+export interface BaffleSet {
+  /** The shell's inside diameter D_s the cut is measured from. */
+  readonly shellDiameter: number;
+  /** l_c, from the shell's inside wall. */
+  readonly cutLength: number;
+  readonly thickness: number;
+  readonly shellClearance: number;
+  readonly tubeClearance: number;
+  /** Each baffle's mid-plane along the host's axis, and the azimuth its window faces. */
+  readonly baffles: readonly { readonly offset: number; readonly windowAzimuth: number }[];
+  /** L_b,c, the central spacing. */
+  readonly spacing: number;
+  /** The course's own extent along its axis: where the end spaces are measured to. */
+  readonly span: readonly [number, number];
 }
 
 export interface Attachment {

@@ -26,6 +26,8 @@ import {
   getCurveType,
   getEdges,
   getFaces,
+  getSolids,
+  sectionToFace,
   getHashCode,
   getSurfaceType,
   intersect,
@@ -54,6 +56,7 @@ import type {
   GeometryKernel,
   Point2,
   Profile,
+  Sheet,
   Solid,
   StepProduct,
   SurfaceKind,
@@ -242,6 +245,52 @@ class BrepjsKernel implements GeometryKernel {
     return unwrap(measureVolume(asShape(solid)));
   }
 
+  solidsOf(shape: Solid): Solid[] {
+    return getSolids(asShape(shape)).map(asSolid);
+  }
+
+  section(solid: Solid, origin: Vec3, normal: Vec3): Sheet {
+    const n = unit3(normal);
+    // Any direction square to the normal will do for the plane's own axes.
+    const seed: Vec3 = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+    const x = unit3(cross3(seed, n));
+    const y = cross3(n, x);
+    // A plane section is edges only; the faces are a sheet across the solid's box, kept where it is
+    // inside the solid.
+    const b = getBounds(asShape(solid));
+    const pad = 0.1 * Math.max(b.xMax - b.xMin, b.yMax - b.yMin, b.zMax - b.zMin, 1);
+    const box = this.extrude(
+      {
+        start: [b.xMin - pad, b.yMin - pad],
+        steps: [
+          { kind: 'line', to: [b.xMax + pad, b.yMin - pad] },
+          { kind: 'line', to: [b.xMax + pad, b.yMax + pad] },
+          { kind: 'line', to: [b.xMin - pad, b.yMax + pad] },
+        ],
+      },
+      b.zMin - pad,
+      b.zMax + pad
+    );
+    const sheet: Shape = unwrap(sectionToFace(asShape(box), { origin, xDir: x, yDir: y, zDir: n }));
+    return unwrap(intersect(sheet, asShape(solid))) as unknown as Sheet;
+  }
+
+  clip(sheet: Sheet, solid: Solid): Sheet {
+    return unwrap(intersect(sheet as unknown as Shape, asShape(solid))) as Sheet;
+  }
+
+  area(sheet: Sheet): number {
+    return unwrap(measureArea(sheet as unknown as Shape));
+  }
+
+  surfaceArea(solid: Solid): number {
+    return unwrap(measureArea(asShape(solid)));
+  }
+
+  sheetBounds(sheet: Sheet): Bounds {
+    return boundsOf(sheet as unknown as Shape);
+  }
+
   bounds(solid: Solid): Bounds {
     const b = getBounds(asShape(solid));
     return { min: [b.xMin, b.yMin, b.zMin], max: [b.xMax, b.yMax, b.zMax] };
@@ -276,13 +325,21 @@ class BrepjsKernel implements GeometryKernel {
 
   exportStep(products: readonly StepProduct[]): string {
     const parts = products
-      .filter((product) => product.solids.length > 0)
-      .map((product) => ({
-        shape: product.solids.length === 1 ? asShape(product.solids[0]) : compound(product.solids.map(asShape)),
-        name: product.name,
-      }));
+      .map((product) => [...product.solids.map(asShape), ...(product.sheets ?? []).map((s) => s as unknown as Shape)])
+      .map((shapes, index) => ({ shapes, name: products[index]!.name }))
+      .filter(({ shapes }) => shapes.length > 0)
+      .map(({ shapes, name }) => ({ shape: shapes.length === 1 ? shapes[0] : compound(shapes), name }));
     return unwrap(exportSTEPConfigured(parts, { unit: 'mm', modelUnit: 'mm' }));
   }
+}
+
+function unit3(v: Vec3): Vec3 {
+  const length = Math.hypot(v[0], v[1], v[2]);
+  return [v[0] / length, v[1] / length, v[2] / length];
+}
+
+function cross3(a: Vec3, b: Vec3): Vec3 {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 
 function boundsOf(shape: Shape): Bounds {

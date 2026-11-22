@@ -113,6 +113,18 @@ const BUNDLE = {
 };
 const withBundle = (bundle: Record<string, number>) =>
   vessel([...exchanger(Kind.U_TUBE_TUBESHEET).components, on('B', Kind.TUBE_BUNDLE, 'S', bundle)], { B: side(1000) });
+const BUNDLE_PARAMETERS = [Sym.TUBE_PITCH, Sym.TUBE_OUTSIDE_DIAMETER, Sym.TUBE_THICKNESS, Sym.TUBE_LIMIT_RADIUS, Sym.TUBE_LAYOUT_ANGLE, Sym.TUBE_LENGTH_OUTER];
+// One pass lane across the middle of a two-pass bundle, as wide as a pass partition plate's seat.
+const LANES = { pass_lane_width: 16, pass_lane_azimuth: 0, pass_lane_count: 1 };
+// Single-segmental baffles at a 25 % cut, in the bundle's shell: four fit in its 2000 mm.
+const BAFFLES = {
+  baffle_cut_length: 375, baffle_thickness: 10, baffle_spacing: 400, baffle_inlet_spacing: 300, baffle_outlet_spacing: 300,
+  shell_baffle_clearance: 4.8, tube_baffle_clearance: 0.8,
+};
+const BAFFLE_PARAMETERS = [
+  Sym.BAFFLE_CUT_LENGTH, Sym.BAFFLE_THICKNESS, Sym.BAFFLE_SPACING, Sym.BAFFLE_INLET_SPACING, Sym.BAFFLE_OUTLET_SPACING, Sym.BAFFLE_COUNT,
+  Sym.SHELL_BAFFLE_CLEARANCE, Sym.TUBE_BAFFLE_CLEARANCE,
+];
 
 const CORRODED = [Detail.CORRODED_MODEL, Detail.CORROSION_ALLOWANCE, Detail.CORRODED_SURFACES];
 
@@ -513,6 +525,35 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'Hosted by the shell for where it stands along the axis only — nothing welds a bundle to its shell, so there is no joint with it. ' +
       'Here the lower end meets nothing, which is a U-tube bundle\'s far end. The tubesheet still draws its own stubs, so with a bundle the last four pitches are drawn twice (the 47 are untouched). ' +
       'A corroded model leaves the tubes nominal and says so: a tube\'s allowance is not the vessel\'s',
+  },
+  {
+    id: 'tube.pass_lanes', article: '§4.18', title: 'Tube bundle with its pass lanes cleared', entry: 'component', status: 'captured',
+    kinds: [Kind.TUBE_BUNDLE], focus: 'B', specimen: withBundle({ ...BUNDLE, ...LANES }),
+    parameters: [...BUNDLE_PARAMETERS, Sym.FILLET_WELD_LEG, Sym.GROOVE_WELD_LEG, Sym.PASS_LANE_WIDTH, Sym.PASS_LANE_AZIMUTH, Sym.PASS_LANE_COUNT],
+    ports: ['tube-end:lower', 'tube-end:upper'],
+    constructionDetails: [],
+    note:
+      'Draft kind. The bundle with the rows a pass partition plate stands across left out: every tube whose edge would stand nearer the lane\'s line than half pass_lane_width, ' +
+      'so the clear gap tube edge to tube edge is at least w_p. pass_lane_count lanes run through the axis, equally spaced from pass_lane_azimuth: one for two passes, two for a four-pass quadrant. ' +
+      'Ribbon layouts — parallel lanes off the axis — are not covered yet. The tubesheet still drills its full pattern',
+  },
+  {
+    id: 'segmental_baffles', article: 'Shah & Sekulić §8.5.2', title: 'Single-segmental baffles', entry: 'component', status: 'captured',
+    kinds: [Kind.SEGMENTAL_BAFFLES], focus: 'F',
+    specimen: vessel(
+      [...withBundle({ ...BUNDLE, ...LANES }).components, on('F', Kind.SEGMENTAL_BAFFLES, 'S', BAFFLES)],
+      { B: side(1000), F: side(1000, 90) }
+    ),
+    parameters: BAFFLE_PARAMETERS,
+    ports: [],
+    constructionDetails: [],
+    note:
+      'Draft kind: no ASME VIII-2 clause sizes a baffle, and whether it becomes a ComponentType is TRESCA DBR\'s call. The whole set is ONE part, as the bundle is. ' +
+      'Each baffle is a disc across the shell\'s bore less shell_baffle_clearance, cut square to its window at baffle_cut_length from the shell\'s inside wall, baffle_thickness thick; ' +
+      'the placement azimuth is the way the FIRST window faces and the windows alternate. They stand from the course\'s low end: the first at baffle_inlet_spacing, then every baffle_spacing, ' +
+      'the last no nearer the high end than baffle_outlet_spacing; without baffle_count, Eq. (8.126)\'s count rounded down, the baffles that fit. ' +
+      'Hosted by the shell for where they stand only: a baffle hangs on the tie rods and is welded to nothing, so it has no port and no joint. ' +
+      'Drawn undrilled, as the tubesheet is: tube_baffle_clearance belongs to the bundle a baffle crosses and is carried for the leakage it makes, not drawn. Tie rods and spacers are not drawn',
   },
   {
     id: 'pass_partition_plate', article: '§4.18', title: 'Pass partition plate', entry: 'component', status: 'captured',

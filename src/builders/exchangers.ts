@@ -181,6 +181,8 @@ export const tubesheet: RunBuilder = (component, context) => {
       [0, thickness / 2],
     ],
     idealisations: [idealisation],
+    // The stubs stand for the bundle's tubes, which a fluid domain sees through the bundle itself.
+    fluid: { role: 'wall', exclude: centres.length > 0 ? [1] : [] },
     notes,
   };
 };
@@ -237,7 +239,8 @@ export const tubeBundle: MountedBuilder = (component, context) => {
   const length = stated ?? high - low;
   if (stated === undefined) notes.push(assumedNote(`Tube length not stated — drawn the length of ${context.host.name}`, Sym.TUBE_LENGTH_OUTER, mm(length)));
 
-  const pattern = tubePattern(pitch, limit, angle);
+  const lanes = passLanes(component, tube);
+  const pattern = lanes ? clearLanes(tubePattern(pitch, limit, angle), lanes, tube) : tubePattern(pitch, limit, angle);
   let centres = pattern;
   if (centres.length > MOST_TUBES) {
     const kept = centres.filter((c) => Math.hypot(c[0], c[1]) > limit - 3 * pitch);
@@ -259,15 +262,45 @@ export const tubeBundle: MountedBuilder = (component, context) => {
     );
   }
   notes.push(
-    representedNote(
-      'Drawn straight: a U-bend, the baffles and the tie rods are not, and the pass lanes are left in the pattern',
-      'bundle',
-      'tubes with their bends, baffles and tie rods, pass lanes clear',
-      'straight tubes on the full pattern'
-    )
+    lanes
+      ? representedNote(
+          `Drawn straight: a U-bend and the tie rods are not. ${lanes.azimuths.length} pass lane(s) ${mm(lanes.width)} wide cleared from the pattern`,
+          'bundle',
+          'tubes with their bends and tie rods',
+          'straight tubes, pass lanes clear'
+        )
+      : representedNote(
+          'Drawn straight: a U-bend and the tie rods are not, and the pass lanes are left in the pattern (no pass_lane_width stated)',
+          'bundle',
+          'tubes with their bends and tie rods, pass lanes clear',
+          'straight tubes on the full pattern'
+        )
   );
   const first = centres[0] ?? [0, 0, 0];
   const one: Solid = kernel.tube({ origin: [first[0], first[1], 0], axis: [0, 0, 1] }, tube / 2 - wall, tube / 2, high - length, high);
+  const designCount = optionalDimension(component, Sym.TUBE_COUNT);
+  if (designCount !== undefined && !Number.isInteger(designCount)) {
+    throw new BuildError(component, `states ${designCount} tubes`, scope('out_of_scope', Sym.TUBE_COUNT, 'a whole number of tubes', String(designCount)));
+  }
+
+  // In a fluid domain the bundle is not two thousand tubes but the cylinder they fill, out to the
+  // outer tube limit D_otl = 2·r_o + d_o, between their ends; each pass lane is its own zone, as
+  // wide as the clear gap the drawn rows leave; and the annulus between that cylinder and the
+  // shell's bore is the bypass stream's.
+  const span: [number, number] = [high - length, high];
+  const axisFrame = { origin: [0, 0, 0] as Vec3, axis: [0, 0, 1] as Vec3 };
+  const envelope = kernel.tube(axisFrame, 0, limit + tube / 2, span[0], span[1]);
+  const subZones = (lanes?.azimuths ?? []).map((azimuth, k) => {
+    const r = (azimuth * Math.PI) / 180;
+    const half = Math.min(...pattern.map((c) => Math.abs(-c[0] * Math.sin(r) + c[1] * Math.cos(r)))) - tube / 2;
+    const reach = limit + tube;
+    const slab = kernel.extrude(
+      { start: [-reach, -half], steps: [{ kind: 'line', to: [reach, -half] }, { kind: 'line', to: [reach, half] }, { kind: 'line', to: [-reach, half] }] },
+      span[0],
+      span[1]
+    );
+    return { name: `lane:${k + 1}`, solid: kernel.intersect(kernel.rotateZ(slab, azimuth), envelope) };
+  });
   return {
     solids: [one],
     copies: [centres.slice(1).map((c): Vec3 => [c[0] - first[0], c[1] - first[1], 0])],
@@ -281,6 +314,190 @@ export const tubeBundle: MountedBuilder = (component, context) => {
       tubeOutsideDiameter: tube,
       tubeThickness: wall,
       ends: [high - length, high],
+      ...(lanes ? { lanes } : {}),
+      ...(designCount !== undefined ? { statedCount: designCount } : {}),
+    },
+    fluid: {
+      role: 'porous',
+      name: 'bundle',
+      envelope,
+      axis: [0, 0, 1],
+      subZones,
+      bypass: { name: 'bypass', solid: kernel.tube(axisFrame, 0, bore, span[0], span[1]) },
+    },
+    notes,
+  };
+};
+
+/** The pass lanes a bundle states, or none: `w_p` wide, `n` of them through the axis. */
+function passLanes(component: ComponentDefinition, tube: number): { width: number; azimuths: number[] } | undefined {
+  const width = optionalDimension(component, Sym.PASS_LANE_WIDTH);
+  if (width === undefined) return undefined;
+  const count = optionalDimension(component, Sym.PASS_LANE_COUNT) ?? 1;
+  if (!Number.isInteger(count)) {
+    throw new BuildError(component, `states ${count} pass lanes`, scope('out_of_scope', Sym.PASS_LANE_COUNT, 'a whole number of lanes', String(count)));
+  }
+  if (width >= 20 * tube) {
+    throw new BuildError(component, `has a pass lane ${mm(width)} wide on ${mm(tube)} tubes`, scope('out_of_scope', Sym.PASS_LANE_WIDTH, `< ${mm(20 * tube)}`, mm(width)));
+  }
+  const first = optionalDimension(component, Sym.PASS_LANE_AZIMUTH) ?? 0;
+  return { width, azimuths: Array.from({ length: count }, (_, k) => first + (k * 180) / count) };
+}
+
+/**
+ * The pattern with every tube left out whose edge would stand in a lane: a centre nearer the
+ * lane's line than half the lane plus half a tube, so the clear gap is at least `w_p`.
+ */
+export function clearLanes(centres: readonly Vec3[], lanes: { width: number; azimuths: readonly number[] }, tube: number): Vec3[] {
+  const reach = (lanes.width + tube) / 2 - 1e-9;
+  const normals = lanes.azimuths.map((a) => [-Math.sin((a * Math.PI) / 180), Math.cos((a * Math.PI) / 180)] as const);
+  return centres.filter((c) => normals.every(([nx, ny]) => Math.abs(c[0] * nx + c[1] * ny) >= reach));
+}
+
+/**
+ * Single-segmental baffles — the whole set as ONE part, as the bundle is: each a disc across the
+ * shell's bore less `δ_sb`, cut square to its window at `l_c` from the shell's inside wall, `t_b`
+ * thick, the windows alternating. They stand from the course's low end: the first at `L_b,i`,
+ * then every `L_b,c`, the last no nearer the high end than `L_b,o`. Hosted by the shell for where
+ * they stand only — a baffle hangs on the tie rods and is welded to nothing, so it has no joint.
+ *
+ * Drawn undrilled, as the tubesheet is: the tube holes are not cut, and `δ_tb` — which belongs
+ * to the bundle a baffle crosses, not to the baffle — is carried for the leakage it makes.
+ */
+export const segmentalBaffles: MountedBuilder = (component, context) => {
+  const { kernel, hostSurface, placement } = context;
+  const course = boreOf(component, context, 'a baffle');
+  requireWithinHost(component, context, 0);
+  const [low, high] = hostSurface.offsetRange;
+  const shell = 2 * course.insideRadiusAt(low);
+  const cut = requireDimension(component, Sym.BAFFLE_CUT_LENGTH);
+  const thickness = requireDimension(component, Sym.BAFFLE_THICKNESS);
+  const spacing = requireDimension(component, Sym.BAFFLE_SPACING);
+  const notes: Note[] = [];
+  const stated = (symbol: string, what: string, assumed: number, drawn: string): number => {
+    const value = optionalDimension(component, symbol);
+    if (value !== undefined) return value;
+    notes.push(assumedNote(`${what} not stated — drawn ${drawn}`, symbol, drawn));
+    return assumed;
+  };
+  const inlet = stated(Sym.BAFFLE_INLET_SPACING, 'Inlet spacing', spacing, `${mm(spacing)}, the central spacing`);
+  const outlet = stated(Sym.BAFFLE_OUTLET_SPACING, 'Outlet spacing', inlet, `${mm(inlet)}, the inlet spacing`);
+  const shellClearance = stated(Sym.SHELL_BAFFLE_CLEARANCE, 'Shell-to-baffle clearance', 0, 'tight to the bore');
+  const tubeClearance = stated(Sym.TUBE_BAFFLE_CLEARANCE, 'Tube-to-baffle clearance', 0, 'tight to the tubes');
+
+  const rim = (shell - shellClearance) / 2;
+  const chord = shell / 2 - cut;
+  if (!(shellClearance < shell / 10)) {
+    throw new BuildError(component, `has a ${mm(shellClearance)} clearance in a ${mm(shell)} bore`, scope('out_of_scope', Sym.SHELL_BAFFLE_CLEARANCE, `< ${mm(shell / 10)}`, mm(shellClearance)));
+  }
+  if (!(chord < rim) || !(cut < shell / 2)) {
+    throw new BuildError(
+      component,
+      `cuts its window ${mm(cut)} deep in a ${mm(shell)} bore`,
+      scope('out_of_scope', Sym.BAFFLE_CUT_LENGTH, `between ${mm(shellClearance / 2)} and ${mm(shell / 2)}, half the bore: a single-segmental window`, mm(cut))
+    );
+  }
+  if (!(thickness < spacing)) {
+    throw new BuildError(component, `is ${mm(thickness)} thick at a ${mm(spacing)} spacing`, scope('out_of_scope', Sym.BAFFLE_THICKNESS, `< ${mm(spacing)}, the spacing`, mm(thickness)));
+  }
+
+  const length = high - low;
+  const given = optionalDimension(component, Sym.BAFFLE_COUNT);
+  if (given !== undefined && !Number.isInteger(given)) {
+    throw new BuildError(component, `states ${given} baffles`, scope('out_of_scope', Sym.BAFFLE_COUNT, 'a whole number of baffles', String(given)));
+  }
+  const fits = Math.floor((length - inlet - outlet) / spacing + 1e-9) + 1;
+  const count = given ?? fits;
+  if (count < 1 || inlet - thickness / 2 < 0) {
+    throw new BuildError(
+      component,
+      `fits no baffle: ${mm(inlet)} in and ${mm(outlet)} out of a ${mm(length)} course`,
+      scope('out_of_scope', `${Sym.BAFFLE_INLET_SPACING} plus ${Sym.BAFFLE_OUTLET_SPACING}`, `≤ ${mm(length)}, the course`, mm(inlet + outlet))
+    );
+  }
+  const offsets = Array.from({ length: count }, (_, k) => low + inlet + k * spacing);
+  const last = offsets[count - 1]!;
+  if (high - last < outlet - 1e-6) {
+    throw new BuildError(
+      component,
+      `puts its last baffle ${mm(high - last)} from the course's end, nearer than its ${mm(outlet)} outlet spacing`,
+      scope('out_of_scope', Sym.BAFFLE_COUNT, `≤ ${fits}, the baffles that fit`, String(count))
+    );
+  }
+  if (given === undefined) {
+    notes.push(assumedNote(`Baffle count not stated — the ${count} that fit, the last ${mm(high - last)} from the course's end`, Sym.BAFFLE_COUNT, String(count)));
+  }
+  notes.push(
+    representedNote(
+      'Drawn undrilled: the tube holes are not cut, their clearance is carried for the leakage it makes; the tie rods and spacers are not drawn',
+      'baffle tube holes',
+      'drilled to the tube diameter plus δ_tb',
+      'undrilled plates'
+    )
+  );
+
+  const yc = Math.sqrt(rim * rim - chord * chord);
+  const one = (offset: number, azimuth: number): Solid =>
+    kernel.rotateZ(
+      kernel.extrude(
+        {
+          start: [chord, -yc],
+          steps: [
+            { kind: 'line', to: [chord, yc] },
+            { kind: 'arc', to: [chord, -yc], through: [-rim, 0] },
+          ],
+        },
+        offset - thickness / 2,
+        offset + thickness / 2
+      ),
+      azimuth
+    );
+  const windowAzimuth = (k: number) => placement.azimuth + (k % 2 === 0 ? 0 : 180);
+  const solids = offsets.slice(0, 2).map((offset, k) => one(offset, windowAzimuth(k)));
+  const copies = solids.map((_, k) =>
+    offsets
+      .map((offset, i) => ({ offset, i }))
+      .filter(({ i }) => i > k && i % 2 === k)
+      .map(({ offset }): Vec3 => [0, 0, offset - offsets[k]!])
+  );
+  // In a fluid domain each baffle is a zero-thickness face on its mid-plane, out to the shell's
+  // bore: the clearances are a few millimetres on a metre-scale domain, carried as leakage areas
+  // rather than drawn. The region is the side of the cut the plate stands on, a little wider than
+  // the bore so the clip takes the whole section there.
+  const reach = (shell / 2) * 1.02;
+  const side = Math.sqrt(reach * reach - chord * chord);
+  const region = (offset: number, azimuth: number): Solid =>
+    kernel.rotateZ(
+      kernel.extrude(
+        { start: [chord, -side], steps: [{ kind: 'line', to: [chord, side] }, { kind: 'arc', to: [chord, -side], through: [-reach, 0] }] },
+        offset - 1,
+        offset + 1
+      ),
+      azimuth
+    );
+  return {
+    solids,
+    copies,
+    footprint: 0,
+    anchorOffset: (low + high) / 2,
+    fluid: {
+      role: 'baffle',
+      faces: offsets.map((offset, k) => ({
+        name: `baffle:${k + 1}`,
+        origin: [0, 0, offset] as Vec3,
+        normal: [0, 0, 1] as Vec3,
+        region: region(offset, windowAzimuth(k)),
+      })),
+    },
+    baffles: {
+      shellDiameter: shell,
+      cutLength: cut,
+      thickness,
+      shellClearance,
+      tubeClearance,
+      baffles: offsets.map((offset, k) => ({ offset, windowAzimuth: windowAzimuth(k) })),
+      spacing,
+      span: [low, high],
     },
     notes,
   };

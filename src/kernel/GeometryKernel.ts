@@ -54,6 +54,11 @@ export interface Solid {
   readonly __solid: true;
 }
 
+/** An opaque sheet owned by the kernel: one face or several, with no volume — a baffle's plane. */
+export interface Sheet {
+  readonly __sheet: true;
+}
+
 export interface Bounds {
   readonly min: Vec3;
   readonly max: Vec3;
@@ -135,6 +140,8 @@ export interface Topology {
 export interface StepProduct {
   readonly name: string;
   readonly solids: readonly Solid[];
+  /** Faces with no volume, written beside the solids: a fluid domain's baffles. */
+  readonly sheets?: readonly Sheet[];
 }
 
 export interface GeometryKernel {
@@ -204,6 +211,22 @@ export interface GeometryKernel {
   volume(solid: Solid): number;
 
   bounds(solid: Solid): Bounds;
+
+  /** The separate solids a shape holds: what a cut leaves when it parts a body in pieces. */
+  solidsOf(shape: Solid): Solid[];
+
+  /** The faces where the plane through `origin`, square to `normal`, cuts a solid. */
+  section(solid: Solid, origin: Vec3, normal: Vec3): Sheet;
+
+  /** The part of a sheet inside a solid. */
+  clip(sheet: Sheet, solid: Solid): Sheet;
+
+  area(sheet: Sheet): number;
+
+  /** The area of every face of a solid together. */
+  surfaceArea(solid: Solid): number;
+
+  sheetBounds(sheet: Sheet): Bounds;
 
   /**
    * Triangles and the exact B-Rep edges of a solid.

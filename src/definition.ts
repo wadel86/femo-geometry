@@ -71,6 +71,9 @@ export const Kind = {
   // EN 13445-3 §16.13: a ring round a vertical vessel, carried on local supports. A draft kind
   // for the same reason; CODAP's support_ring is a horizontal vessel's, standing on the ground.
   RING_SUPPORT: 'ring_support',
+  // A shell-and-tube exchanger's single-segmental baffles, the whole set as one part. No ASME
+  // VIII-2 clause sizes a baffle; whether it becomes a `ComponentType` is TRESCA DBR's call.
+  SEGMENTAL_BAFFLES: 'segmental_baffles',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -82,6 +85,7 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.LIFTING_LUG,
   Kind.SUPPORT_RING,
   Kind.RING_SUPPORT,
+  Kind.SEGMENTAL_BAFFLES,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -178,6 +182,35 @@ export const Sym = {
   /** How far down the shell the leg is welded, from its top. */
   LEG_ATTACHMENT_LENGTH: 'leg_attachment_length',
   PASS_PARTITION_THICKNESS: 'pass_partition_thickness',
+  // A tube bundle's pass lanes: rows left out of the pattern where a pass partition plate stands
+  // in the channel, each a straight lane through the axis.
+  /**
+   * N_t as the design states it, beside the pattern drawn — a count from Taborek's Eq. (8.109) is
+   * an estimate, not a layout. The engine's `TUBE_COUNT` wire value.
+   */
+  TUBE_COUNT: 'tube_count',
+  /** w_p: the clear gap across a lane, tube edge to tube edge. */
+  PASS_LANE_WIDTH: 'pass_lane_width',
+  /** Which way the first lane runs, degrees round the axis from +X; absent, 0. */
+  PASS_LANE_AZIMUTH: 'pass_lane_azimuth',
+  /** How many lanes, equally spaced through the axis; absent, 1. Two make a four-pass quadrant. */
+  PASS_LANE_COUNT: 'pass_lane_count',
+  // Single-segmental baffles, in Shah & Sekulić's letters (§8.5.2).
+  /** l_c: the window's height, from the shell's inside wall to the cut. */
+  BAFFLE_CUT_LENGTH: 'baffle_cut_length',
+  BAFFLE_THICKNESS: 'baffle_thickness',
+  /** L_b,c: the central spacing, mid-plane to mid-plane. */
+  BAFFLE_SPACING: 'baffle_spacing',
+  /** L_b,i: from the course's low end to the first baffle's mid-plane; absent, L_b,c. */
+  BAFFLE_INLET_SPACING: 'baffle_inlet_spacing',
+  /** L_b,o: from the last baffle's mid-plane to the course's high end, at least; absent, L_b,i. */
+  BAFFLE_OUTLET_SPACING: 'baffle_outlet_spacing',
+  /** N_b; absent, Eq. (8.126)'s count rounded down: the baffles that fit. */
+  BAFFLE_COUNT: 'baffle_count',
+  /** δ_sb: the diametral clearance between the shell's bore and a baffle. */
+  SHELL_BAFFLE_CLEARANCE: 'shell_baffle_clearance',
+  /** δ_tb: the diametral clearance between a tube and its hole in a baffle. */
+  TUBE_BAFFLE_CLEARANCE: 'tube_baffle_clearance',
   /**
    * CODAP C2.3.8's δ, on a `conical_shell`: how far apart the parallel axes of the two cylinders
    * it joins are. Absent or zero, the cone is symmetric. A `CodeSymbol` of the rules engine

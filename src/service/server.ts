@@ -8,6 +8,10 @@
 //   GET  /catalogue → the draft entries: status, specimen, parameters, ports, joint
 //   POST /resolve  {definition, mode?} → ResolvedGeometry
 //   POST /step     {definition, mode?} → the STEP file (model/step), or 422 with the refusals
+//   POST /fluid-domain {definition, chamber, extension?, format?} → the fluid domain of the
+//                  chamber the opening `chamber` leads into: its manifest (format 'manifest', the
+//                  default) or its STEP ('step'); 422 with the input to change when it cannot be
+//                  derived
 //
 // Errors are RFC 7807 problem documents, as the platform's own are.
 import { createHash } from 'node:crypto';
@@ -26,6 +30,7 @@ import {
 import { DECLARATIONS, DRAFT_ENTRIES, OUT_OF_SCOPE, TUBE_MODEL } from '../catalogue/draftEntries.ts';
 import type { AssemblyDefinition } from '../definition.ts';
 import { applyConstructionDetails, withDetailNotes } from '../details/apply.ts';
+import { FluidDomainError, fluidDomain, fluidManifest, fluidStep } from '../fluid/fluidDomain.ts';
 import { createBrepjsKernel } from '../kernel/brepjsKernel.ts';
 
 const PORT = Number(process.env.GEOMETRY_PORT ?? 8095);
@@ -67,6 +72,8 @@ const server = createServer((request, response) => {
       problem(response, 400, 'Bad request', error.message);
     } else if (error instanceof RefusedError) {
       problem(response, 422, 'Not ready for analysis', error.message, { refusals: error.refusals });
+    } else if (error instanceof FluidDomainError) {
+      problem(response, 422, 'No fluid domain', error.message, { parameter: error.parameter });
     } else {
       console.error('[geometry]', error);
       problem(response, 500, 'Geometry failed', error instanceof Error ? error.message : String(error));
@@ -100,6 +107,27 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
       response.end(step);
     }
     console.log(`[geometry] ${path} ${mode}, ${definition.components.length} components, ${(performance.now() - startedAt).toFixed(0)} ms`);
+    return;
+  }
+  if (request.method === 'POST' && path === '/fluid-domain') {
+    const raw = await body(request);
+    const { definition: declared } = parse(raw);
+    const { chamber, extension, format = 'manifest' } = JSON.parse(raw) as { chamber?: unknown; extension?: unknown; format?: unknown };
+    if (typeof chamber !== 'string' || chamber.length === 0) throw new BadRequest('Expected "chamber": the id of an opening that leads into it');
+    if (extension !== undefined && !(typeof extension === 'number' && extension >= 0)) throw new BadRequest('"extension" is a length in mm, zero or more');
+    if (format !== 'manifest' && format !== 'step') throw new BadRequest(`Unknown format "${String(format)}": manifest or step`);
+    const startedAt = performance.now();
+    const { definition, details } = applyConstructionDetails(declared);
+    const model = withDetailNotes(builder.build(definition), details);
+    const domain = fluidDomain(definition, model, kernel, { chamber, ...(extension !== undefined ? { extension } : {}) });
+    if (format === 'manifest') {
+      json(response, 200, { revision, ...fluidManifest(domain) });
+    } else {
+      const step = fluidStep(domain, kernel);
+      response.writeHead(200, { 'Content-Type': 'model/step', 'Content-Length': Buffer.byteLength(step) });
+      response.end(step);
+    }
+    console.log(`[geometry] ${path} ${chamber} ${format}, ${(performance.now() - startedAt).toFixed(0)} ms`);
     return;
   }
   problem(response, 404, 'Not found', `No route ${request.method} ${path}`);
