@@ -144,8 +144,8 @@ test("a sharp cone's cylinders are welded to its end's full face, t / cos α wid
   const resolved = resolveGeometry(definition, built, kernel, { mode: 'analysis' });
   const port = (id: string) => resolved.parts.flatMap((p) => p.ports).find((p) => p.id === id)!;
   for (const [cylinder, cone] of [['upper@L', 'lower@C'], ['lower@U', 'upper@C']]) {
-    close(port(cylinder).insideRadius, port(cone).insideRadius, 1e-6);
-    close(port(cylinder).outsideRadius, port(cone).outsideRadius, 1e-6);
+    close(port(cylinder).insideRadius!, port(cone).insideRadius!, 1e-6);
+    close(port(cylinder).outsideRadius!, port(cone).outsideRadius!, 1e-6);
   }
   // nothing was tapered: each cylinder is its own full course
   for (const id of ['L', 'U']) {
