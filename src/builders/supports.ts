@@ -1060,18 +1060,23 @@ export const supportRing: MountedBuilder = (component, context) => {
 };
 
 /**
- * A ring support on a vertical vessel — EN 13445-3 §16.13, Figures 16.13-1 and 16.13-2: a ring `b`
- * wide and `h` high round the course, centred on its placement, carried on `n_s` local supports.
- * Integral (Figure 16.13-1 a), it is welded to the shell and a U or an L opens towards it, the
- * shell closing the section; independent (b), it sits loose `t_0` off the shell on a bearing ring
- * welded under it, and only a box or a U — its web against the vessel — is drawn that way, which
- * is what Figure 16.13-2 tabulates. The supports stand for whatever carries the ring — legs, beams,
- * brackets — that §16.13 reads only as the forces F_S at the reaction circle, so they are drawn as
- * plain posts under its outer edge.
+ * A support ring on a vertical vessel — EN 13445-3 §16.13, Figures 16.13-1 and 16.13-2, the engine's
+ * `VERTICAL_SUPPORT_RING`: a ring from `d_3` to `d_4` and `h` high, centred on its placement, of one
+ * of Table 16.13-2's four profiles, carried on `n_s` local supports that react on the circle `d_7`.
+ *
+ * Integral (Figure 16.13-1 a), it is welded to the shell — `d_3` is the shell's outside diameter —
+ * and a channel or an angle opens towards it, the shell closing the section. Independent (b), it
+ * sits loose round the shell — the gap is what `d_3` leaves — on a bearing ring welded under it, and
+ * only a box or a channel, its web against the vessel, is drawn that way, as the table has it.
+ * Fixed inside (Eq. (16.13-12)), it is welded in the bore — `d_4` is the shell's inside diameter.
+ * Table 16.13-2's `t_0` is a property of the section the engine computes, not a gap, and is not read.
+ *
+ * The supports stand for whatever carries the ring — legs, beams, brackets — which §16.13 reads
+ * only as the forces F_S at the reaction circle, so they are drawn as plain posts centred on it.
  */
-export const ringSupport: MountedBuilder = (component, context) => {
+export const verticalSupportRing: MountedBuilder = (component, context) => {
   const { kernel, placement } = context;
-  const course = cylinderOf(component, context, 'a ring support');
+  const course = cylinderOf(component, context, 'a support ring');
   const notes: Note[] = [];
   const stated = (symbol: string, label: string, assumed: number): number => {
     const value = optionalDimension(component, symbol);
@@ -1079,84 +1084,136 @@ export const ringSupport: MountedBuilder = (component, context) => {
     notes.push(assumedNote(`${label} not stated — drawn ${mm(assumed)}`, symbol, mm(assumed)));
     return assumed;
   };
-  const section = signedDimension(component, Sym.RING_SUPPORT_SECTION);
-  if (section === undefined) notes.push(assumedNote('Section not stated — drawn solid', Sym.RING_SUPPORT_SECTION, '0, a solid rectangle'));
-  else if (section !== 0 && section !== 1 && section !== 2 && section !== 3) {
-    throw new BuildError(component, `has a section of type ${section}`, scope('out_of_scope', Sym.RING_SUPPORT_SECTION, '0 solid, 1 box, 2 U or 3 L (Figure 16.13-2)', `${section}`));
+  const shape = requireDimension(component, Sym.VERTICAL_RING_PROFILE);
+  if (![1, 2, 3, 4].includes(shape)) {
+    throw new BuildError(component, `has a profile of type ${shape}`, scope('out_of_scope', Sym.VERTICAL_RING_PROFILE, '1 solid, 2 box, 3 channel or 4 angle (Table 16.13-2)', `${shape}`));
   }
-  const shape = section ?? 0;
-  const width = requireDimension(component, Sym.RING_SUPPORT_WIDTH);
-  const height = requireDimension(component, Sym.RING_SUPPORT_HEIGHT);
-  const count = requireDimension(component, Sym.RING_SUPPORT_COUNT);
-  if (![2, 3, 4, 6, 8].includes(count)) {
-    throw new BuildError(component, `stands on ${count} supports`, scope('out_of_scope', Sym.RING_SUPPORT_COUNT, '2, 3, 4, 6 or 8, the counts Figures 16.13-3 to 16.13-6 give', `${count}`));
+  const width = requireDimension(component, Sym.VERTICAL_RING_WIDTH);
+  const height = requireDimension(component, Sym.SUPPORT_RING_HEIGHT);
+  const r3 = requireDimension(component, Sym.VERTICAL_RING_INSIDE_DIAMETER) / 2;
+  const r4 = requireDimension(component, Sym.VERTICAL_RING_OUTSIDE_DIAMETER) / 2;
+  const r6 = requireDimension(component, Sym.VERTICAL_RING_LOAD_DIAMETER) / 2;
+  const r7 = requireDimension(component, Sym.VERTICAL_RING_REACTION_DIAMETER) / 2;
+  const loose = (signedDimension(component, Sym.VERTICAL_RING_INDEPENDENT) ?? 0) > 0.5;
+  const inside = (signedDimension(component, Sym.VERTICAL_RING_FIXED_INSIDE) ?? 0) > 0.5;
+  if (loose && inside) {
+    throw new BuildError(component, 'is both independent and fixed inside the vessel', scope('out_of_scope', Sym.VERTICAL_RING_FIXED_INSIDE, 'absent for an independent ring, which sits round the vessel', 'stated'));
   }
-  const loose = signedDimension(component, Sym.RING_SUPPORT_INDEPENDENT) ?? 0;
-  if (loose !== 0 && loose !== 1) {
-    throw new BuildError(component, `is neither integral nor independent (${loose})`, scope('out_of_scope', Sym.RING_SUPPORT_INDEPENDENT, '0 integral or 1 independent', `${loose}`));
+  const z = placement.axialOffset;
+  const outside = course.outsideRadiusAt(z);
+  const bore = course.insideRadiusAt(z);
+  // Where the ring meets the vessel is fixed by how it is attached; half a millimetre either way.
+  const fit = 0.5;
+  if (!(r4 > r3)) {
+    throw new BuildError(component, `runs from ${mm(2 * r3)} to ${mm(2 * r4)}`, scope('out_of_scope', Sym.VERTICAL_RING_OUTSIDE_DIAMETER, `> ${mm(2 * r3)}, d_3`, mm(2 * r4)));
   }
-  if (loose === 1 && shape !== 1 && shape !== 2) {
+  if (Math.abs(r4 - r3 - width) > Math.max(fit, 0.005 * width)) {
     throw new BuildError(
       component,
-      'is independent with a section Figure 16.13-2 draws integral only',
-      scope('out_of_scope', Sym.RING_SUPPORT_SECTION, '1 box or 2 U, the independent sections of Figure 16.13-2', `${shape}`)
+      `states b = ${mm(width)} where d_3 and d_4 make it ${mm(r4 - r3)}`,
+      scope('out_of_scope', Sym.VERTICAL_RING_WIDTH, `${mm(r4 - r3)}, (d_4 − d_3)/2`, mm(width))
     );
   }
-  const plate = shape === 0 ? undefined : requireDimension(component, Sym.RING_SUPPORT_PLATE_THICKNESS);
-  if (plate !== undefined && (width / plate <= 5 || height / plate <= 5)) {
-    throw new BuildError(
-      component,
-      `is built of ${mm(plate)} plate into a ${mm(width)} by ${mm(height)} section`,
-      scope('out_of_scope', Sym.RING_SUPPORT_PLATE_THICKNESS, `< ${mm(Math.min(width, height) / 5)}: b/e > 5 and h/e > 5 (EN 13445-3 16.13.4 c)`, mm(plate))
-    );
+  if (inside && Math.abs(r4 - bore) > fit) {
+    throw new BuildError(component, `is fixed inside a ${mm(2 * bore)} bore at d_4 = ${mm(2 * r4)}`, scope('out_of_scope', Sym.VERTICAL_RING_OUTSIDE_DIAMETER, `${mm(2 * bore)}, the shell's inside diameter`, mm(2 * r4)));
   }
-  const clearance = loose === 1 ? stated(Sym.RING_SUPPORT_CLEARANCE, 'Clearance t_0', 2) : 0;
-  const bearing = plate ?? 0;
+  if (!inside && !loose && Math.abs(r3 - outside) > fit) {
+    throw new BuildError(component, `is welded to a ${mm(2 * outside)} shell at d_3 = ${mm(2 * r3)}`, scope('out_of_scope', Sym.VERTICAL_RING_INSIDE_DIAMETER, `${mm(2 * outside)}, the shell's outside diameter`, mm(2 * r3)));
+  }
+  if (loose && !(r3 > outside + fit)) {
+    throw new BuildError(component, `is loose round a ${mm(2 * outside)} shell at d_3 = ${mm(2 * r3)}`, scope('out_of_scope', Sym.VERTICAL_RING_INSIDE_DIAMETER, `> ${mm(2 * outside)}, clear of the shell`, mm(2 * r3)));
+  }
+  // The load comes down the vessel's wall onto the ring; the supports push back under the ring.
+  const [wallIn, wallOut] = inside ? [r3, outside] : [bore, r4];
+  if (r6 < wallIn - fit || r6 > wallOut + fit) {
+    throw new BuildError(component, `takes its load on a ${mm(2 * r6)} circle`, scope('out_of_scope', Sym.VERTICAL_RING_LOAD_DIAMETER, `${mm(2 * wallIn)} to ${mm(2 * wallOut)}`, mm(2 * r6)));
+  }
+  if (r7 < r3 - fit || r7 > r4 + fit) {
+    throw new BuildError(component, `is reacted on a ${mm(2 * r7)} circle, off the ring`, scope('out_of_scope', Sym.VERTICAL_RING_REACTION_DIAMETER, `${mm(2 * r3)} to ${mm(2 * r4)}, d_3 to d_4`, mm(2 * r7)));
+  }
+
+  // The plates: a web e_4 for every built-up profile, flanges e_3 and a box's outer web e_5 as the web unless stated.
+  const web = shape === 1 ? 0 : requireDimension(component, Sym.VERTICAL_RING_WEB_THICKNESS);
+  const flange = shape === 1 ? 0 : stated(Sym.VERTICAL_RING_FLANGE_THICKNESS, 'Flange thickness e_3', web);
+  const outer = shape === 2 ? stated(Sym.VERTICAL_RING_SECOND_WEB_THICKNESS, 'Second web thickness e_5', web) : 0;
+  // 16.13.4 c), as the engine reads it: a flange across the width, b/e_3 > 5; a web up the height, h/e_4 > 5.
+  for (const [symbol, e, span, letter] of [
+    [Sym.VERTICAL_RING_FLANGE_THICKNESS, flange, width, 'b'],
+    [Sym.VERTICAL_RING_WEB_THICKNESS, web, height, 'h'],
+    [Sym.VERTICAL_RING_SECOND_WEB_THICKNESS, outer, height, 'h'],
+  ] as const) {
+    if (e > 0 && span / e <= 5) {
+      throw new BuildError(
+        component,
+        `is built of ${mm(e)} plate across a ${mm(span)} ${letter}`,
+        scope('out_of_scope', symbol, `< ${mm(span / 5)}: ${letter}/e > 5 (EN 13445-3 16.13.4 c)`, mm(e))
+      );
+    }
+  }
+  // A loose ring sits on a bearing ring welded to the shell, as thick as its web — a solid ring has
+  // none, so a tenth of its height, said.
+  const bearing = !loose ? 0 : web > 0 ? web : height / 10;
+  if (loose && web === 0) notes.push(assumedNote(`Bearing ring under a loose solid ring not stated — drawn ${mm(height / 10)} thick, a tenth of h`, 'bearing ring', mm(height / 10)));
   requireWithinHost(component, context, height / 2 + bearing);
 
-  const z = placement.axialOffset;
-  const shell = course.outsideRadiusAt(z);
-  const r0 = shell + clearance;
-  const r1 = r0 + width;
+  const r0 = r3;
+  const r1 = r4;
   const z0 = z - height / 2;
   const z1 = z + height / 2;
   const box = annulus(kernel, r0, r1, z0, z1);
-  const e = plate ?? 0;
+  // Which side of the section faces the shell: the inner one, unless the ring is in the bore.
+  const shellInside = !inside;
   let ring: Solid;
-  if (shape === 0) ring = box;
-  else if (shape === 1) ring = kernel.cut(box, [annulus(kernel, r0 + e, r1 - e, z0 + e, z1 - e)]);
-  // A U opens towards the shell when it is welded to it, away from it when it is loose.
-  else if (shape === 2) ring = kernel.cut(box, [loose === 1 ? annulus(kernel, r0 + e, r1 + 1, z0 + e, z1 - e) : annulus(kernel, r0 - 1, r1 - e, z0 + e, z1 - e)]);
-  // An L: a leg up the shell and a flange along the bottom.
-  else ring = kernel.cut(box, [annulus(kernel, r0 + e, r1 + 1, z0 + e, z1 + 1)]);
+  if (shape === 1) ring = box;
+  else if (shape === 2) ring = kernel.cut(box, [annulus(kernel, r0 + web, r1 - outer, z0 + flange, z1 - flange)]);
+  // A channel opens towards the shell it is welded to, its web away from it; loose, its web is against the vessel.
+  else if (shape === 3) {
+    const webOutward = shellInside !== loose;
+    ring = kernel.cut(box, [webOutward ? annulus(kernel, r0 - 1, r1 - web, z0 + flange, z1 - flange) : annulus(kernel, r0 + web, r1 + 1, z0 + flange, z1 - flange)]);
+  }
+  // An angle: a leg up the shell and a flange along the bottom.
+  else ring = kernel.cut(box, [shellInside ? annulus(kernel, r0 + web, r1 + 1, z0 + flange, z1 + 1) : annulus(kernel, r0 - 1, r1 - web, z0 + flange, z1 + 1)]);
 
   const solids: Solid[] = [ring];
-  let inner = r0;
-  if (loose === 1) {
-    // The bearing ring the loose ring sits on, welded to the shell under it and reaching 2·e under its web.
-    solids.push(annulus(kernel, shell, r0 + 2 * bearing, z0 - bearing, z0));
-    inner = r0 + 2 * bearing;
+  let innerEdge = r0;
+  if (loose) {
+    // The bearing ring the loose ring sits on, welded to the shell under it and reaching 2·e_4 under its web.
+    solids.push(annulus(kernel, outside, r0 + 2 * bearing, z0 - bearing, z0));
+    innerEdge = r0 + 2 * bearing;
   }
-  const drop = stated(Sym.SUPPORT_HEIGHT, 'Support height', Math.max(150, 2 * height));
-  const post = Math.min(stated(Sym.SUPPORT_POST_WIDTH, 'Support width', Math.max(80, width / 2)), r1 - inner);
+  const given = optionalDimension(component, Sym.VERTICAL_RING_SUPPORT_COUNT);
+  if (given !== undefined && !(Number.isInteger(given) && given >= 2)) {
+    throw new BuildError(component, `stands on ${given} supports`, scope('out_of_scope', Sym.VERTICAL_RING_SUPPORT_COUNT, 'a whole number, two or more', `${given}`));
+  }
+  const count = inside ? 0 : (given ?? 0);
+  if (given === undefined) notes.push(representedNote('No support count stated: supported uniformly all round, so no supports are drawn', 'supports', 'n_s local supports', 'none drawn', true));
+  else if (inside) notes.push(representedNote(`The ${given} supports of a ring inside the vessel are not drawn`, 'supports', `${given} supports`, 'none drawn', true));
+  const drop = count > 0 ? stated(Sym.SUPPORT_HEIGHT, 'Support height', Math.max(150, 2 * height)) : 0;
+  const post = count > 0 ? Math.min(stated(Sym.SUPPORT_POST_WIDTH, 'Support width', Math.max(80, width / 2)), r1 - innerEdge) : 0;
+  // Centred on the reaction circle d_7, kept on the ring.
+  const centre = Math.min(Math.max(r7, innerEdge + post / 2), r1 - post / 2);
   for (let k = 0; k < count; k++) {
-    const block = kernel.extrude(rectangle(r1 - post, r1, -post / 2, post / 2), z0 - drop, z0);
+    const block = kernel.extrude(rectangle(centre - post / 2, centre + post / 2, -post / 2, post / 2), z0 - drop, z0);
     solids.push(kernel.rotateZ(block, placement.azimuth + (k * 360) / count));
   }
-  notes.push(
-    representedNote(
-      `The ${count} supports are drawn as plain posts under the ring's outer edge: §16.13 reads them only as the forces F_S they react`,
-      'ring supports',
-      'legs, beams or brackets',
-      `posts ${mm(post)} square`,
-      true
-    )
-  );
+  if (count > 0) {
+    notes.push(
+      representedNote(
+        `The ${count} supports are drawn as plain posts on the reaction circle d_7: §16.13 reads them only as the forces F_S they react`,
+        'ring supports',
+        'legs, beams or brackets',
+        `posts ${mm(post)} square`,
+        true
+      )
+    );
+  }
 
   return {
     solids,
     footprint: height / 2 + bearing,
-    attachment: loose === 1 ? { axial: bearing, circumferentialDeg: 360, thickness: bearing } : { axial: height, circumferentialDeg: 360, thickness: plate ?? width },
+    attachment: loose
+      ? { axial: bearing, circumferentialDeg: 360, thickness: bearing }
+      : { axial: height, circumferentialDeg: 360, thickness: shape === 1 ? width : web },
     notes,
   };
 };

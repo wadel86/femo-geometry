@@ -237,6 +237,10 @@ class BrepjsKernel implements GeometryKernel {
     return Math.abs(degrees) < 1e-12 ? solid : asSolid(rotate(asShape(solid), degrees, { axis: [0, 0, 1] }));
   }
 
+  rotate(solid: Solid, degrees: number, axis: Vec3, at: Vec3 = [0, 0, 0]): Solid {
+    return Math.abs(degrees) < 1e-12 ? solid : asSolid(rotate(asShape(solid), degrees, { axis, at }));
+  }
+
   flip(solid: Solid): Solid {
     return asSolid(rotate(asShape(solid), 180, { axis: [1, 0, 0] }));
   }

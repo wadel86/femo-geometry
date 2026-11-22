@@ -206,7 +206,11 @@ export type FluidIdealisation =
       readonly name: string;
       readonly envelope: Solid;
       readonly axis: Vec3;
-      readonly subZones?: readonly { readonly name: string; readonly solid: Solid }[];
+      /**
+       * Regions of the envelope with a zone of their own — `fluid` where the part leaves the space
+       * clear (a pass lane holds no tubes), `porous` where it fills it differently (a U-bend).
+       */
+      readonly subZones?: readonly { readonly name: string; readonly type: 'fluid' | 'porous'; readonly solid: Solid }[];
       readonly bypass?: { readonly name: string; readonly solid: Solid };
     }
   | {
@@ -261,6 +265,8 @@ export interface MountedPart {
      * sphere's centre — its radius on the host's inside surface; `radius` is then the outside one.
      */
     readonly insideRadius?: number;
+    /** For a cone about the opening's own axis: its radius's growth per millimetre inward from `radius`. */
+    readonly taper?: number;
     /** How far into the host, along the axis from the frame's origin, the tool cuts. */
     readonly depth: number;
   };

@@ -205,6 +205,9 @@ export interface GeometryKernel {
   /** Turns a solid about the vessel axis, by degrees from +X towards +Y. */
   rotateZ(solid: Solid, degrees: number): Solid;
 
+  /** Turns a solid by degrees, right-handed, about the line through `at` along `axis`. */
+  rotate(solid: Solid, degrees: number, axis: Vec3, at?: Vec3): Solid;
+
   /** Turns a solid upside down: a half turn about X, so z → −z and y → −y. */
   flip(solid: Solid): Solid;
 

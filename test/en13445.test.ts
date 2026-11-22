@@ -163,29 +163,64 @@ test('16.12.4: two openings take two holes out of the skirt; a third, or one off
   assert.equal(partOf(restated('skirt_support.access_openings', 'M', { skirt_opening_elevation: 900 }), 'M').scope?.parameter, 'skirt_opening_elevation');
 });
 
-test('16.13: an integral box stands on n_s posts; an independent U stands t_0 off the shell on its bearing ring', () => {
-  const integral = partOf(specimen('ring_support.integral'), 'M');
+test('16.13: an integral box stands on n_s posts on d_7; an independent channel stands off the shell on its bearing ring', () => {
+  const integral = partOf(specimen('vertical_support_ring.integral'), 'M');
   assert.equal(integral.solids.length, 1 + 4);
   const [ring] = integral.solids;
   const [b, h, e] = [200, 250, 16];
   close(kernel.volume(ring), Math.PI * ((766 + b) ** 2 - 766 ** 2) * h - Math.PI * ((766 + b - e) ** 2 - (766 + e) ** 2) * (h - 2 * e), 1);
+  // The posts are centred on the reaction circle, 1800 mm across; one nearer the edge than half a
+  // post is pulled in to stay under the ring.
+  const centreOf = (solid: Parameters<typeof kernel.bounds>[0]) => {
+    const b = kernel.bounds(solid);
+    return (b.min[0] + b.max[0]) / 2;
+  };
+  close(centreOf(integral.solids[1]!), 900, 1e-6);
+  const edge = partOf(restated('vertical_support_ring.integral', 'M', { vertical_ring_reaction_diameter: 1932 }), 'M');
+  close(centreOf(edge.solids[1]!), 966 - 60, 1e-6);
 
-  const independent = partOf(specimen('ring_support.independent'), 'M');
+  const independent = partOf(specimen('vertical_support_ring.independent'), 'M');
   assert.equal(independent.solids.length, 1 + 1 + 8);
-  // The loose ring touches nothing of the shell: its bore is t_0 off it.
+  // The loose ring touches nothing of the shell: its bore is what d_3 leaves, 3 mm off it.
   const loose = independent.solids[0];
   const shell = kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, 0, 766 + 3, 0, 2000);
   assert.ok(kernel.volume(kernel.intersect(loose, shell)) < 1e-6);
 });
 
-test('16.13.4: five supports, a loose solid ring and plate too thick for b/e > 5 are refused', () => {
-  assert.equal(partOf(restated('ring_support.integral', 'M', { ring_support_count: 5 }), 'M').scope?.parameter, 'ring_support_count');
-  assert.equal(
-    partOf(restated('ring_support.independent', 'M', { ring_support_section: 0 }), 'M').scope?.parameter,
-    'ring_support_section'
+test('16.13: without n_s the ring is supported all round and nothing is drawn under it; fixed inside, it fills the bore', () => {
+  const uniform = partOf(restated('vertical_support_ring.integral', 'M', { vertical_ring_support_count: 0 }), 'M');
+  assert.equal(uniform.status, 'drawn', uniform.message);
+  assert.equal(uniform.solids.length, 1);
+  const inside = partOf(
+    restated('vertical_support_ring.integral', 'M', {
+      vertical_ring_fixed_inside: 1, vertical_ring_profile: 4, vertical_ring_inside_diameter: 1100, vertical_ring_outside_diameter: 1500,
+      vertical_ring_load_diameter: 1516, vertical_ring_reaction_diameter: 1300, vertical_ring_second_web_thickness: 0,
+    }),
+    'M'
   );
-  assert.equal(
-    partOf(restated('ring_support.integral', 'M', { ring_support_plate_thickness: 45 }), 'M').scope?.parameter,
-    'ring_support_plate_thickness'
-  );
+  assert.equal(inside.status, 'drawn', inside.message);
+  const bounds = kernel.bounds(inside.solids[0]!);
+  close(bounds.max[0], 750, 1e-3);
+  close(bounds.min[0], -750, 1e-3);
+});
+
+test('16.13: a loose solid ring sits on a bearing ring a tenth of its height, as the engine would accept it', () => {
+  const solid = partOf(restated('vertical_support_ring.independent', 'M', { vertical_ring_profile: 1 }), 'M');
+  assert.equal(solid.status, 'drawn', solid.message);
+  assert.equal(solid.solids.length, 1 + 1 + 8);
+  assert.ok(solid.notes.some((n) => /a tenth of h/.test(n.message)));
+});
+
+test('16.13.4: a web too thick for h/e_4 > 5, a flange too thick for b/e_3 > 5, a width d_3 and d_4 disagree with and a welded ring off the shell are refused', () => {
+  for (const [id, change, parameter] of [
+    ['vertical_support_ring.integral', { vertical_ring_web_thickness: 55 }, 'vertical_ring_web_thickness'],
+    ['vertical_support_ring.integral', { vertical_ring_flange_thickness: 45 }, 'vertical_ring_flange_thickness'],
+    ['vertical_support_ring.integral', { vertical_ring_width: 180 }, 'vertical_ring_width'],
+    ['vertical_support_ring.integral', { vertical_ring_inside_diameter: 1540, vertical_ring_outside_diameter: 1940 }, 'vertical_ring_inside_diameter'],
+    ['vertical_support_ring.integral', { vertical_ring_reaction_diameter: 2100 }, 'vertical_ring_reaction_diameter'],
+    ['vertical_support_ring.integral', { vertical_ring_support_count: 2.5 }, 'vertical_ring_support_count'],
+  ] as const) {
+    const part = partOf(restated(id, 'M', change), 'M');
+    assert.equal(part.scope?.parameter, parameter, `${JSON.stringify(change)}: ${part.message}`);
+  }
 });

@@ -69,6 +69,11 @@ export interface Opening {
   readonly radius: number;
   /** Its radius on the host's inside surface, where that differs from `radius`: a conical cut. */
   readonly insideRadius?: number;
+  /**
+   * For a cone about the opening's own axis: how much its radius grows per millimetre inward,
+   * from `radius` at the frame's origin — its edges on a cylinder are at no one radius.
+   */
+  readonly taper?: number;
   /** How far into the host, along the axis from the frame's origin, the opening was cut. */
   readonly depth: number;
   /** Which surface of the host a point of the opening lies on. */
@@ -433,6 +438,7 @@ export class AssemblyBuilder {
             frame: mounted.opening.frame,
             radius: mounted.opening.radius,
             ...(mounted.opening.insideRadius !== undefined ? { insideRadius: mounted.opening.insideRadius } : {}),
+            ...(mounted.opening.taper !== undefined ? { taper: mounted.opening.taper } : {}),
             depth: mounted.opening.depth,
             sideOf: host.part.host.sideOf,
           },

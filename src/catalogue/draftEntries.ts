@@ -166,6 +166,13 @@ const POLE_BOSS = {
   boss_height: 300, boss_cone_height: 150, boss_cone_angle: 45, boss_root_radius: 8, boss_break_radius: 4, boss_neck_radius: 6,
   boss_bore_edge_radius: 5,
 };
+// A manhole-sized forging set into a heavy course: invented dimensions, a 5° joint face.
+const SHELL_BOSS_COURSE = { inside_diameter: 3000, thickness: 50, course_length: 2400 };
+const SHELL_BOSS = {
+  boss_disc_diameter: 760, boss_outside_diameter: 600, boss_pipe_outside_diameter: 480, boss_bore_diameter: 400,
+  boss_height: 380, boss_cone_height: 220, boss_cone_angle: 40, boss_root_radius: 30, boss_break_radius: 5, boss_neck_radius: 15,
+  boss_bore_edge_radius: 12, boss_joint_angle: 5, nozzle_angle: 85,
+};
 
 // A short course: every turn of the helix is a sweep, and a long one takes seconds each.
 const halfPipe = vessel(
@@ -202,10 +209,11 @@ const skirtWithBase = (dimensions: Record<string, number>, base = true) =>
     { M: crown(0) }
   );
 
-// EN 13445-3 §16.13: what every ring support states besides its plates.
-const RING_SUPPORT = [
-  Sym.RING_SUPPORT_SECTION, Sym.RING_SUPPORT_WIDTH, Sym.RING_SUPPORT_HEIGHT, Sym.RING_SUPPORT_COUNT, Sym.RING_SUPPORT_INDEPENDENT,
-  Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH,
+// EN 13445-3 §16.13: what every vertical support ring states besides its plates.
+const VERTICAL_RING = [
+  Sym.VERTICAL_RING_PROFILE, Sym.VERTICAL_RING_WIDTH, Sym.SUPPORT_RING_HEIGHT, Sym.VERTICAL_RING_INSIDE_DIAMETER, Sym.VERTICAL_RING_OUTSIDE_DIAMETER,
+  Sym.VERTICAL_RING_LOAD_DIAMETER, Sym.VERTICAL_RING_REACTION_DIAMETER, Sym.VERTICAL_RING_SUPPORT_COUNT, Sym.VERTICAL_RING_INDEPENDENT,
+  Sym.VERTICAL_RING_FIXED_INSIDE, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH,
 ];
 
 // ---------------------------------------------------------------- the entries
@@ -440,6 +448,25 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'to a seam drawn normal to the wall at head_seam_distance along the head\'s mid-surface, and the head below is drawn from that seam on. The ring reads the head\'s ' +
       'radii and thickness from the head itself. The slot is bounded by the skirt leg and the head\'s OUTER surface — the knuckle\'s here, its root below the tangent line — ' +
       "closing with a flat top and two corner radii, or — crotch height not stated — with a full round tangent to both sides. The run joint is an inclined butt weld on a torus; the head's tangent line is the ring's discontinuity, its crown-to-knuckle junction the head's",
+  },
+  {
+    id: 'shell_boss', article: '§4.5', title: 'Forged boss set into a cylindrical shell', entry: 'component', status: 'captured',
+    kinds: [Kind.SHELL_BOSS], focus: 'M',
+    specimen: vessel([course('S', 0, SHELL_BOSS_COURSE), on('M', Kind.SHELL_BOSS, 'S', SHELL_BOSS)], { M: side(1200, 30) }),
+    parameters: [
+      Sym.BOSS_DISC_DIAMETER, Sym.BOSS_OUTSIDE_DIAMETER, Sym.BOSS_PIPE_OUTSIDE_DIAMETER, Sym.BOSS_BORE_DIAMETER, Sym.BOSS_HEIGHT, Sym.BOSS_CONE_HEIGHT,
+      Sym.BOSS_CONE_ANGLE, Sym.BOSS_ROOT_RADIUS, Sym.BOSS_BREAK_RADIUS, Sym.BOSS_NECK_RADIUS, Sym.BOSS_BORE_EDGE_RADIUS, Sym.BOSS_JOINT_ANGLE,
+      Sym.NOZZLE_ANGLE,
+    ],
+    ports: ['neck:host-end', 'neck:outer-end'],
+    joint: { kind: 'butt_weld', between: ['S', 'M'], ports: ['opening:M', 'neck:host-end'] },
+    note:
+      'Draft kind until DBR names it. head_pole_boss\'s family on a cylindrical course, radial: a manhole or large nozzle whose forging carries its own reinforcement. ' +
+      'A disc of the shell\'s own thickness and curvature replaces a patch of the wall and is butt-welded into the plate on a joint face about the nozzle axis — a cylinder, or a cone leaning ' +
+      'boss_joint_angle, wider at the inner surface; out of it stand a boss with a root fillet, a break radius into a cone, a fillet into the neck, and the neck to its end; the bore\'s edge on the inner surface may be rounded. ' +
+      'A cylinder\'s outside is not level round the nozzle, so boss_height runs from the neck\'s end to the shell\'s outer surface ON THE AXIS — the radial nozzle\'s datum — and boss_disc_diameter is the joint\'s at that level. ' +
+      'nozzle_angle — §4.5.7\'s θ, as an angled nozzle states it — leans the boss in the plane of the vessel axis: 90° radial, less towards increasing offset; it turns about the point where the axis leaves the shell\'s outer surface, so the datum stays put. ' +
+      'The root fillet and the bore\'s edge are rounded on the solid, where they meet the cylinder, not drawn into the profile. No flange is drawn: the neck ends plain',
   },
   {
     id: 'head_pole_boss', article: '§4.5', title: 'Forged boss set into a head at its pole', entry: 'component', status: 'captured',
@@ -879,34 +906,40 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'Drawn as plain holes at the placement\'s azimuth; a frame or sleeve round them is not drawn',
   },
   {
-    id: 'ring_support.integral', article: 'EN 13445-3 §16.13', title: 'Ring support welded to a vertical vessel', entry: 'component', status: 'captured',
-    kinds: [Kind.RING_SUPPORT], focus: 'M',
-    specimen: mountedOnCourse(Kind.RING_SUPPORT, {
-      ring_support_section: 1, ring_support_width: 200, ring_support_height: 250, ring_support_plate_thickness: 16, ring_support_count: 4,
-      ring_support_independent: 0, support_height: 600, support_post_width: 120,
+    id: 'vertical_support_ring.integral', article: 'EN 13445-3 §16.13', title: 'Support ring welded to a vertical vessel', entry: 'component', status: 'captured',
+    kinds: [Kind.VERTICAL_SUPPORT_RING], focus: 'M',
+    specimen: mountedOnCourse(Kind.VERTICAL_SUPPORT_RING, {
+      vertical_ring_profile: 2, vertical_ring_width: 200, support_ring_height: 250,
+      vertical_ring_inside_diameter: 1532, vertical_ring_outside_diameter: 1932, vertical_ring_load_diameter: 1516, vertical_ring_reaction_diameter: 1800,
+      vertical_ring_web_thickness: 16, vertical_ring_flange_thickness: 16, vertical_ring_second_web_thickness: 16, vertical_ring_support_count: 4,
+      support_height: 600, support_post_width: 120,
     }, side(1200)),
-    parameters: [...RING_SUPPORT, Sym.RING_SUPPORT_PLATE_THICKNESS],
+    parameters: [...VERTICAL_RING, Sym.VERTICAL_RING_WEB_THICKNESS, Sym.VERTICAL_RING_FLANGE_THICKNESS, Sym.VERTICAL_RING_SECOND_WEB_THICKNESS],
     ports: ['attach'],
     joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
     constructionDetails: [],
     note:
-      'Draft kind: §4.15 has no ring support. Figure 16.13-1 a), a box section b by h welded to the shell, on n_s supports — 2, 3, 4, 6 or 8, the counts the figures tabulate. ' +
-      'Solid, U and L sections (Figure 16.13-2 column I) are drawn the same way. The supports are posts under the ring\'s outer edge: §16.13 reads only the forces F_S they react',
+      'The engine\'s VERTICAL_SUPPORT_RING (not its RING_SUPPORT, §16.9\'s ring under a horizontal vessel). Figure 16.13-1 a): a box from d_3 — the shell\'s outside diameter — to d_4, h high, ' +
+      'welded to the shell, on n_s supports; b must agree with (d_4 − d_3)/2. Table 16.13-2\'s solid (1), box (2), channel (3) and angle (4) profiles are drawn, a channel or an angle opening towards the shell. ' +
+      'e_3, e_4 and e_5 are the flanges, the web against the vessel and a box\'s outer web; e_3 and e_5 default to e_4. The supports are posts centred on the reaction circle d_7: §16.13 reads only the forces F_S they react. ' +
+      'Without n_s the ring is supported uniformly all round and no support is drawn. Fixed inside (vertical_ring_fixed_inside), d_4 is the bore and the ring is drawn in it. d_6, the load circle, is checked to lie on the wall\'s way down to the ring, not drawn',
   },
   {
-    id: 'ring_support.independent', article: 'EN 13445-3 §16.13', title: 'Independent ring support', entry: 'component', status: 'captured',
-    kinds: [Kind.RING_SUPPORT], focus: 'M',
-    specimen: mountedOnCourse(Kind.RING_SUPPORT, {
-      ring_support_section: 2, ring_support_width: 200, ring_support_height: 250, ring_support_plate_thickness: 16, ring_support_count: 8,
-      ring_support_independent: 1, ring_support_clearance: 3, support_height: 600, support_post_width: 120,
+    id: 'vertical_support_ring.independent', article: 'EN 13445-3 §16.13', title: 'Independent support ring', entry: 'component', status: 'captured',
+    kinds: [Kind.VERTICAL_SUPPORT_RING], focus: 'M',
+    specimen: mountedOnCourse(Kind.VERTICAL_SUPPORT_RING, {
+      vertical_ring_profile: 3, vertical_ring_width: 200, support_ring_height: 250,
+      vertical_ring_inside_diameter: 1538, vertical_ring_outside_diameter: 1938, vertical_ring_load_diameter: 1516, vertical_ring_reaction_diameter: 1838,
+      vertical_ring_web_thickness: 16, vertical_ring_flange_thickness: 16, vertical_ring_support_count: 8, vertical_ring_independent: 1,
+      support_height: 600, support_post_width: 120,
     }, side(1200)),
-    parameters: [...RING_SUPPORT, Sym.RING_SUPPORT_PLATE_THICKNESS, Sym.RING_SUPPORT_CLEARANCE],
+    parameters: [...VERTICAL_RING, Sym.VERTICAL_RING_WEB_THICKNESS, Sym.VERTICAL_RING_FLANGE_THICKNESS],
     ports: ['attach'],
     joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
     constructionDetails: [],
     note:
-      'Figure 16.13-1 b): a U, its web against the vessel, loose t_0 off the shell and resting on a bearing ring welded under it — the only metal joined to the shell. ' +
-      '§16.13.4 d) forbids a flexible layer between the two rings; none is drawn. Only a box or a U is drawn independent, as Figure 16.13-2 column II has it',
+      'Figure 16.13-1 b): a channel, its web against the vessel, loose round the shell — the gap is what d_3 leaves, 3 mm here — resting on a bearing ring e_4 thick welded under it, the only metal joined to the shell. ' +
+      '§16.13.4 d) forbids a flexible layer between the two rings; none is drawn. Any profile may be independent, as the engine reads it; a solid ring has no web, so its bearing ring is drawn a tenth of h thick and said',
   },
 
   // ---------------------------------------------------------------- joints

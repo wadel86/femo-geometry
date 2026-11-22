@@ -192,7 +192,7 @@ export function fluidDomain(definition: AssemblyDefinition, model: AssemblyModel
       const raw = safeIntersect(kernel, within, world(part, sub.solid));
       const solid = raw && taken.length > 0 ? kernel.cut(raw, taken) : raw;
       if (!solid || kernel.volume(solid) <= 0) continue;
-      zones.push(zone(kernel, zoneName(sub.name, part.componentId), 'porous', axis, part.componentId, solid));
+      zones.push(zone(kernel, zoneName(sub.name, part.componentId), sub.type, sub.type === 'porous' ? axis : null, part.componentId, solid));
       taken.push(world(part, sub.solid));
     }
     const core = taken.length > 0 ? kernel.cut(within, taken) : within;

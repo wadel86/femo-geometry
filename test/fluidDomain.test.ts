@@ -16,31 +16,30 @@ const E101: AssemblyDefinition = JSON.parse(readFileSync(new URL('./fixtures/e10
 const domainOf = (definition: AssemblyDefinition, chamber: string, extension?: number) =>
   fluidDomain(definition, new AssemblyBuilder(kernel).build(definition), kernel, { chamber, ...(extension !== undefined ? { extension } : {}) });
 
-/** E-101 with its end spaces widened, as the thermal design will: 250 mm, 14 baffles, nozzles over them. */
-function widened(): AssemblyDefinition {
+/** E-101 with the book's own end spaces, 154.8 mm, and N1 centred over the first: the nozzle does not fit. */
+function asPrinted(): AssemblyDefinition {
   const change = (id: string, dimensions: Record<string, number>) => (c: ComponentDefinition) => (c.id === id ? { ...c, dimensions: { ...c.dimensions, ...dimensions } } : c);
   return {
     ...E101,
-    components: E101.components
-      .map(change('F', { baffle_inlet_spacing: 250, baffle_outlet_spacing: 250, baffle_count: 14 }))
-      .map(change('B', { tube_count: 147 })),
-    placements: { ...E101.placements, N1: { ...E101.placements.N1!, axialOffset: 125 }, N2: { ...E101.placements.N2!, axialOffset: 2388.6 } },
+    components: E101.components.map(change('F', { baffle_inlet_spacing: 154.8, baffle_outlet_spacing: 154.8 })),
+    placements: { ...E101.placements, N1: { ...E101.placements.N1!, axialOffset: 77.4 } },
   };
 }
 
-const SHELL = 2513.627;
+const SHELL = 2567.501;
 const area = (domain: FluidDomain, name: string) => domain.boundaries.find((b) => b.name === name)?.area;
 
-test('E-101 as written has no domain: the chamber is asked for by a nozzle the kernel refuses', () => {
+test('with the book\'s 154.8 mm end spaces E-101 has no domain: the chamber is asked for by a nozzle the kernel refuses', () => {
   assert.throws(
-    () => domainOf(E101, 'N1'),
+    () => domainOf(asPrinted(), 'N1'),
     (error: unknown) => error instanceof FluidDomainError && error.parameter === 'chamber' && /Shell inlet: 219\.1 mm wide at 77\.4 mm runs past Shell/.test(error.message)
   );
 });
 
 let e101: FluidDomain;
-test('widened, its shell side is the bundle, its lane, the bypass annulus and the two nozzle bores', () => {
-  e101 = domainOf(widened(), 'N1', 200);
+test('fitted, its shell side is the bundle, its lane, the bypass annulus and the two nozzle bores', () => {
+  // N1's edge lands on the tubesheet face to the last bit of a double: tangent, and drawn.
+  e101 = domainOf(E101, 'N1', 200);
   const zones = Object.fromEntries(e101.zones.map((z) => [z.name, z]));
   assert.deepEqual(Object.keys(zones).sort(), ['zone:bundle', 'zone:bypass', 'zone:fluid', 'zone:lane:1']);
   // The envelope is D_otl = 2·176.75 + 19 = 372.5 between the tubesheet faces, the bypass the rest of the 387 bore.
@@ -48,8 +47,10 @@ test('widened, its shell side is the bundle, its lane, the bypass annulus and th
   // A thin annulus: the booleans' tolerance shows at a few parts in a million.
   close(zones['zone:bypass']!.volume, Math.PI * (193.5 ** 2 - 186.25 ** 2) * SHELL, 1e-5);
   assert.equal(zones['zone:bundle']!.type, 'porous');
+  assert.deepEqual(zones['zone:bundle']!.axis, [0, 0, 1]);
   assert.equal(zones['zone:bypass']!.type, 'fluid');
-  assert.deepEqual(zones['zone:lane:1']!.axis, [0, 0, 1]);
+  // A lane holds no tubes: clear fluid, in a zone of its own.
+  assert.equal(zones['zone:lane:1']!.type, 'fluid');
   close(e101.zones.reduce((s, z) => s + z.volume, 0), e101.volume);
 });
 

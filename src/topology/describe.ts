@@ -155,6 +155,10 @@ export function describePart(
     // A conical cut has a second radius, on the inside surface.
     const onOpening = (opening: Opening, point: Vec3): boolean => {
       const off = distanceToAxis(point, opening.frame.origin, opening.frame.axis);
+      if (opening.taper !== undefined) {
+        const along = dot(sub(point, opening.frame.origin), opening.frame.axis);
+        return Math.abs(off - (opening.radius - along * opening.taper)) < epsilon;
+      }
       return (
         Math.abs(off - opening.radius) < epsilon ||
         (opening.insideRadius !== undefined && Math.abs(off - opening.insideRadius) < epsilon)

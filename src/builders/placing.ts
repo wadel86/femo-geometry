@@ -58,8 +58,12 @@ export function requireWithinHost(
 
   const [low, high] = hostSurface.offsetRange;
   const offset = placement.axialOffset;
+  // A part may be tangent to its host's end — a nozzle sized to its baffle space exactly — and
+  // the sum of its stated dimensions reaches it give or take the last bit of a double: a micron
+  // is noise, never a design.
+  const noise = 1e-6;
   if (hostSurface.anchor === 'head_crown') {
-    if (offset < 0 || offset + halfExtent > high) {
+    if (offset < -noise || offset + halfExtent > high + noise) {
       // A head carries a part parallel to the vessel axis, inside its own inside radius: an
       // opening reaching the knuckle's outer edge or beyond is outside that scope.
       throw new AnchorError(
@@ -75,9 +79,9 @@ export function requireWithinHost(
     }
     return;
   }
-  if (offset - halfExtent < low || offset + halfExtent > high) {
+  if (offset - halfExtent < low - noise || offset + halfExtent > high + noise) {
     // A part has one host: it cannot run past the end of its course onto the next part.
-    const [edge, limit] = offset - halfExtent < low ? [offset - halfExtent, `≥ ${mm(low)}`] : [offset + halfExtent, `≤ ${mm(high)}`];
+    const [edge, limit] = offset - halfExtent < low - noise ? [offset - halfExtent, `≥ ${mm(low)}`] : [offset + halfExtent, `≤ ${mm(high)}`];
     throw new AnchorError(
       component,
       `${mm(2 * halfExtent)} wide at ${mm(offset)} runs past ${host.name}, which is ${mm(high - low)} long`,

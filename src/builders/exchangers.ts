@@ -299,7 +299,8 @@ export const tubeBundle: MountedBuilder = (component, context) => {
       span[0],
       span[1]
     );
-    return { name: `lane:${k + 1}`, solid: kernel.intersect(kernel.rotateZ(slab, azimuth), envelope) };
+    // A lane holds no tubes: clear fluid, in a zone of its own so it can be told apart.
+    return { name: `lane:${k + 1}`, type: 'fluid' as const, solid: kernel.intersect(kernel.rotateZ(slab, azimuth), envelope) };
   });
   return {
     solids: [one],

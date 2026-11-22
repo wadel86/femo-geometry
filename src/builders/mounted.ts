@@ -16,12 +16,13 @@ import { jacketClosure, pressureReliefDevice } from './fittings.ts';
 import { requireWithinHost } from './placing.ts';
 import { passPartitionPlate, segmentalBaffles, tubeBundle } from './exchangers.ts';
 import { headPoleBoss } from './poleBoss.ts';
+import { shellBoss } from './shellBoss.ts';
 import {
   halfPipeJacket,
   legSupport,
   liftingLug,
   lugSupport,
-  ringSupport,
+  verticalSupportRing,
   saddleSupport,
   skirtSupport,
   supportRing,
@@ -97,6 +98,7 @@ export const MOUNTED_BUILDERS: Readonly<Record<string, MountedBuilder>> = {
   segmental_baffles: segmentalBaffles,
   lifting_lug: liftingLug,
   support_ring: supportRing,
-  ring_support: ringSupport,
+  vertical_support_ring: verticalSupportRing,
   head_pole_boss: headPoleBoss,
+  shell_boss: shellBoss,
 };

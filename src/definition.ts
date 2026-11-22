@@ -58,6 +58,11 @@ export const Kind = {
   FORGED_TRANSITION_RING: 'forged_transition_ring',
   /** A forged boss set into a head at its pole, replacing a patch of the wall (EPR accumulator). */
   HEAD_POLE_BOSS: 'head_pole_boss',
+  /**
+   * EN 13445-3 §16.13: a ring round a VERTICAL vessel, carried on local supports — the engine's
+   * `VERTICAL_SUPPORT_RING`. Not its `RING_SUPPORT`, which is §16.9's ring under a horizontal one.
+   */
+  VERTICAL_SUPPORT_RING: 'vertical_support_ring',
   // Draft kinds: drawn by the catalogue's wave 1b, with no `ComponentType` behind them yet. The
   // backend cannot store one, so they live in draft entries' specimens until it can.
   ECCENTRIC_CONICAL_SHELL: 'eccentric_conical_shell',
@@ -68,9 +73,9 @@ export const Kind = {
   // support ring. Draft kinds for the same reason as the four above.
   LIFTING_LUG: 'lifting_lug',
   SUPPORT_RING: 'support_ring',
-  // EN 13445-3 §16.13: a ring round a vertical vessel, carried on local supports. A draft kind
-  // for the same reason; CODAP's support_ring is a horizontal vessel's, standing on the ground.
-  RING_SUPPORT: 'ring_support',
+  // A forged boss set into a cylindrical shell, radial — a manhole forging carrying its own
+  // reinforcement: head_pole_boss's family on a course. A draft kind until TRESCA DBR names it.
+  SHELL_BOSS: 'shell_boss',
   // A shell-and-tube exchanger's single-segmental baffles, the whole set as one part. No ASME
   // VIII-2 clause sizes a baffle; whether it becomes a `ComponentType` is TRESCA DBR's call.
   SEGMENTAL_BAFFLES: 'segmental_baffles',
@@ -84,7 +89,7 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
   Kind.SUPPORT_RING,
-  Kind.RING_SUPPORT,
+  Kind.SHELL_BOSS,
   Kind.SEGMENTAL_BAFFLES,
 ]);
 
@@ -297,21 +302,34 @@ export const Sym = {
   SKIRT_OPENING_COUNT: 'skirt_opening_count',
   /** From the skirt's free end — its base — to the opening's centre. */
   SKIRT_OPENING_ELEVATION: 'skirt_opening_elevation',
-  // EN 13445-3 §16.13, Figures 16.13-1 and 16.13-2: a ring support on a vertical vessel.
-  /** 0 a solid rectangle, 1 a box, 2 a U, 3 an L (Figure 16.13-2). */
-  RING_SUPPORT_SECTION: 'ring_support_section',
-  /** b: the ring's radial width. */
-  RING_SUPPORT_WIDTH: 'ring_support_width',
-  /** h: the ring's height along the axis. */
-  RING_SUPPORT_HEIGHT: 'ring_support_height',
-  /** e_3 = e_4 = e_5: the plates a built-up section is made of. */
-  RING_SUPPORT_PLATE_THICKNESS: 'ring_support_plate_thickness',
-  /** n_s: 2, 3, 4, 6 or 8, the counts Figures 16.13-3 to -6 tabulate. */
-  RING_SUPPORT_COUNT: 'ring_support_count',
-  /** 0 integral, welded to the vessel (Figure 16.13-1 a); 1 independent, loose round it (b). */
-  RING_SUPPORT_INDEPENDENT: 'ring_support_independent',
-  /** t_0: the gap between an independent ring and the vessel. */
-  RING_SUPPORT_CLEARANCE: 'ring_support_clearance',
+  // EN 13445-3 §16.13, Figures 16.13-1 and 16.13-2: a support ring on a vertical vessel, in the
+  // engine's `VERTICAL_RING_*` symbols.
+  /** Table 16.13-2's profile: 1 a solid rectangle, 2 a box, 3 a channel (U), 4 an angle (L). */
+  VERTICAL_RING_PROFILE: 'vertical_ring_profile',
+  /** b: the ring's radial width, which d_3 and d_4 must agree with. */
+  VERTICAL_RING_WIDTH: 'vertical_ring_width',
+  /** h: the section's full height along the axis — shared with §16.9's ring (`h1a`). */
+  SUPPORT_RING_HEIGHT: 'support_ring_height',
+  /** d_3: the ring's inside diameter. */
+  VERTICAL_RING_INSIDE_DIAMETER: 'vertical_ring_inside_diameter',
+  /** d_4: the ring's outside diameter. */
+  VERTICAL_RING_OUTSIDE_DIAMETER: 'vertical_ring_outside_diameter',
+  /** d_6: the circle the vessel's load comes down on. */
+  VERTICAL_RING_LOAD_DIAMETER: 'vertical_ring_load_diameter',
+  /** d_7: the circle the supports react on: where the posts are drawn. */
+  VERTICAL_RING_REACTION_DIAMETER: 'vertical_ring_reaction_diameter',
+  /** e_3: the flanges of a box, a channel or an angle. */
+  VERTICAL_RING_FLANGE_THICKNESS: 'vertical_ring_flange_thickness',
+  /** e_4: the web — a box's web against the vessel. */
+  VERTICAL_RING_WEB_THICKNESS: 'vertical_ring_web_thickness',
+  /** e_5: a box's outer web. */
+  VERTICAL_RING_SECOND_WEB_THICKNESS: 'vertical_ring_second_web_thickness',
+  /** n_s; absent, the ring is supported uniformly all round. */
+  VERTICAL_RING_SUPPORT_COUNT: 'vertical_ring_support_count',
+  /** Above one half: independent of the vessel, loose round it (Figure 16.13-1 b). */
+  VERTICAL_RING_INDEPENDENT: 'vertical_ring_independent',
+  /** Above one half: fixed to the INSIDE of the vessel, Eq. (16.13-12)'s case. */
+  VERTICAL_RING_FIXED_INSIDE: 'vertical_ring_fixed_inside',
   // §4.19, bellows.
   BELLOWS_INSIDE_DIAMETER: 'bellows_inside_diameter',
   CONVOLUTION_HEIGHT: 'convolution_height',
@@ -389,6 +407,11 @@ export const Sym = {
   BOSS_NECK_RADIUS: 'boss_neck_radius',
   /** The round on the bore's edge at the head's inner surface; absent, sharp. */
   BOSS_BORE_EDGE_RADIUS: 'boss_bore_edge_radius',
+  /**
+   * A shell boss's joint face: its lean from the nozzle axis, degrees — 0 a cylinder, positive
+   * wider at the inner surface. Absent, 0.
+   */
+  BOSS_JOINT_ANGLE: 'boss_joint_angle',
 } as const;
 
 /**
