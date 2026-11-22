@@ -56,6 +56,8 @@ export const Kind = {
    * carries the head below, its outer leg is the top of a skirt, flush with the shell's outside.
    */
   FORGED_TRANSITION_RING: 'forged_transition_ring',
+  /** A forged boss set into a head at its pole, replacing a patch of the wall (EPR accumulator). */
+  HEAD_POLE_BOSS: 'head_pole_boss',
   // Draft kinds: drawn by the catalogue's wave 1b, with no `ComponentType` behind them yet. The
   // backend cannot store one, so they live in draft entries' specimens until it can.
   ECCENTRIC_CONICAL_SHELL: 'eccentric_conical_shell',
@@ -69,9 +71,6 @@ export const Kind = {
   // EN 13445-3 §16.13: a ring round a vertical vessel, carried on local supports. A draft kind
   // for the same reason; CODAP's support_ring is a horizontal vessel's, standing on the ground.
   RING_SUPPORT: 'ring_support',
-  // A forged boss set into a head at its pole, replacing a patch of the wall (EPR accumulator).
-  // A draft kind until TRESCA DBR names it in the taxonomy.
-  HEAD_POLE_BOSS: 'head_pole_boss',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -83,7 +82,6 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.LIFTING_LUG,
   Kind.SUPPORT_RING,
   Kind.RING_SUPPORT,
-  Kind.HEAD_POLE_BOSS,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */

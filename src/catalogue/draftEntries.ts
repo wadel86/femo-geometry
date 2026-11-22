@@ -440,7 +440,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['neck:host-end', 'neck:outer-end'],
     joint: { kind: 'butt_weld', between: ['H', 'M'], ports: ['opening:M', 'neck:host-end'] },
     note:
-      'Draft kind until DBR names it. A SET-IN forging, not a nozzle through an intact head: a disc of the head\'s full thickness replaces a patch of the crown and is ' +
+      'A SET-IN forging, not a nozzle through an intact head: a disc of the head\'s full thickness replaces a patch of the crown and is ' +
       'butt-welded into the plate on a joint face normal to the wall — a cone through the sphere\'s centre, the disc diameter measured on the outer surface; ' +
       'out of it stand a cylinder with a root fillet, a break radius into a cone, ' +
       "and a fillet into the spigot the pipe butt-welds onto; the bore's edge on the inner surface may be rounded. Heights run from the spigot's end; the cone's angle fixes the spigot's length. On a spherical crown only",
