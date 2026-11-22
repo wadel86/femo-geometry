@@ -40,6 +40,7 @@ import type {
   Neck,
   TubeBundle,
   RunPart,
+  Seat,
 } from '../builders/types.ts';
 import type { Bounds, GeometryKernel, Point2, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { stableStringify } from '../hash.ts';
@@ -111,6 +112,8 @@ export interface BuiltPart {
   readonly localPlacement?: Placement;
   readonly neck?: Neck;
   readonly attachment?: Attachment;
+  /** For a part butt-welded to its host's seat: its end there, in its host's frame. */
+  readonly butt?: Seat;
   /** For a tube bundle: its pattern and where its tubes end, in its host's frame. */
   readonly bundle?: TubeBundle;
   readonly notes: readonly Note[];
@@ -431,6 +434,7 @@ export class AssemblyBuilder {
         footprint: mounted.footprint,
         neck: mounted.neck,
         attachment: mounted.attachment,
+        ...(mounted.butt ? { butt: mounted.butt } : {}),
         ...(mounted.bundle ? { bundle: mounted.bundle } : {}),
         notes: stated
           ? mounted.notes

@@ -84,7 +84,8 @@ for (const entry of DRAFT_ENTRIES) {
 test('the first pass names every component and joint the brief lists, once', () => {
   const ids = DRAFT_ENTRIES.map((e) => e.id);
   assert.equal(new Set(ids).size, ids.length);
-  assert.equal(DRAFT_ENTRIES.filter((e) => e.entry === 'joint').length, 17);
+  // 17 from the brief, and the skirt on a forged transition ring (EPR accumulator Stage 1, track B).
+  assert.equal(DRAFT_ENTRIES.filter((e) => e.entry === 'joint').length, 18);
 });
 
 test('wave 1b leaves nothing not started, and every article it touched is an entry or a declaration', () => {

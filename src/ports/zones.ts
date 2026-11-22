@@ -61,6 +61,13 @@ export interface Discontinuity {
    * for every other circumferential butt weld.
    */
   readonly category?: 'A' | 'B';
+  /**
+   * Set on a discontinuity of a wall that leaves the run's meridian at a branch: a skirt's seam
+   * on a transition ring's outer leg. `meridional` is then where the branch leaves the run, and
+   * `length` how far down the branch the discontinuity stands — distances to it go through the
+   * branch point.
+   */
+  readonly branch?: { readonly id: string; readonly length: number };
 }
 
 export interface Proximity {
@@ -364,9 +371,66 @@ export function deriveZones(
     }
   }
 
+  // ---------------------------------------------------------------- inside a transition ring
+  // The crotch, where one wall becomes two: the head leg below it on the run, the skirt leg a
+  // branch, whose end is the skirt's seam. Distances to that seam run through the crotch.
+  const crotchOf = new Map<string, { s: number; apex: number }>();
+  for (const part of model.parts) {
+    if (part.status !== 'drawn' || part.kind !== Kind.FORGED_TRANSITION_RING || !part.hostSurface?.seat || !path.has(part.componentId)) continue;
+    const apex = part.landmarks.find((l) => l.key === 'crotch-apex' || l.key === 'crotch-apex-inner');
+    const inside = part.landmarks.find((l) => l.key === 'lower-inside');
+    const outside = part.landmarks.find((l) => l.key === 'lower-outside');
+    const top = part.landmarks.find((l) => l.key === 'upper-outside');
+    if (!apex || !inside || !outside || !top) continue;
+    const headMid = (inside.diameter + outside.diameter) / 4;
+    const headLeg = (outside.diameter - inside.diameter) / 2;
+    const upperMid = (inside.diameter + top.diameter) / 4;
+    const upperLeg = (top.diameter - inside.diameter) / 2;
+    const s = path.at(part.componentId, [headMid, 0, apex.z]);
+    if (s === undefined) continue;
+    crotchOf.set(part.componentId, { s, apex: apex.z });
+    const head = Math.sqrt(headMid * headLeg);
+    const upper = Math.sqrt(upperMid * upperLeg);
+    const flipped = part.transform.flipped;
+    discontinuities.push({
+      id: `${part.componentId}:crotch`,
+      kind: 'junction',
+      componentId: part.componentId,
+      componentIds: [part.componentId],
+      location: toAssembly([0, 0, apex.z], part.transform),
+      causes: ['thickness', 'branch'],
+      meridional: [s, s],
+      circumferential: null,
+      sqrtRt: { below: flipped ? upper : head, above: flipped ? head : upper },
+    });
+  }
+
   // ---------------------------------------------------------------- openings and attachments
   for (const part of model.parts) {
     if (part.status !== 'drawn' || !part.hostId || !part.mount || !part.localPlacement) continue;
+    // Butt-welded to the end of its host's leg: a seam at the end of a branch, not a patch of wall.
+    if (part.butt && part.hostId) {
+      const host = parts.get(part.hostId);
+      const crotch = crotchOf.get(part.hostId);
+      const seat = host?.hostSurface?.seat;
+      if (!host || !crotch || !seat) continue;
+      const legMid = (seat.insideRadius + seat.outsideRadius) / 2;
+      const skirtMid = (part.butt.insideRadius + part.butt.outsideRadius) / 2;
+      discontinuities.push({
+        id: `${host.componentId}:seat:${part.componentId}:seam`,
+        kind: 'weld_seam',
+        componentId: host.componentId,
+        componentIds: [host.componentId, part.componentId],
+        location: toAssembly([0, 0, seat.z], part.transform),
+        causes: ['weld'],
+        meridional: [crotch.s, crotch.s],
+        circumferential: null,
+        sqrtRt: { below: Math.sqrt(skirtMid * part.butt.wall.thickness), above: Math.sqrt(legMid * seat.wall.thickness) },
+        category: 'B',
+        branch: { id: `${host.componentId}:skirt-leg`, length: crotch.apex - seat.z },
+      });
+      continue;
+    }
     const host = parts.get(part.hostId);
     if (!host?.hostSurface || !path.has(host.componentId)) continue;
     const surface = host.hostSurface;
@@ -551,7 +615,12 @@ export function deriveZones(
 /** How far apart two discontinuities are along the vessel's surface, and whether their zones overlap. */
 function proximity(a: Discontinuity, b: Discontinuity): Proximity {
   const [lower, upper] = a.meridional[0] <= b.meridional[0] ? [a, b] : [b, a];
-  const gapAlong = Math.max(0, upper.meridional[0] - lower.meridional[1]);
+  // Along a branch, then along the run between the two branch points, then down the other.
+  const down = (d: Discontinuity) => d.branch?.length ?? 0;
+  const gapAlong =
+    a.branch && b.branch && a.branch.id === b.branch.id
+      ? Math.abs(down(a) - down(b))
+      : Math.max(0, upper.meridional[0] - lower.meridional[1]) + down(a) + down(b);
   let gapRound = 0;
   if (a.circumferential && b.circumferential) {
     let angle = Math.abs(a.circumferential.azimuth - b.circumferential.azimuth) % 360;

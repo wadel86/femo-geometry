@@ -116,6 +116,27 @@ const withBundle = (bundle: Record<string, number>) =>
 
 const CORRODED = [Detail.CORRODED_MODEL, Detail.CORROSION_ALLOWANCE, Detail.CORRODED_SURFACES];
 
+// A skirt on a forged transition ring: the lower head butts on the ring's inner leg, the course on
+// its upper leg, the skirt on its outer leg. The upper leg's 40 mm is the course's.
+const RING = {
+  inside_diameter: 1500, thickness: 40, transition_ring_height: 400, head_leg_thickness: 16, skirt_leg_thickness: 12,
+  crotch_radius: 5, crotch_height: 250, head_joint_height: 80,
+};
+const RING_PARAMETERS = [
+  Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.TRANSITION_RING_HEIGHT, Sym.HEAD_LEG_THICKNESS, Sym.SKIRT_LEG_THICKNESS,
+  Sym.CROTCH_RADIUS, Sym.CROTCH_HEIGHT, Sym.HEAD_JOINT_HEIGHT,
+];
+const ringVessel = (skirt: boolean) =>
+  vessel(
+    [
+      run('H', Kind.ELLIPSOIDAL_HEAD, 0, ELLIPSOIDAL),
+      run('R', Kind.FORGED_TRANSITION_RING, 1, RING),
+      course('S', 2, { inside_diameter: 1500, thickness: 40, course_length: 2000 }),
+      ...(skirt ? [on('M', Kind.SKIRT_SUPPORT, 'R', { inside_diameter: 1556, thickness: 12, course_length: 1000 })] : []),
+    ],
+    skirt ? { M: side(0) } : {}
+  );
+
 // A short course: every turn of the helix is a sweep, and a long one takes seconds each.
 const halfPipe = vessel(
   [
@@ -363,6 +384,30 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     specimen: vessel([run('H', Kind.ELLIPSOIDAL_HEAD, 0, ELLIPSOIDAL), course('S', 1), on('M', Kind.SKIRT_SUPPORT, 'H', { inside_diameter: 1490, thickness: 12, course_length: 1000 })], { M: crown(0) }),
     parameters: [Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.COURSE_LENGTH], ports: ['attach'],
     note: "Welded to the head's knuckle by its own diameter; on a course it is drawn square from its placement",
+  },
+  {
+    id: 'forged_transition_ring', article: '§4.15.4', title: 'Forged transition ring (Y-forging)', entry: 'component', status: 'captured',
+    kinds: [Kind.FORGED_TRANSITION_RING], focus: 'R',
+    specimen: ringVessel(false),
+    parameters: RING_PARAMETERS,
+    ports: ['lower', 'upper'],
+    joint: { kind: 'butt_weld', between: ['H', 'R'], ports: ['lower', 'lower'] },
+    note:
+      'What §4.15.4 sizes a skirt INTO when the skirt is not welded to the head. A body of revolution: the upper leg continues the course, ' +
+      'the inner leg carries the lower head, the outer leg is flush with the outside and is the skirt\'s top. The run\'s lower junction is the inner leg\'s end, ' +
+      'so the head below stacks there and the outer leg runs head_joint_height further down. The legs are drawn parallel below the crotch, the slot\'s top rounded by crotch_radius; ' +
+      'the crotch is a junction discontinuity, and the skirt leg is a branch of the meridian whose seam is reached through it',
+  },
+  {
+    id: 'skirt_support.transition_ring', article: '§4.15.4', title: 'Skirt on a forged transition ring', entry: 'joint', status: 'captured',
+    kinds: [Kind.SKIRT_SUPPORT, Kind.FORGED_TRANSITION_RING], focus: 'M',
+    specimen: ringVessel(true),
+    parameters: SKIRT,
+    ports: ['upper'],
+    joint: { kind: 'butt_weld', between: ['R', 'M'], ports: ['seat:M', 'upper'] },
+    note:
+      'Butt-welded to the ring\'s outer leg, from its end downwards: where it stands is the leg\'s end, so the placement\'s offset is not read. ' +
+      'It must be flush with the leg\'s outside; a different wall is drawn as stated and the joint reports the step',
   },
   {
     id: 'lug_support', article: '§4.15.5', title: 'Support lug / bracket', entry: 'component', status: 'captured',

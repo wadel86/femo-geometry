@@ -87,6 +87,20 @@ export interface HostSurface {
   readonly outsideRadius?: number;
   /** Set on a course — a cylinder or a cone — for what is shaped by its section. */
   readonly course?: CourseShape;
+  /**
+   * Set on a part with a leg a skirt butts on rather than being welded to its side: a forged
+   * transition ring's outer leg. Its end, in the part's frame.
+   */
+  readonly seat?: Seat;
+}
+
+/** The end of a leg that a mounted part is butt-welded to: a ring face at a height. */
+export interface Seat {
+  readonly z: number;
+  readonly insideRadius: number;
+  readonly outsideRadius: number;
+  /** The leg's wall at its end, its meridian pointing away from the part. */
+  readonly wall: WallAt;
 }
 
 /**
@@ -188,6 +202,11 @@ export interface MountedPart {
   readonly neck?: Neck;
   /** For a part welded on without opening its host: the patch of wall it covers. */
   readonly attachment?: Attachment;
+  /**
+   * For a part butt-welded to its host's {@link Seat} rather than fillet-welded to its side: its
+   * own end there, in the host's frame — a skirt on a transition ring's outer leg.
+   */
+  readonly butt?: Seat;
   /** For a tube bundle: the pattern its tubes repeat, and where they end. */
   readonly bundle?: TubeBundle;
   /**

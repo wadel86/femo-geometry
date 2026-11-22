@@ -18,7 +18,8 @@ import {
 } from '../definition.ts';
 import type { GeometryKernel, Point2, Profile, Solid } from '../kernel/GeometryKernel.ts';
 import { mm, radialPlate, requireWithinHost } from './placing.ts';
-import type { CourseShape, MountedBuilder, MountedContext, MountedPart } from './types.ts';
+import type { CourseShape, MountedBuilder, MountedContext, MountedPart, Seat } from './types.ts';
+import { cylinderSurface } from './walls.ts';
 
 const DEG = Math.PI / 180;
 
@@ -237,6 +238,7 @@ function annulus(kernel: GeometryKernel, r0: number, r1: number, z0: number, z1:
  */
 export const skirtSupport: MountedBuilder = (component, context) => {
   if (context.hostSurface.anchor === 'head_crown') return skirtOnHead(component, context);
+  if (context.hostSurface.seat) return skirtOnSeat(component, context, context.hostSurface.seat);
   const { kernel, placement } = context;
   const course = cylinderOf(component, context, 'a skirt');
   const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
@@ -511,6 +513,47 @@ function skirtBase(
     solids.push(kernel.rotateZ(kernel.cut(block, [skirtCore, hole]), angle));
   }
   return solids;
+}
+
+/**
+ * A skirt butt-welded to the end of a leg its host offers — a forged transition ring's outer leg,
+ * flush with the shell's outside. Where it stands is the leg's end, not a placement, so the
+ * placement's offset is not read. The skirt must be flush with the leg's outside; a wall thinner
+ * or thicker than the leg's is drawn as stated and the joint reports the step.
+ */
+function skirtOnSeat(component: ComponentDefinition, context: MountedContext, seat: Seat): MountedPart {
+  const { kernel, host } = context;
+  const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
+  const thickness = requireDimension(component, Sym.THICKNESS);
+  const length = requireDimension(component, Sym.COURSE_LENGTH);
+  const inner = diameter / 2;
+  const outer = inner + thickness;
+  if (Math.abs(outer - seat.outsideRadius) > 1) {
+    throw new BuildError(
+      component,
+      `is ${mm(2 * outer)} outside where the leg of ${host.name} it butts on is ${mm(2 * seat.outsideRadius)}`,
+      scope('out_of_scope', 'skirt outside diameter', `${mm(2 * seat.outsideRadius)}, flush with the leg (±1 mm)`, mm(2 * outer))
+    );
+  }
+  if (inner >= seat.outsideRadius) {
+    throw new BuildError(component, 'has no wall on the leg it butts on', scope('out_of_scope', Sym.THICKNESS, '> 0 on the leg', mm(thickness)));
+  }
+
+  const notes: Note[] = [];
+  const end = seat.z - length;
+  const skirt = skirtOpenings(component, kernel, annulus(kernel, inner, outer, end, seat.z), outer, end, -1, length, context.placement.azimuth, notes);
+  return {
+    solids: [skirt, ...skirtBase(component, kernel, inner, outer, end, -1, notes)],
+    footprint: 0,
+    butt: {
+      z: seat.z,
+      insideRadius: inner,
+      outsideRadius: outer,
+      wall: { surface: cylinderSurface(inner + thickness / 2), thickness, meridian: [0, 1] },
+    },
+    anchorOffset: seat.z,
+    notes,
+  };
 }
 
 /**

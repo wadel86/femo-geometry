@@ -51,6 +51,14 @@ const norm = (a: Vec3): number => Math.sqrt(dot(a, a));
 const round = (value: number): number => Math.round(value * 10) / 10;
 
 /** Distance from `point` to the line through `origin` along the unit vector `axis`. */
+/** On a transition ring, which leg a cylinder of this radius is the slot face of, if any. */
+function slotSide(landmarks: readonly { key: string; diameter: number }[], radius: number, epsilon: number): string | undefined {
+  const at = (key: string) => landmarks.find((l) => l.key === key && Math.abs(l.diameter - 2 * radius) < epsilon);
+  if (at('crotch-head-leg') || (at('lower-outside') && !at('upper-outside'))) return 'head leg';
+  if (at('crotch-skirt-leg') || at('skirt-leg-inside')) return 'skirt leg';
+  return undefined;
+}
+
 function distanceToAxis(point: Vec3, origin: Vec3, axis: Vec3): number {
   const v = sub(point, origin);
   const along = dot(v, axis);
@@ -273,6 +281,10 @@ export function describePart(
       );
       if (opening) {
         role = `Opening wall of ${opening.name}`;
+      } else if (part.kind === 'forged_transition_ring' && slotSide(part.landmarks, smallest, epsilon)) {
+        // The two faces of the slot between the legs: one leg's outside, the other's inside, and
+        // inside the forging either way.
+        role = `Slot, ${slotSide(part.landmarks, smallest, epsilon)} side`;
       } else {
         const landmark = part.landmarks.find((l) => Math.abs(l.diameter - 2 * smallest) < epsilon);
         if (landmark) role = landmark.key.endsWith('outside') ? 'Outside surface' : 'Inside surface';
@@ -280,6 +292,9 @@ export function describePart(
     } else if (face.surface === 'sphere' && smallest !== undefined) {
       dimension = { label: 'Radius', value: smallest };
       role = part.kind === 'spherical_shell' ? 'Shell' : 'Crown';
+    } else if (face.surface === 'torus' && smallest !== undefined && part.kind === 'forged_transition_ring') {
+      dimension = { label: 'Crotch radius', value: smallest };
+      role = 'Crotch';
     } else if (face.surface === 'torus' && smallest !== undefined) {
       dimension = { label: 'Knuckle radius', value: smallest };
       role = 'Knuckle';

@@ -31,6 +31,7 @@ import { clampedConnection } from './clamps.ts';
 import { CONVOLUTED_BUILDERS } from './convoluted.ts';
 import { eccentricConicalShell, offsetConicalShell } from './eccentric.ts';
 import { TUBESHEET_BUILDERS } from './exchangers.ts';
+import { forgedTransitionRing } from './transitionRing.ts';
 import { dividingPlates, obroundVessel, octagonalVessel, rectangularVessel } from './special.ts';
 import type {
   CourseShape,
@@ -1408,6 +1409,7 @@ export const RUN_BUILDERS: Readonly<Record<string, RunBuilder>> = {
   ...CONVOLUTED_BUILDERS,
   ...TUBESHEET_BUILDERS,
   eccentric_conical_shell: eccentricConicalShell,
+  forged_transition_ring: forgedTransitionRing,
 };
 
 export function isRunKindDrawn(component: ComponentDefinition): boolean {

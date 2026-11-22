@@ -284,6 +284,38 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
       continue;
     }
 
+    const seat = host.hostSurface.seat;
+    if (part.butt && seat) {
+      // End to end, as two parts of the run meet: the leg's end facing down, the part's facing up.
+      const edge = (componentId: string, key: string, end: typeof seat, down: boolean, refs: string[]) =>
+        port(componentId, key, 'axial_edge', {
+          location: world([0, 0, end.z]),
+          axis: direction([0, 0, down ? -1 : 1]),
+          meridian: direction([end.wall.meridian[0], 0, end.wall.meridian[1]]),
+          surface: end.wall.surface,
+          thickness: end.wall.thickness,
+          meanRadius: (end.insideRadius + end.outsideRadius) / 2,
+          insideRadius: end.insideRadius,
+          outsideRadius: end.outsideRadius,
+          semanticRefs: refs,
+        });
+      const leg = edge(host.componentId, `seat:${part.componentId}`, seat, true, [
+        `${host.componentId}/landmark/skirt-leg-inside`,
+        `${host.componentId}/landmark/skirt-leg-outside`,
+      ]);
+      const top = edge(part.componentId, 'upper', part.butt, false, []);
+      ports.push(leg, top);
+      joints.push({
+        id: jointId(leg, top),
+        kind: 'butt_weld',
+        ports: [leg.id, top.id],
+        sourceRule: 'host',
+        // The leg is flush with the shell's outside, so that is the surface the two agree on.
+        ...mismatches(leg, top, 'outside_flush'),
+      });
+      continue;
+    }
+
     if (part.attachment) {
       const extent = { axial: part.attachment.axial, circumferentialDeg: part.attachment.circumferentialDeg };
       const patchOnHost = port(host.componentId, `wall:${part.componentId}`, 'shell_wall', {

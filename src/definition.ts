@@ -51,6 +51,11 @@ export const Kind = {
   JACKET_CLOSURE: 'jacket_closure',
   OCTAGONAL_VESSEL: 'octagonal_vessel',
   PRESSURE_RELIEF_DEVICE: 'pressure_relief_device',
+  /**
+   * A Y-shaped forging in the run: its upper leg continues the course above, its inner leg
+   * carries the head below, its outer leg is the top of a skirt, flush with the shell's outside.
+   */
+  FORGED_TRANSITION_RING: 'forged_transition_ring',
   // Draft kinds: drawn by the catalogue's wave 1b, with no `ComponentType` behind them yet. The
   // backend cannot store one, so they live in draft entries' specimens until it can.
   ECCENTRIC_CONICAL_SHELL: 'eccentric_conical_shell',
@@ -305,6 +310,20 @@ export const Sym = {
   SHORT_BARE_HALF_LENGTH: 'short_bare_half_length',
   LONG_STIFFENER_HALF_LENGTH: 'long_stiffener_half_length',
   LONG_BARE_HALF_LENGTH: 'long_bare_half_length',
+  // A forged transition ring. Heights run up from its bottom face, the end of its outer leg,
+  // where a skirt butts on; `inside_diameter` and `thickness` are its upper leg's.
+  /** From the bottom face to the top, where the course above butts on. */
+  TRANSITION_RING_HEIGHT: 'transition_ring_height',
+  /** The inner leg's wall: the leg the head butts on, its bore the upper leg's. */
+  HEAD_LEG_THICKNESS: 'head_leg_thickness',
+  /** The outer leg's wall: the leg the skirt butts on, flush with the upper leg's outside. */
+  SKIRT_LEG_THICKNESS: 'skirt_leg_thickness',
+  /** The radius rounding the top of the slot between the two legs. */
+  CROTCH_RADIUS: 'crotch_radius',
+  /** From the bottom face to the crotch's apex, the top of the slot. */
+  CROTCH_HEIGHT: 'crotch_height',
+  /** From the bottom face to the inner leg's end, the head's butt weld. Absent, zero. */
+  HEAD_JOINT_HEIGHT: 'head_joint_height',
 } as const;
 
 /**
