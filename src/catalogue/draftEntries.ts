@@ -137,6 +137,23 @@ const ringVessel = (skirt: boolean) =>
     skirt ? { M: side(0) } : {}
   );
 
+// ENSA's arrangement in generic numbers: a 0.9D / 0.17D head whose tangent line lies inside the
+// ring, the ring carrying its flange and the first 39° of its knuckle; the crotch on the knuckle.
+const TORISPHERE = { inside_diameter: 1500, crown_radius: 1350, knuckle_radius: 255, thickness: 16, straight_flange_length: 50 };
+const carryingVessel = () =>
+  vessel([
+    run('H', Kind.TORISPHERICAL_HEAD, 0, TORISPHERE),
+    run('R', Kind.FORGED_TRANSITION_RING, 1, {
+      inside_diameter: 1500, thickness: 40, transition_ring_height: 400, head_leg_thickness: 16, skirt_leg_thickness: 14,
+      crotch_radius: 4, crotch_height: 200, tangent_line_height: 250, head_seam_distance: 180,
+    }),
+    course('S', 2, { inside_diameter: 1500, thickness: 40, course_length: 2000 }),
+  ]);
+const POLE_BOSS = {
+  boss_disc_diameter: 400, boss_outside_diameter: 280, boss_pipe_outside_diameter: 170, boss_bore_diameter: 120,
+  boss_height: 300, boss_cone_height: 150, boss_cone_angle: 45, boss_root_radius: 8, boss_break_radius: 4, boss_neck_radius: 6,
+};
+
 // A short course: every turn of the helix is a sweep, and a long one takes seconds each.
 const halfPipe = vessel(
   [
@@ -397,6 +414,34 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'the inner leg carries the lower head, the outer leg is flush with the outside and is the skirt\'s top. The run\'s lower junction is the inner leg\'s end, ' +
       'so the head below stacks there and the outer leg runs head_joint_height further down. The legs are drawn parallel below the crotch, the slot\'s top rounded by crotch_radius; ' +
       'the crotch is a junction discontinuity, and the skirt leg is a branch of the meridian whose seam is reached through it',
+  },
+  {
+    id: 'forged_transition_ring.carrying_head', article: '§4.15.4', title: "Forged transition ring carrying its head's knuckle", entry: 'component', status: 'captured',
+    kinds: [Kind.FORGED_TRANSITION_RING, Kind.TORISPHERICAL_HEAD], focus: 'R',
+    specimen: carryingVessel(),
+    parameters: [...RING_PARAMETERS, Sym.TANGENT_LINE_HEIGHT, Sym.HEAD_SEAM_DISTANCE],
+    ports: ['lower', 'upper'],
+    joint: { kind: 'butt_weld', between: ['H', 'R'], ports: ['lower', 'lower'] },
+    note:
+      "ENSA's arrangement: the bore runs down to the head's tangent line INSIDE the ring, the ring carries the head's straight flange and the first part of its knuckle " +
+      'to a seam drawn normal to the wall at head_seam_distance along the head\'s mid-surface, and the head below is drawn from that seam on. The ring reads the head\'s ' +
+      'radii and thickness from the head itself. The slot is bounded by the skirt leg and the head\'s OUTER surface — the knuckle\'s here, its root below the tangent line — ' +
+      "closing with a flat top and two corner radii. The run joint is an inclined butt weld on a torus; the head's tangent line is the ring's discontinuity, its crown-to-knuckle junction the head's",
+  },
+  {
+    id: 'head_pole_boss', article: '§4.5', title: 'Forged boss set into a head at its pole', entry: 'component', status: 'captured',
+    kinds: [Kind.HEAD_POLE_BOSS], focus: 'M',
+    specimen: vessel([run('H', Kind.TORISPHERICAL_HEAD, 0, TORISPHERE), course('S', 1), on('M', Kind.HEAD_POLE_BOSS, 'H', POLE_BOSS)], { M: crown(0) }),
+    parameters: [
+      Sym.BOSS_DISC_DIAMETER, Sym.BOSS_OUTSIDE_DIAMETER, Sym.BOSS_PIPE_OUTSIDE_DIAMETER, Sym.BOSS_BORE_DIAMETER, Sym.BOSS_HEIGHT, Sym.BOSS_CONE_HEIGHT,
+      Sym.BOSS_CONE_ANGLE, Sym.BOSS_ROOT_RADIUS, Sym.BOSS_BREAK_RADIUS, Sym.BOSS_NECK_RADIUS,
+    ],
+    ports: ['neck:host-end', 'neck:outer-end'],
+    joint: { kind: 'butt_weld', between: ['H', 'M'], ports: ['opening:M', 'neck:host-end'] },
+    note:
+      'Draft kind until DBR names it. A SET-IN forging, not a nozzle through an intact head: a disc of the head\'s full thickness replaces a patch of the crown and is ' +
+      'butt-welded into the plate at its diameter (the joint face drawn parallel to the axis); out of it stand a cylinder with a root fillet, a break radius into a cone, ' +
+      "and a fillet into the spigot the pipe butt-welds onto. Heights run from the spigot's end; the cone's angle fixes the spigot's length. On a spherical crown only",
   },
   {
     id: 'skirt_support.transition_ring', article: '§4.15.4', title: 'Skirt on a forged transition ring', entry: 'joint', status: 'captured',

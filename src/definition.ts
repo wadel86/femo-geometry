@@ -69,6 +69,9 @@ export const Kind = {
   // EN 13445-3 §16.13: a ring round a vertical vessel, carried on local supports. A draft kind
   // for the same reason; CODAP's support_ring is a horizontal vessel's, standing on the ground.
   RING_SUPPORT: 'ring_support',
+  // A forged boss set into a head at its pole, replacing a patch of the wall (EPR accumulator).
+  // A draft kind until TRESCA DBR names it in the taxonomy.
+  HEAD_POLE_BOSS: 'head_pole_boss',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -80,6 +83,7 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.LIFTING_LUG,
   Kind.SUPPORT_RING,
   Kind.RING_SUPPORT,
+  Kind.HEAD_POLE_BOSS,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -324,6 +328,34 @@ export const Sym = {
   CROTCH_HEIGHT: 'crotch_height',
   /** From the bottom face to the inner leg's end, the head's butt weld. Absent, zero. */
   HEAD_JOINT_HEIGHT: 'head_joint_height',
+  /**
+   * From the bottom face to the head's tangent line, when the ring carries the head's straight
+   * flange and part of its knuckle. Stated with `head_seam_distance`, it switches the ring to that.
+   */
+  TANGENT_LINE_HEIGHT: 'tangent_line_height',
+  /** s: from the head's tangent line to the seam, along the head's mid-surface, on its knuckle. */
+  HEAD_SEAM_DISTANCE: 'head_seam_distance',
+  // A forged boss set into a head at its pole. Heights run from the spigot's end back to the head.
+  /** The disc that replaces the head wall: its diameter, where it is butt-welded into the plate. */
+  BOSS_DISC_DIAMETER: 'boss_disc_diameter',
+  /** The cylinder standing out of the disc. */
+  BOSS_OUTSIDE_DIAMETER: 'boss_outside_diameter',
+  /** The spigot the pipe butt-welds onto, at the boss's end. */
+  BOSS_PIPE_OUTSIDE_DIAMETER: 'boss_pipe_outside_diameter',
+  /** The pipe's bore, straight through the boss and the disc. */
+  BOSS_BORE_DIAMETER: 'boss_bore_diameter',
+  /** From the spigot's end to the head's outer surface at the cylinder's root. */
+  BOSS_HEIGHT: 'boss_height',
+  /** From the spigot's end to the cylinder-to-cone break. */
+  BOSS_CONE_HEIGHT: 'boss_cone_height',
+  /** The cone's half-angle from the axis, in degrees; absent, 45. */
+  BOSS_CONE_ANGLE: 'boss_cone_angle',
+  /** The fillet joining the cylinder to the head; absent, half the head's wall. */
+  BOSS_ROOT_RADIUS: 'boss_root_radius',
+  /** The small radius where the cylinder turns into the cone; absent, sharp. */
+  BOSS_BREAK_RADIUS: 'boss_break_radius',
+  /** The fillet from the cone into the spigot; absent, sharp. */
+  BOSS_NECK_RADIUS: 'boss_neck_radius',
 } as const;
 
 /**

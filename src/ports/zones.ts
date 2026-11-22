@@ -68,6 +68,41 @@ export interface Discontinuity {
    * branch point.
    */
   readonly branch?: { readonly id: string; readonly length: number };
+  /**
+   * For a discontinuity all round the axis: where it crosses the wall, on the inside surface and
+   * on the outside, in the half-plane of azimuth 0, in the assembly's frame. An elevation alone
+   * says where to SIZE a mesh; the trace says where a block must END — an inclined seam on a
+   * knuckle is not a plane at one z.
+   */
+  readonly trace?: { readonly inside: Vec3; readonly outside: Vec3 };
+}
+
+/**
+ * A discontinuity's trace across the wall, from the two landmark circles a part names it by. When
+ * the outside circle is not an edge of the part (a tangent line buried in a forging), it is the
+ * inside one offset radially by the wall.
+ */
+function traceOf(
+  part: BuiltPart,
+  insideKey: string,
+  outsideKey: string,
+  thickness?: number
+): { trace?: Discontinuity['trace'] } {
+  const inside = part.landmarks.find((l) => l.key === insideKey);
+  if (!inside) return {};
+  const outside = part.landmarks.find((l) => l.key === outsideKey);
+  const outer: [number, number] | undefined = outside
+    ? [outside.diameter / 2, outside.z]
+    : thickness !== undefined
+      ? [inside.diameter / 2 + thickness, inside.z]
+      : undefined;
+  if (!outer) return {};
+  return {
+    trace: {
+      inside: toAssembly([inside.diameter / 2, 0, inside.z], part.transform),
+      outside: toAssembly([outer[0], 0, outer[1]], part.transform),
+    },
+  };
 }
 
 export interface Proximity {
@@ -248,6 +283,8 @@ export function deriveZones(
     if (Math.abs(below.thickness - above.thickness) > 1e-6) causes.push('thickness');
     const s = path.end(below.componentId, below.key === 'upper' ? 'upper' : 'lower');
     if (s === undefined) continue;
+    const belowPart = parts.get(below.componentId);
+    const trace = belowPart ? traceOf(belowPart, `${below.key}-inside`, `${below.key}-outside`) : {};
 
     // Every butt weld of the run is a circumferential seam, whatever the walls on either side do.
     if (joint.kind === 'butt_weld') {
@@ -263,6 +300,7 @@ export function deriveZones(
         circumferential: null,
         sqrtRt: { below: sqrtRt(below, below.meanRadius ?? 0), above: sqrtRt(above, above.meanRadius ?? 0) },
         category: hemispherical ? 'A' : 'B',
+        ...trace,
       });
     }
     // Two equal courses butted together are a seam and nothing more: no discontinuity.
@@ -280,6 +318,7 @@ export function deriveZones(
         below: sqrtRt(below, below.meanRadius ?? 0),
         above: sqrtRt(above, above.meanRadius ?? 0),
       },
+      ...trace,
     });
   }
 
@@ -312,6 +351,7 @@ export function deriveZones(
         meridional: [s, s],
         circumferential: null,
         sqrtRt: { below: flipped ? towardsCrown : towardsRim, above: flipped ? towardsRim : towardsCrown },
+        ...traceOf(part, insideKey, outsideKey),
       });
     };
     if ((part.tangentLine ?? 0) > 0) circle('tangent-line', 'tangent_line', 'tangent-inside', 'tangent-outside', ['curvature']);
@@ -376,28 +416,40 @@ export function deriveZones(
   // branch, whose end is the skirt's seam. Distances to that seam run through the crotch.
   const crotchOf = new Map<string, { s: number; apex: number }>();
   for (const part of model.parts) {
-    if (part.status !== 'drawn' || part.kind !== Kind.FORGED_TRANSITION_RING || !part.hostSurface?.seat || !path.has(part.componentId)) continue;
-    const apex = part.landmarks.find((l) => l.key === 'crotch-apex' || l.key === 'crotch-apex-inner');
-    const inside = part.landmarks.find((l) => l.key === 'lower-inside');
-    const outside = part.landmarks.find((l) => l.key === 'lower-outside');
-    const top = part.landmarks.find((l) => l.key === 'upper-outside');
-    if (!apex || !inside || !outside || !top) continue;
-    const headMid = (inside.diameter + outside.diameter) / 4;
-    const headLeg = (outside.diameter - inside.diameter) / 2;
-    const upperMid = (inside.diameter + top.diameter) / 4;
-    const upperLeg = (top.diameter - inside.diameter) / 2;
-    const s = path.at(part.componentId, [headMid, 0, apex.z]);
-    if (s === undefined) continue;
-    crotchOf.set(part.componentId, { s, apex: apex.z });
-    const head = Math.sqrt(headMid * headLeg);
-    const upper = Math.sqrt(upperMid * upperLeg);
+    if (part.status !== 'drawn' || !part.crotch || !part.hostSurface?.seat || !path.has(part.componentId)) continue;
+    const crotch = part.crotch;
     const flipped = part.transform.flipped;
+    // The head's tangent line, where the ring carries the head's flange and knuckle.
+    const tangent = part.carriedTangentLine;
+    if (tangent) {
+      const st = path.at(part.componentId, [tangent.meridianPoint[0], 0, tangent.meridianPoint[1]]);
+      const root = Math.sqrt(tangent.radius * tangent.thickness);
+      if (st !== undefined) {
+        discontinuities.push({
+          id: `${part.componentId}:tangent-line`,
+          kind: 'tangent_line',
+          componentId: part.componentId,
+          componentIds: [part.componentId],
+          location: toAssembly([0, 0, tangent.z], part.transform),
+          causes: ['curvature'],
+          meridional: [st, st],
+          circumferential: null,
+          sqrtRt: { below: root, above: root },
+          ...traceOf(part, 'tangent-inside', 'tangent-outside', tangent.thickness),
+        });
+      }
+    }
+    const s = path.at(part.componentId, [crotch.meridianPoint[0], 0, crotch.meridianPoint[1]]);
+    if (s === undefined) continue;
+    crotchOf.set(part.componentId, { s, apex: crotch.apexZ });
+    const head = Math.sqrt(crotch.below.radius * crotch.below.thickness);
+    const upper = Math.sqrt(crotch.above.radius * crotch.above.thickness);
     discontinuities.push({
       id: `${part.componentId}:crotch`,
       kind: 'junction',
       componentId: part.componentId,
       componentIds: [part.componentId],
-      location: toAssembly([0, 0, apex.z], part.transform),
+      location: toAssembly([0, 0, crotch.apexZ], part.transform),
       causes: ['thickness', 'branch'],
       meridional: [s, s],
       circumferential: null,
@@ -428,6 +480,7 @@ export function deriveZones(
         sqrtRt: { below: Math.sqrt(skirtMid * part.butt.wall.thickness), above: Math.sqrt(legMid * seat.wall.thickness) },
         category: 'B',
         branch: { id: `${host.componentId}:skirt-leg`, length: crotch.apex - seat.z },
+        ...traceOf(host, 'skirt-leg-inside', 'skirt-leg-outside'),
       });
       continue;
     }

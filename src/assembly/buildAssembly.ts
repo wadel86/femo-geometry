@@ -31,6 +31,7 @@ import { cylinderSurface } from '../builders/walls.ts';
 import type {
   Attachment,
   Copies,
+  Crotch,
   HostFrame,
   HostSurface,
   Idealisation,
@@ -41,6 +42,7 @@ import type {
   TubeBundle,
   RunPart,
   Seat,
+  TorisphereShape,
 } from '../builders/types.ts';
 import type { Bounds, GeometryKernel, Point2, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { stableStringify } from '../hash.ts';
@@ -106,6 +108,12 @@ export interface BuiltPart {
   readonly centres?: readonly Point2[];
   /** For a formed head: the height of its tangent line above its lower junction. */
   readonly tangentLine?: number;
+  /** For a head drawn from a seam: where its meridian begins on the full head's, from the tangent line. */
+  readonly meridianStart?: number;
+  /** For a transition ring: its crotch, in its own frame. */
+  readonly crotch?: Crotch;
+  /** For a transition ring carrying a head's knuckle: the head's tangent line, in its own frame. */
+  readonly carriedTangentLine?: RunPart['carriedTangentLine'];
   /** Where the part is drawn as an idealisation of itself, and what that left out. */
   readonly idealisations?: readonly Idealisation[];
   /** For a mounted part: its placement in its host's frame, mirrored when the host is turned over. */
@@ -114,6 +122,8 @@ export interface BuiltPart {
   readonly attachment?: Attachment;
   /** For a part butt-welded to its host's seat: its end there, in its host's frame. */
   readonly butt?: Seat;
+  /** For a skirt: the plane it stands on, along its host's axis in the host's frame. */
+  readonly standsAt?: number;
   /** For a tube bundle: its pattern and where its tubes end, in its host's frame. */
   readonly bundle?: TubeBundle;
   readonly notes: readonly Note[];
@@ -185,6 +195,13 @@ export class AssemblyBuilder {
         aboveInsideDiameter: sphere ? insideDiameterOf(above) : undefined,
         // An annular flat end meets the course in its bore on that course's own wall.
         aboveOutsideRadius: annular ? outsideRadiusOf(above) : undefined,
+        // A transition ring that carries the head's flange and knuckle: the head is drawn from
+        // the seam on, and the ring reads the head's own shape rather than restating it.
+        seamDistance:
+          closesBottom && component.kind === Kind.TORISPHERICAL_HEAD && carriesHead(above)
+            ? above!.dimensions[Sym.HEAD_SEAM_DISTANCE]
+            : undefined,
+        headBelow: component.kind === Kind.FORGED_TRANSITION_RING && index === 1 ? torisphereOf(below) : undefined,
       };
       const key = stableStringify({ kind: component.kind, dimensions: component.dimensions, context });
 
@@ -435,6 +452,7 @@ export class AssemblyBuilder {
         neck: mounted.neck,
         attachment: mounted.attachment,
         ...(mounted.butt ? { butt: mounted.butt } : {}),
+        ...(mounted.standsAt !== undefined ? { standsAt: mounted.standsAt } : {}),
         ...(mounted.bundle ? { bundle: mounted.bundle } : {}),
         notes: stated
           ? mounted.notes
@@ -500,6 +518,9 @@ export class AssemblyBuilder {
         meridian: entry.part.meridian,
         ...(entry.part.centres ? { centres: entry.part.centres } : {}),
         tangentLine: entry.part.tangentLine,
+        ...(entry.part.meridianStart !== undefined ? { meridianStart: entry.part.meridianStart } : {}),
+        ...(entry.part.crotch ? { crotch: entry.part.crotch } : {}),
+        ...(entry.part.carriedTangentLine ? { carriedTangentLine: entry.part.carriedTangentLine } : {}),
         idealisations: entry.part.idealisations,
         notes,
       });
@@ -870,6 +891,24 @@ function buildUp(
 function insideDiameterOf(component: ComponentDefinition | undefined): number | undefined {
   if (!component) return undefined;
   return component.dimensions[Sym.INSIDE_DIAMETER] ?? component.dimensions[Sym.FLANGE_BORE];
+}
+
+/** A transition ring stated as carrying its head's flange and knuckle to a seam. */
+function carriesHead(component: ComponentDefinition | undefined): boolean {
+  return (
+    component?.kind === Kind.FORGED_TRANSITION_RING &&
+    Number.isFinite(component.dimensions[Sym.HEAD_SEAM_DISTANCE]) &&
+    Number.isFinite(component.dimensions[Sym.TANGENT_LINE_HEIGHT])
+  );
+}
+
+/** A torispherical head's own shape, for the ring above it; undefined for anything else. */
+function torisphereOf(component: ComponentDefinition | undefined): TorisphereShape | undefined {
+  if (component?.kind !== Kind.TORISPHERICAL_HEAD) return undefined;
+  const d = component.dimensions;
+  const [insideDiameter, crownRadius, knuckleRadius, thickness] = [Sym.INSIDE_DIAMETER, Sym.CROWN_RADIUS, Sym.KNUCKLE_RADIUS, Sym.THICKNESS].map((s) => d[s]);
+  if (![insideDiameter, crownRadius, knuckleRadius, thickness].every((v) => Number.isFinite(v) && v > 0)) return undefined;
+  return { insideDiameter, crownRadius, knuckleRadius, thickness };
 }
 
 function outsideRadiusOf(component: ComponentDefinition | undefined): number | undefined {

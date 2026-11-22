@@ -222,12 +222,23 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
         ...radii,
         semanticRefs: neck.inward > 0 ? [] : refs('host-end'),
       });
+      // A boss ends in a spigot of its pipe's size, not of its neck's.
+      const endRadii = neck.end
+        ? {
+            meanRadius: (neck.end.insideRadius + neck.end.outsideRadius) / 2,
+            insideRadius: neck.end.insideRadius,
+            outsideRadius: neck.end.outsideRadius,
+          }
+        : radii;
+      const endWall = neck.end
+        ? { surface: cylinderSurface(endRadii.meanRadius), thickness: neck.end.outsideRadius - neck.end.insideRadius }
+        : neckWall;
       const outerEnd = port(part.componentId, 'neck:outer-end', 'neck_end', {
         location: world(along(origin, axis, neck.outward)),
         axis: direction(axis),
         meridian: direction(axis),
-        ...neckWall,
-        ...radii,
+        ...endWall,
+        ...endRadii,
         semanticRefs: refs('outer-end'),
       });
       ports.push(opening, hostEnd, outerEnd);
@@ -245,7 +256,8 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
       }
       joints.push({
         id: jointId(opening, hostEnd),
-        kind: 'set_in_nozzle',
+        // A forging that replaces a patch of the wall is butt-welded into it all round.
+        kind: neck.insert ? 'butt_weld' : 'set_in_nozzle',
         ports: [opening.id, hostEnd.id],
         sourceRule: 'host',
         ...weldOf(component, [Sym.OUTER_FILLET_WELD_LEG, Sym.INNER_FILLET_WELD_LEG]),

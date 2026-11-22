@@ -192,3 +192,161 @@ test('a skirt not flush with the leg is refused; a thinner one is drawn and the 
   const joint = thin.geometry.joints.find((j) => j.id === 'R:seat:K~K:upper')!;
   assert.ok(joint.issues.some((i) => i.startsWith('Thickness steps from 40 mm to 30 mm')), joint.issues.join('; '));
 });
+
+// ---------------------------------------------------------------- a ring that carries its head's knuckle
+// ENSA's arrangement, in invented numbers: a 0.9D / 0.17D torispherical head whose tangent line lies
+// inside the ring, the ring carrying its straight flange and the first 40° of its knuckle to a seam
+// drawn normal to the wall; the slot's inner side is the knuckle's outer surface, its root below
+// the tangent line.
+const HEAD = { inside_diameter: 2000, crown_radius: 1800, knuckle_radius: 340, thickness: 60 };
+const MEAN_KNUCKLE = 340 + 30;
+const PHI_S = (40 * Math.PI) / 180;
+const CARRYING = {
+  inside_diameter: 2000,
+  thickness: 120,
+  transition_ring_height: 800,
+  head_leg_thickness: 60,
+  skirt_leg_thickness: 50,
+  crotch_radius: 15,
+  crotch_height: 310,
+  tangent_line_height: 450,
+  head_seam_distance: MEAN_KNUCKLE * PHI_S,
+};
+
+function carried(ring: Record<string, number> = CARRYING, head: Record<string, number> = HEAD, skirt: Record<string, number> = {}): AssemblyDefinition {
+  return {
+    components: [
+      part('H1', 'torispherical_head', head, 0),
+      part('R', 'forged_transition_ring', ring, 1),
+      part('S', 'cylindrical_shell', { inside_diameter: 2000, thickness: 120, course_length: 3000 }, 2),
+      part('H2', 'torispherical_head', { ...HEAD, thickness: 120, straight_flange_length: 50 }, 3),
+      part('K', 'skirt_support', { inside_diameter: 2140, thickness: 50, course_length: 2000, ...skirt }, 0, 'R'),
+    ],
+    placements: { K: { anchor: 'shell_side', axialOffset: 0, azimuth: 0 } },
+    reversed: [],
+  };
+}
+
+test('a ring carrying its head: the run resolves with the head drawn from the seam', () => {
+  const { model, geometry } = build(carried());
+  for (const p of model.parts) assert.equal(p.status, 'drawn', `${p.componentId}: ${p.message ?? ''}`);
+  assert.equal(geometry.refusals.length, 0, JSON.stringify(geometry.refusals));
+  const head = model.parts.find((p) => p.componentId === 'H1')!;
+  const ring = model.parts.find((p) => p.componentId === 'R')!;
+  // One frame for both: the head's tangent line at z = 0, the ring's bottom face 450 mm below it.
+  close(head.transform.dz, 0);
+  close(ring.transform.dz, 0);
+  close(kernel.bounds(ring.solids[0]).min[2], -450, 1e-3);
+  close(model.parts.find((p) => p.componentId === 'S')!.transform.dz, 350);
+  assert.equal(head.meridianStart, MEAN_KNUCKLE * PHI_S);
+});
+
+test('the truncated head and the knuckle the ring carries add up to the whole head', () => {
+  const full = build({ components: [part('H', 'torispherical_head', { ...HEAD, straight_flange_length: 0 }, 0)], placements: {}, reversed: [] });
+  const { model } = build(carried());
+  const truncated = kernel.volume(model.parts.find((p) => p.componentId === 'H1')!.solids[0]);
+  // Pappus on the annular sector the ring carries: 0 to φs about the knuckle's centre.
+  const [r1, r2, xc] = [340, 400, 1000 - 340];
+  const area = ((r2 ** 2 - r1 ** 2) / 2) * PHI_S;
+  const centroid = xc + ((2 / 3) * (r2 ** 3 - r1 ** 3)) / (r2 ** 2 - r1 ** 2) * (Math.sin(PHI_S) / PHI_S);
+  const carriedVolume = 2 * Math.PI * centroid * area;
+  const whole = kernel.volume(full.model.parts[0].solids[0]);
+  close(truncated + carriedVolume, whole, 1e-6 * whole);
+});
+
+test('the seam is an inclined butt weld on the knuckle, its trace across the wall declared', () => {
+  const { geometry } = build(carried());
+  const joint = geometry.joints.find((j) => j.id === 'H1:lower~R:lower')!;
+  assert.ok(joint, geometry.joints.map((j) => j.id).join(', '));
+  assert.equal(joint.kind, 'butt_weld');
+  assert.deepEqual(joint.issues, []);
+  const seam = geometry.discontinuities.find((d) => d.id === 'H1:lower:seam')!;
+  // Normal to the wall at φs: the inside point on the knuckle's inside, the outside on its outside.
+  const at = (r: number): number[] => [660 + r * Math.cos(PHI_S), 0, -r * Math.sin(PHI_S)];
+  for (const [actual, expected] of [
+    [seam.trace!.inside, at(340)],
+    [seam.trace!.outside, at(400)],
+  ] as const) {
+    for (let i = 0; i < 3; i++) close(actual[i], expected[i], 1e-6);
+  }
+});
+
+test("the head's tangent line belongs to the ring, its crown-to-knuckle junction to the head", () => {
+  const { geometry } = build(carried());
+  const tangent = geometry.discontinuities.find((d) => d.kind === 'tangent_line' && d.componentIds.includes('R'))!;
+  assert.ok(tangent, geometry.discontinuities.map((d) => d.id).join(', '));
+  assert.equal(tangent.id, 'R:tangent-line');
+  assert.deepEqual(tangent.trace!.inside.map((v) => Math.round(v * 1e6) / 1e6), [1000, 0, 0]);
+  assert.deepEqual(tangent.trace!.outside.map((v) => Math.round(v * 1e6) / 1e6), [1060, 0, 0]);
+  assert.ok(!geometry.discontinuities.some((d) => d.id === 'H1:tangent-line'));
+  assert.ok(geometry.discontinuities.some((d) => d.id === 'H1:crown-knuckle'));
+  assert.ok(geometry.discontinuities.some((d) => d.id === 'R:crotch'));
+});
+
+test('the slot closes against the knuckle: every circle named, the root on the knuckle above the seam', () => {
+  const { geometry } = build(carried());
+  const ring = geometry.parts.find((p) => p.componentId === 'R')!;
+  const refs = new Set(ring.edges.map((e) => e.ref));
+  for (const key of [
+    'lower-inside', 'lower-outside', 'upper-inside', 'upper-outside', 'tangent-inside',
+    'skirt-leg-inside', 'skirt-leg-outside', 'crotch-head-leg', 'crotch-skirt-leg', 'crotch-apex-inner', 'crotch-apex-outer',
+  ]) {
+    assert.ok(refs.has(`R/landmark/${key}`), `${key} is not an edge: ${[...refs].join(', ')}`);
+  }
+  const unnamed = ring.edges.filter((e) => e.curve === 'circle' && e.closed && !e.ref.startsWith('R/landmark/'));
+  assert.deepEqual(unnamed.map((e) => e.ref), []);
+  // The buried flange has no outside edge: the knuckle's outer surface runs from the seam to the root.
+  assert.ok(!refs.has('R/landmark/tangent-outside'));
+});
+
+test('a crotch above the tangent line closes against the flange instead', () => {
+  // Above the tangent line the slot is what the flange and the skirt leg leave of the upper leg:
+  // 120 − 60 − 50 = 10 mm, so the root radius is at most 5.
+  const { model, geometry } = build(carried({ ...CARRYING, crotch_height: 520, crotch_radius: 4 }));
+  assert.equal(model.parts.find((p) => p.componentId === 'R')!.status, 'drawn');
+  const refs = new Set(geometry.parts.find((p) => p.componentId === 'R')!.edges.map((e) => e.ref));
+  assert.ok(refs.has('R/landmark/tangent-outside'));
+  assert.equal(geometry.refusals.length, 0, JSON.stringify(geometry.refusals));
+});
+
+test('a carrying ring states both of its two dimensions, on a torispherical head, and its seam on the knuckle', () => {
+  const { tangent_line_height: _t, ...seamOnly } = CARRYING;
+  const cases: [Record<string, number>, Record<string, number>, string, string][] = [
+    [seamOnly, HEAD, 'R', 'tangent_line_height'],
+    [{ ...CARRYING, head_joint_height: 50 }, HEAD, 'R', 'head_joint_height'],
+    [{ ...CARRYING, head_seam_distance: MEAN_KNUCKLE * 1.2 }, HEAD, 'R', 'head_seam_distance'],
+    [{ ...CARRYING, crotch_height: 120 }, HEAD, 'R', 'crotch_height'],
+    [{ ...CARRYING, crotch_radius: 30 }, HEAD, 'R', 'crotch_radius'],
+    [{ ...CARRYING, tangent_line_height: 900 }, HEAD, 'R', 'tangent_line_height'],
+  ];
+  for (const [ring, head, id, parameter] of cases) {
+    const { model } = build(carried(ring, head));
+    const built = model.parts.find((p) => p.componentId === id)!;
+    assert.equal(built.status, 'failed', `${JSON.stringify(ring)} was drawn`);
+    assert.equal(built.scope?.parameter, parameter, `${JSON.stringify(ring)}: ${built.message}`);
+  }
+  const ellipsoidal = build({
+    ...carried(),
+    components: [part('H1', 'ellipsoidal_head', { inside_diameter: 2000, thickness: 60, head_height: 500 }, 0), ...carried().components.slice(1)],
+  });
+  assert.equal(ellipsoidal.model.parts.find((p) => p.componentId === 'R')!.status, 'failed');
+});
+
+test('a head-leg wall other than the head\'s own is drawn, and the seam reports the step', () => {
+  const { geometry } = build(carried({ ...CARRYING, head_leg_thickness: 70, crotch_radius: 10 }));
+  const joint = geometry.joints.find((j) => j.id === 'H1:lower~R:lower')!;
+  assert.ok(joint.issues.some((i) => i.startsWith('Thickness steps')), joint.issues.join('; '));
+});
+
+test("the skirt's base face is named, with and without a base plate", () => {
+  const plain = build(carried());
+  assert.ok(plain.geometry.parts.find((p) => p.componentId === 'K')!.faces.some((f) => f.role === 'Skirt base'));
+  const plated = build(
+    carried(CARRYING, HEAD, {
+      skirt_base_type: 1, base_plate_width: 200, base_plate_projection: 120, base_plate_thickness: 25,
+      anchor_bolt_count: 8, anchor_bolt_diameter: 30, anchor_bolt_offset: 60,
+    })
+  );
+  const faces = plated.geometry.parts.find((p) => p.componentId === 'K')!.faces.filter((f) => f.role === 'Skirt base');
+  assert.equal(faces.length, 1);
+});

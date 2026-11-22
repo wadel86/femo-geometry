@@ -94,6 +94,18 @@ export interface HostSurface {
   readonly seat?: Seat;
 }
 
+/**
+ * Where one wall becomes two — a transition ring's crotch — as the zones read it: the apex, the
+ * point of the run's meridian there, and the walls either side along the run.
+ */
+export interface Crotch {
+  readonly apexZ: number;
+  readonly meridianPoint: Point2;
+  /** The wall below the crotch along the run (the head side) and above it, as (mean radius, thickness). */
+  readonly below: { readonly radius: number; readonly thickness: number };
+  readonly above: { readonly radius: number; readonly thickness: number };
+}
+
 /** The end of a leg that a mounted part is butt-welded to: a ring face at a height. */
 export interface Seat {
   readonly z: number;
@@ -143,6 +155,16 @@ export interface RunPart {
   readonly centres?: readonly Point2[];
   /** For a formed head: the height of its tangent line above its lower junction. */
   readonly tangentLine?: number;
+  /**
+   * For a head drawn from a seam rather than its tangent line: how far along the full head's
+   * mid-surface meridian, from the tangent line, its own meridian begins — so a distance along
+   * the vessel can be measured on ONE s across the ring's part of the knuckle and the head's.
+   */
+  readonly meridianStart?: number;
+  /** For a transition ring: its crotch. */
+  readonly crotch?: Crotch;
+  /** For a transition ring carrying a head's knuckle: the head's tangent line, inside the ring. */
+  readonly carriedTangentLine?: { readonly z: number; readonly meridianPoint: Point2; readonly radius: number; readonly thickness: number };
   readonly idealisations?: readonly Idealisation[];
   /** Assumptions the drawing had to make, which the user should see. */
   readonly notes: readonly Note[];
@@ -174,6 +196,22 @@ export interface RunContext {
   readonly aboveInsideDiameter?: number;
   /** For an annular flat end: the outside radius of the course standing in its bore. */
   readonly aboveOutsideRadius?: number;
+  /**
+   * For a torispherical head closing the bottom under a transition ring that carries its straight
+   * flange and part of its knuckle: the seam's meridional distance from the tangent line, along
+   * the head's mid-surface. The head is drawn from the seam on.
+   */
+  readonly seamDistance?: number;
+  /** For a transition ring: the torispherical head below it, whose flange and knuckle it may carry. */
+  readonly headBelow?: TorisphereShape;
+}
+
+/** A torispherical head's own statement of its shape, as a neighbour reads it. */
+export interface TorisphereShape {
+  readonly insideDiameter: number;
+  readonly crownRadius: number;
+  readonly knuckleRadius: number;
+  readonly thickness: number;
 }
 
 export type RunBuilder = (component: ComponentDefinition, context: RunContext) => RunPart;
@@ -207,6 +245,11 @@ export interface MountedPart {
    * own end there, in the host's frame — a skirt on a transition ring's outer leg.
    */
   readonly butt?: Seat;
+  /**
+   * For a support standing on the ground — a skirt: the plane it stands on, along its host's
+   * axis in the host's frame. The face there is named 'Skirt base', for a fixed support.
+   */
+  readonly standsAt?: number;
   /** For a tube bundle: the pattern its tubes repeat, and where they end. */
   readonly bundle?: TubeBundle;
   /**
@@ -224,6 +267,13 @@ export interface Neck {
   readonly outward: number;
   readonly inward: number;
   readonly pad?: { readonly reach: number; readonly thickness: number };
+  /**
+   * Set on a forging that replaces a patch of its host's wall rather than passing through it: the
+   * joint to the host is then a butt weld at `outsideRadius`, not a set-in nozzle's.
+   */
+  readonly insert?: true;
+  /** The radii at the outer end, where they differ from the neck's: a boss's spigot, for its pipe. */
+  readonly end?: { readonly insideRadius: number; readonly outsideRadius: number };
 }
 
 /**

@@ -812,6 +812,76 @@ export const torisphericalHead: RunBuilder = (component, context) => {
     return { kind: 'torus', principalRadii: [meanKnuckle, rho / cos] };
   };
 
+  const crownKnuckle: Landmark[] = [
+    {
+      key: 'crown-knuckle-inside',
+      z: insideTangent[1],
+      diameter: 2 * insideTangent[0],
+      role: 'Crown-to-knuckle tangent line (inside)',
+    },
+    {
+      key: 'crown-knuckle-outside',
+      z: outsideTangent[1],
+      diameter: 2 * outsideTangent[0],
+      role: 'Crown-to-knuckle tangent line (outside)',
+    },
+  ];
+
+  // Under a transition ring that carries its flange and the first part of its knuckle, the head
+  // is drawn from the seam on: a cut normal to the wall at `s` along the mid-surface.
+  if (context.seamDistance !== undefined) {
+    const s = context.seamDistance;
+    const phiS = s / meanKnuckle;
+    if (!(s > 0) || !(phiS < beta)) {
+      throw new BuildError(
+        component,
+        `is cut by its transition ring ${mm(s)} along its knuckle, which is ${mm(meanKnuckle * beta)} long at mid-wall`,
+        scope('out_of_scope', 'head_seam_distance', `> 0 and < ${mm(meanKnuckle * beta)}, on the knuckle`, mm(s))
+      );
+    }
+    const seamInside = onKnuckle(knuckle, phiS);
+    const seamOutside = onKnuckle(outsideKnuckle, phiS);
+    const rest = (phiS + beta) / 2;
+    const meanSeam = xc + meanKnuckle * Math.cos(phiS);
+    const cavity = () => cavityProfile(a, a / 4, [arc(insideTangent, onKnuckle(knuckle, beta / 2)), arc([0, zc + crown], onCrown(crown, crownMiddle))]);
+    return {
+      solid: context.kernel.revolve({
+        start: seamInside,
+        steps: [
+          line(seamOutside[0], seamOutside[1]),
+          arc(outsideTangent, onKnuckle(outsideKnuckle, rest)),
+          arc([0, zc + outsideCrown], onCrown(outsideCrown, crownMiddle)),
+          line(0, zc + crown),
+          arc(insideTangent, onCrown(crown, crownMiddle)),
+          arc(seamInside, onKnuckle(knuckle, rest)),
+        ],
+      }),
+      // In the head's own frame the tangent line stays at z = 0, inside the ring above it.
+      height: zc + outsideCrown,
+      lower: {
+        insideDiameter: 2 * seamInside[0],
+        outsideDiameter: 2 * seamOutside[0],
+        straightLength: 0,
+        wall: {
+          surface: { kind: 'torus', principalRadii: [meanKnuckle, meanSeam / Math.cos(phiS)] },
+          thickness,
+          // Away from the head, back along the knuckle towards the tangent line.
+          meridian: [Math.sin(phiS), -Math.cos(phiS)],
+        },
+      },
+      upper: null,
+      landmarks: [
+        { key: 'lower-inside', z: seamInside[1], diameter: 2 * seamInside[0], role: 'Seam to the transition ring (inside)', junction: 'lower' },
+        { key: 'lower-outside', z: seamOutside[1], diameter: 2 * seamOutside[0], role: 'Seam to the transition ring (outside)', junction: 'lower' },
+        ...crownKnuckle,
+      ],
+      host: headCrownHost(context, a, thickness, (rho) => zOf(rho, crown, knuckle), (rho) => zOf(rho, outsideCrown, outsideKnuckle), cavity, surfaceAt),
+      meridian: [...arcPoints([xc, 0], meanKnuckle, phiS, beta, 16), ...arcPoints([0, zc], meanCrown, beta, Math.PI / 2, 32).slice(1)],
+      meridianStart: s,
+      notes: [],
+    };
+  }
+
   return formedHead(component, context, a, thickness, {
     outside: [
       arc(outsideTangent, onKnuckle(outsideKnuckle, beta / 2)),

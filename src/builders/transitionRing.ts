@@ -6,6 +6,9 @@
 // Frame: the run's lower junction is the inner leg's end, so it sits at z = 0 and the head below
 // stacks there; the outer leg runs `head_joint_height` further down, to the ring's bottom face.
 // Heights as stated run up from that bottom face.
+//
+// Or, stated with `tangent_line_height` and `head_seam_distance`, the ring carries the head's
+// straight flange and the first part of its knuckle to an inclined seam: see `carryingRing`.
 import {
   BuildError,
   Sym,
@@ -17,7 +20,7 @@ import {
   type Note,
 } from '../definition.ts';
 import type { Point2, ProfileStep } from '../kernel/GeometryKernel.ts';
-import type { CourseShape, HostFrame, Landmark, RunBuilder, RunContext } from './types.ts';
+import type { CourseShape, HostFrame, HostSurface, Landmark, RunBuilder, RunContext, RunPart } from './types.ts';
 import { cylinderSurface } from './walls.ts';
 
 const DEG = Math.PI / 180;
@@ -180,22 +183,84 @@ function ringLandmarks(s: TransitionRingShape): Landmark[] {
   return landmarks;
 }
 
+/**
+ * What the ring offers what is mounted on it: its upper leg's side, for a nozzle or a lug, and
+ * its outer leg's end, for a skirt butt-welded on.
+ */
+function ringHost(
+  context: RunContext,
+  a: number,
+  R: number,
+  upperLeg: number,
+  skirtLeg: number,
+  bottom: number,
+  apex: number,
+  top: number
+): HostSurface {
+  const upperSurface = cylinderSurface(a + upperLeg / 2);
+  const course: CourseShape = {
+    halfApexAngle: 0,
+    thickness: upperLeg,
+    insideRadiusAt: () => a,
+    outsideRadiusAt: () => R,
+  };
+  let cavity: ReturnType<RunContext['kernel']['revolve']> | undefined;
+  return {
+    anchor: 'shell_side',
+    offsetRange: [apex, top],
+    defaultOffset: (apex + top) / 2,
+    outsideRadius: R,
+    course,
+    sideOf(point) {
+      const rho = Math.hypot(point[0], point[1]);
+      return Math.abs(rho - R) < Math.abs(rho - a) ? 'outside' : 'inside';
+    },
+    frameAt(offset: number, azimuth: number): HostFrame {
+      const phi = azimuth * DEG;
+      return {
+        origin: [R * Math.cos(phi), R * Math.sin(phi), offset],
+        axis: [Math.cos(phi), Math.sin(phi), 0],
+        wall: upperLeg,
+      };
+    },
+    cavity() {
+      cavity ??= context.kernel.revolve({
+        start: [0, bottom - a],
+        steps: [line(a, bottom - a), line(a, top + a), line(0, top + a)],
+      });
+      return cavity;
+    },
+    wallAt: () => ({ surface: upperSurface, thickness: upperLeg, meridian: UP }),
+    seat: {
+      z: bottom,
+      insideRadius: R - skirtLeg,
+      outsideRadius: R,
+      wall: { surface: cylinderSurface(R - skirtLeg / 2), thickness: skirtLeg, meridian: DOWN },
+    },
+  };
+}
+
 export const forgedTransitionRing: RunBuilder = (component, context: RunContext) => {
+  const tangent = signedDimension(component, Sym.TANGENT_LINE_HEIGHT);
+  const seam = signedDimension(component, Sym.HEAD_SEAM_DISTANCE);
+  if (tangent !== undefined || seam !== undefined) {
+    if (tangent === undefined || seam === undefined) {
+      const missing = tangent === undefined ? Sym.TANGENT_LINE_HEIGHT : Sym.HEAD_SEAM_DISTANCE;
+      throw new BuildError(
+        component,
+        `states one of the two dimensions of a ring that carries its head's knuckle, not ${missing}`,
+        scope('out_of_scope', missing, `stated with ${missing === Sym.TANGENT_LINE_HEIGHT ? Sym.HEAD_SEAM_DISTANCE : Sym.TANGENT_LINE_HEIGHT}`, 'not stated')
+      );
+    }
+    return carryingRing(component, context, tangent, seam);
+  }
+
   const notes: Note[] = [];
   const s = transitionRingShape(component, notes);
   const a = s.insideRadius;
   const R = s.outsideRadius;
   const headMid = a + s.headLeg / 2;
   const upperMid = a + s.upperLeg / 2;
-  const skirtMid = R - s.skirtLeg / 2;
-  const upperSurface = cylinderSurface(upperMid);
-  const course: CourseShape = {
-    halfApexAngle: 0,
-    thickness: s.upperLeg,
-    insideRadiusAt: () => a,
-    outsideRadiusAt: () => R,
-  };
-  let cavity: ReturnType<RunContext['kernel']['revolve']> | undefined;
 
   return {
     solid: context.kernel.revolve(transitionRingProfile(s)),
@@ -210,42 +275,10 @@ export const forgedTransitionRing: RunBuilder = (component, context: RunContext)
       insideDiameter: 2 * a,
       outsideDiameter: 2 * R,
       straightLength: s.top - s.apex,
-      wall: { surface: upperSurface, thickness: s.upperLeg, meridian: UP },
+      wall: { surface: cylinderSurface(upperMid), thickness: s.upperLeg, meridian: UP },
     },
     landmarks: ringLandmarks(s),
-    host: {
-      anchor: 'shell_side',
-      offsetRange: [s.apex, s.top],
-      defaultOffset: (s.apex + s.top) / 2,
-      outsideRadius: R,
-      course,
-      sideOf(point) {
-        const rho = Math.hypot(point[0], point[1]);
-        return Math.abs(rho - R) < Math.abs(rho - a) ? 'outside' : 'inside';
-      },
-      frameAt(offset: number, azimuth: number): HostFrame {
-        const phi = azimuth * DEG;
-        return {
-          origin: [R * Math.cos(phi), R * Math.sin(phi), offset],
-          axis: [Math.cos(phi), Math.sin(phi), 0],
-          wall: s.upperLeg,
-        };
-      },
-      cavity() {
-        cavity ??= context.kernel.revolve({
-          start: [0, s.bottom - a],
-          steps: [line(a, s.bottom - a), line(a, s.top + a), line(0, s.top + a)],
-        });
-        return cavity;
-      },
-      wallAt: () => ({ surface: upperSurface, thickness: s.upperLeg, meridian: UP }),
-      seat: {
-        z: s.bottom,
-        insideRadius: R - s.skirtLeg,
-        outsideRadius: R,
-        wall: { surface: cylinderSurface(skirtMid), thickness: s.skirtLeg, meridian: DOWN },
-      },
-    },
+    host: ringHost(context, a, R, s.upperLeg, s.skirtLeg, s.bottom, s.apex, s.top),
     // The head leg's mid-surface up to the crotch, then the upper leg's; the skirt leg branches off.
     meridian: [
       [headMid, 0],
@@ -253,6 +286,237 @@ export const forgedTransitionRing: RunBuilder = (component, context: RunContext)
       [upperMid, s.apex],
       [upperMid, s.top],
     ],
+    crotch: {
+      apexZ: s.apex,
+      meridianPoint: [headMid, s.apex],
+      below: { radius: headMid, thickness: s.headLeg },
+      above: { radius: upperMid, thickness: s.upperLeg },
+    },
     notes,
   };
 };
+
+/**
+ * A ring that carries its head's straight flange and the first part of its knuckle (ENSA's
+ * general arrangement): the bore runs down to the head's tangent line inside the ring, the inner
+ * face then follows the head's inner surface to a seam drawn normal to the wall at `s` along the
+ * head's mid-surface, and the slot is bounded by the skirt leg's inner face and the head's OUTER
+ * surface — the flange's above the tangent line, the knuckle's below it — closing at the tip
+ * with a flat top and two corner radii.
+ *
+ * The head's radii and thickness are the head's own, read from the head below in the run; the
+ * ring states only where its tangent line and its seam are. Frame: z = 0 at the tangent line,
+ * which is where the head below, drawn from its seam, keeps its own z = 0.
+ */
+function carryingRing(component: ComponentDefinition, context: RunContext, tangentHeight: number, seamDistance: number): RunPart {
+  const notes: Note[] = [];
+  const diameter = requireDimension(component, Sym.INSIDE_DIAMETER);
+  const upperLeg = requireDimension(component, Sym.THICKNESS);
+  const height = requireDimension(component, Sym.TRANSITION_RING_HEIGHT);
+  const headLeg = requireDimension(component, Sym.HEAD_LEG_THICKNESS);
+  const skirtLeg = requireDimension(component, Sym.SKIRT_LEG_THICKNESS);
+  const rc = requireDimension(component, Sym.CROTCH_RADIUS);
+  if (signedDimension(component, Sym.HEAD_JOINT_HEIGHT) !== undefined) {
+    throw new BuildError(
+      component,
+      'carries its head to an inclined seam, so it has no flat head joint to put a height on',
+      scope('out_of_scope', Sym.HEAD_JOINT_HEIGHT, `not stated with ${Sym.HEAD_SEAM_DISTANCE}`, `${component.dimensions[Sym.HEAD_JOINT_HEIGHT]}`)
+    );
+  }
+  const head = context.headBelow;
+  if (!head) {
+    throw new BuildError(
+      component,
+      "carries a head's flange and knuckle, and no torispherical head closes the run below it",
+      scope('out_of_scope', 'head below', 'a torispherical head closing the bottom of the run', 'none')
+    );
+  }
+  if (Math.abs(head.insideDiameter - diameter) > 1e-6 * diameter) {
+    throw new BuildError(
+      component,
+      `carries a ${mm(head.insideDiameter)} head on a ${mm(diameter)} bore`,
+      scope('mismatch', Sym.INSIDE_DIAMETER, `${mm(head.insideDiameter)}, the head's`, mm(diameter))
+    );
+  }
+  if (!(tangentHeight > 0 && tangentHeight < height)) {
+    throw new BuildError(
+      component,
+      `has the head's tangent line ${mm(tangentHeight)} above its bottom face, outside its ${mm(height)} height`,
+      scope('out_of_scope', Sym.TANGENT_LINE_HEIGHT, `> 0 and < ${mm(height)}`, mm(tangentHeight))
+    );
+  }
+
+  let crotchHeight = signedDimension(component, Sym.CROTCH_HEIGHT);
+  if (crotchHeight === undefined) {
+    crotchHeight = height / 2;
+    notes.push(
+      analysisNote(
+        `Crotch height not stated — the crotch drawn at mid-height, ${mm(crotchHeight)} above the bottom face`,
+        Sym.CROTCH_HEIGHT,
+        scope('assumed', Sym.CROTCH_HEIGHT, 'stated', `not stated — drawn ${mm(crotchHeight)}, half the ring's height`)
+      )
+    );
+  }
+  if (!(crotchHeight >= rc && crotchHeight < height)) {
+    throw new BuildError(
+      component,
+      `has its crotch ${mm(crotchHeight)} above its bottom face, outside ${mm(rc)} to ${mm(height)}`,
+      scope('out_of_scope', Sym.CROTCH_HEIGHT, `≥ ${mm(rc)}, the crotch radius, and < ${mm(height)}, the top`, mm(crotchHeight))
+    );
+  }
+
+  const a = diameter / 2;
+  const R = a + upperLeg;
+  const rk = head.knuckleRadius;
+  const xc = a - rk;
+  const zcCrown = -Math.sqrt((head.crownRadius - rk) ** 2 - xc ** 2);
+  const beta = Math.atan2(-zcCrown, xc);
+  // The seam angle is the head's own: s along ITS mid-surface, whatever the ring's leg.
+  const meanHead = rk + head.thickness / 2;
+  const phiS = seamDistance / meanHead;
+  if (!(seamDistance > 0) || !(phiS < beta)) {
+    throw new BuildError(
+      component,
+      `puts the seam ${mm(seamDistance)} along a knuckle ${mm(meanHead * beta)} long at mid-wall`,
+      scope('out_of_scope', Sym.HEAD_SEAM_DISTANCE, `> 0 and < ${mm(meanHead * beta)}, on the knuckle`, mm(seamDistance))
+    );
+  }
+
+  // In the ring's frame the knuckle runs DOWN from the tangent line at z = 0.
+  const on = (r: number, phi: number): Point2 => [xc + r * Math.cos(phi), -r * Math.sin(phi)];
+  const rko = rk + headLeg;
+  const bottom = -tangentHeight;
+  const top = height - tangentHeight;
+  const tip = crotchHeight - tangentHeight;
+  const xs = R - skirtLeg;
+  const z0 = tip - rc;
+
+  // The root's corner on the head side: against the flange's outer face above the tangent
+  // line, against the knuckle's outer surface below it.
+  let cx: number;
+  let contact: Point2;
+  let phiContact = 0;
+  if (z0 >= 0) {
+    cx = a + headLeg + rc;
+    contact = [a + headLeg, z0];
+  } else {
+    const reach = rko + rc;
+    if (-z0 >= reach) {
+      throw new BuildError(
+        component,
+        `has its crotch ${mm(-tip)} below the tangent line, past the head's knuckle`,
+        scope('out_of_scope', Sym.CROTCH_HEIGHT, `> ${mm(tangentHeight - reach + rc)}`, mm(crotchHeight))
+      );
+    }
+    cx = xc + Math.sqrt(reach ** 2 - z0 ** 2);
+    contact = [xc + (rko * (cx - xc)) / reach, (rko * z0) / reach];
+    phiContact = Math.atan2(-z0, cx - xc);
+    if (!(phiContact < phiS)) {
+      throw new BuildError(
+        component,
+        "has its crotch's root below the seam: the slot would cut into the head",
+        scope('out_of_scope', Sym.CROTCH_HEIGHT, 'its root above the seam', mm(crotchHeight))
+      );
+    }
+  }
+  if (cx > xs - rc + 1e-9) {
+    const width = xs - (cx - rc);
+    throw new BuildError(
+      component,
+      `has a ${mm(width)} slot top at its crotch, too narrow for a ${mm(rc)} crotch radius`,
+      scope('out_of_scope', Sym.CROTCH_RADIUS, `≤ ${mm(width / 2)}, half the slot's top`, mm(rc))
+    );
+  }
+
+  const seamInside = on(rk, phiS);
+  const seamOutside = on(rko, phiS);
+  const h = Math.SQRT1_2 * rc;
+  let theta = Math.atan2(contact[1] - z0, contact[0] - cx);
+  if (theta < 0) theta += 2 * Math.PI;
+  const rootMid = (theta + Math.PI / 2) / 2;
+  const steps: ProfileStep[] = [line(seamOutside[0], seamOutside[1])];
+  if (z0 >= 0) {
+    steps.push({ kind: 'arc', to: [a + headLeg, 0], through: on(rko, phiS / 2) }, line(a + headLeg, z0));
+  } else {
+    steps.push({ kind: 'arc', to: contact, through: on(rko, (phiS + phiContact) / 2) });
+  }
+  steps.push(
+    { kind: 'arc', to: [cx, tip], through: [cx + rc * Math.cos(rootMid), z0 + rc * Math.sin(rootMid)] },
+    line(xs - rc, tip),
+    { kind: 'arc', to: [xs, z0], through: [xs - rc + h, z0 + h] },
+    line(xs, bottom),
+    line(R, bottom),
+    line(R, top),
+    line(a, top),
+    line(a, 0),
+    { kind: 'arc', to: seamInside, through: on(rk, phiS / 2) }
+  );
+
+  const headMid = a + headLeg / 2;
+  const upperMid = a + upperLeg / 2;
+  const apex = Math.max(tip, 0);
+  const meanRing = rk + headLeg / 2;
+  const meanSeam = xc + meanRing * Math.cos(phiS);
+  const landmarks: Landmark[] = [
+    { key: 'lower-inside', z: seamInside[1], diameter: 2 * seamInside[0], role: 'Seam to the head (inside)', junction: 'lower' },
+    { key: 'lower-outside', z: seamOutside[1], diameter: 2 * seamOutside[0], role: 'Seam to the head (outside)', junction: 'lower' },
+    { key: 'upper-inside', z: top, diameter: 2 * a, role: 'Course joint (inside)', junction: 'upper' },
+    { key: 'upper-outside', z: top, diameter: 2 * R, role: 'Course joint (outside)', junction: 'upper' },
+    { key: 'tangent-inside', z: 0, diameter: 2 * a, role: "Head's tangent line (inside)" },
+    { key: 'skirt-leg-inside', z: bottom, diameter: 2 * xs, role: 'Skirt joint (inside)' },
+    { key: 'skirt-leg-outside', z: bottom, diameter: 2 * R, role: 'Skirt joint (outside)' },
+  ];
+  if (z0 > 1e-9) landmarks.push({ key: 'tangent-outside', z: 0, diameter: 2 * (a + headLeg), role: "Head's tangent line (outside)" });
+  if (z0 > 1e-9 || z0 < -1e-9) {
+    landmarks.push({ key: 'crotch-head-leg', z: contact[1], diameter: 2 * contact[0], role: 'Crotch tangent line (head side)' });
+  }
+  if (z0 - bottom > 1e-9) landmarks.push({ key: 'crotch-skirt-leg', z: z0, diameter: 2 * xs, role: 'Crotch tangent line (skirt leg)' });
+  if (xs - rc - cx > 1e-9) {
+    landmarks.push(
+      { key: 'crotch-apex-inner', z: tip, diameter: 2 * cx, role: 'Crotch apex, head side' },
+      { key: 'crotch-apex-outer', z: tip, diameter: 2 * (xs - rc), role: 'Crotch apex, skirt side' }
+    );
+  } else {
+    landmarks.push({ key: 'crotch-apex', z: tip, diameter: 2 * cx, role: 'Crotch apex' });
+  }
+
+  return {
+    solid: context.kernel.revolve(section(seamInside, steps)),
+    height: top,
+    lower: {
+      insideDiameter: 2 * seamInside[0],
+      outsideDiameter: 2 * seamOutside[0],
+      straightLength: 0,
+      wall: {
+        surface: { kind: 'torus' as const, principalRadii: [meanRing, meanSeam / Math.cos(phiS)] as const },
+        thickness: headLeg,
+        // Away from the ring: on along the knuckle, down and in.
+        meridian: [-Math.sin(phiS), -Math.cos(phiS)] as Point2,
+      },
+    },
+    upper: {
+      insideDiameter: 2 * a,
+      outsideDiameter: 2 * R,
+      straightLength: top - apex,
+      wall: { surface: cylinderSurface(upperMid), thickness: upperLeg, meridian: UP },
+    },
+    landmarks,
+    host: ringHost(context, a, R, upperLeg, skirtLeg, bottom, apex, top),
+    // From the seam back up the knuckle's mid-surface to the tangent line, up the flange to the
+    // crotch, then the upper leg's; the skirt leg branches off at the crotch.
+    meridian: [
+      ...Array.from({ length: 17 }, (_, i) => on(meanRing, phiS * (1 - i / 16))),
+      [headMid, apex] as Point2,
+      [upperMid, apex] as Point2,
+      [upperMid, top] as Point2,
+    ].filter((p, i, all) => i === 0 || Math.hypot(p[0] - all[i - 1][0], p[1] - all[i - 1][1]) > 1e-9),
+    crotch: {
+      apexZ: tip,
+      meridianPoint: [headMid, apex] as Point2,
+      below: { radius: headMid, thickness: headLeg },
+      above: { radius: upperMid, thickness: upperLeg },
+    },
+    carriedTangentLine: { z: 0, meridianPoint: [headMid, 0] as Point2, radius: headMid, thickness: headLeg },
+    notes,
+  };
+}

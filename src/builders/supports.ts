@@ -309,6 +309,7 @@ export const skirtSupport: MountedBuilder = (component, context) => {
   return {
     solids: [skirt, ...solids, ...skirtBase(component, kernel, a, outer, end, -1, notes)],
     footprint: 0,
+    standsAt: standsAt(component, end, -1),
     attachment,
     notes,
   };
@@ -375,6 +376,15 @@ function skirtOpenings(
  * between bolts when `b_6` is not stated (Version A) and a pair flanking each bolt when it is (B).
  * `away` leads off the skirt's free end `end` into the foundation; the plate lies beyond it.
  */
+/**
+ * Where a skirt stands, along its host's axis: the underside of its base plate when one is
+ * drawn, its free end otherwise — the plane a fixed support is applied on.
+ */
+function standsAt(component: ComponentDefinition, end: number, away: 1 | -1): number {
+  if (signedDimension(component, Sym.SKIRT_BASE_TYPE) === undefined) return end;
+  return end + away * (optionalDimension(component, Sym.BASE_PLATE_THICKNESS) ?? 0);
+}
+
 function skirtBase(
   component: ComponentDefinition,
   kernel: GeometryKernel,
@@ -545,6 +555,7 @@ function skirtOnSeat(component: ComponentDefinition, context: MountedContext, se
   return {
     solids: [skirt, ...skirtBase(component, kernel, inner, outer, end, -1, notes)],
     footprint: 0,
+    standsAt: standsAt(component, end, -1),
     butt: {
       z: seat.z,
       insideRadius: inner,
@@ -612,6 +623,7 @@ function skirtOnHead(component: ComponentDefinition, context: MountedContext): M
   return {
     solids: [skirt, ...skirtBase(component, kernel, inner, outer, weld + length, 1, notes)],
     footprint: 0,
+    standsAt: standsAt(component, weld + length, 1),
     attachment: { axial: thickness, circumferentialDeg: 360, thickness },
     anchorOffset: middle,
     notes,

@@ -274,7 +274,10 @@ export function describePart(
     let dimension: EntityDimension | undefined;
     let role: string | undefined;
 
-    if (face.surface === 'cylinder' && smallest !== undefined) {
+    if (face.surface === 'plane' && part.standsAt !== undefined && Math.abs(face.center[2] - part.standsAt) < epsilon) {
+      // The plane a skirt stands on: what a fixed support is applied to.
+      role = 'Skirt base';
+    } else if (face.surface === 'cylinder' && smallest !== undefined) {
       dimension = { label: 'Diameter', value: 2 * smallest };
       const opening = part.openings.find(
         (o) => Math.abs(o.radius - smallest) < epsilon && Math.abs(distanceToAxis(face.center, o.frame.origin, o.frame.axis) - o.radius) < epsilon
