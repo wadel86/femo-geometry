@@ -309,6 +309,27 @@ test('a crotch above the tangent line closes against the flange instead', () => 
   assert.equal(geometry.refusals.length, 0, JSON.stringify(geometry.refusals));
 });
 
+test('with no crotch height the root is a full round, tangent to the skirt leg and the knuckle', () => {
+  const { crotch_height: _, ...unsaid } = CARRYING;
+  const { model, geometry } = build(carried(unsaid));
+  assert.equal(model.parts.find((p) => p.componentId === 'R')!.status, 'drawn');
+  assert.equal(geometry.refusals.length, 0, JSON.stringify(geometry.refusals));
+  // Skirt leg inner face 1070, the round's centre 15 inside it; knuckle centre at 660, outer 400.
+  const z0 = -Math.sqrt((400 + 15) ** 2 - (1070 - 15 - 660) ** 2);
+  const ring = geometry.parts.find((p) => p.componentId === 'R')!;
+  const refs = new Set(ring.edges.map((e) => e.ref));
+  assert.ok(refs.has('R/landmark/crotch-apex'), [...refs].join(', '));
+  assert.ok(!refs.has('R/landmark/crotch-apex-inner'));
+  const built = model.parts.find((p) => p.componentId === 'R')!;
+  const apex = built.landmarks!.find((l) => l.key === 'crotch-apex')!;
+  close(apex.z, z0 + 15, 1e-6);
+  close(apex.diameter, 2 * 1055, 1e-6);
+  // A slot wider than the round at the tangent line has no full round: 10 mm against 2 × 4.
+  const wide = build(carried({ ...unsaid, crotch_radius: 4 })).model.parts.find((p) => p.componentId === 'R')!;
+  assert.equal(wide.status, 'failed');
+  assert.equal(wide.scope?.parameter, 'crotch_radius', wide.message);
+});
+
 test('a carrying ring states both of its two dimensions, on a torispherical head, and its seam on the knuckle', () => {
   const { tangent_line_height: _t, ...seamOnly } = CARRYING;
   const cases: [Record<string, number>, Record<string, number>, string, string][] = [

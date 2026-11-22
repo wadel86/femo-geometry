@@ -356,6 +356,8 @@ export const Sym = {
   BOSS_BREAK_RADIUS: 'boss_break_radius',
   /** The fillet from the cone into the spigot; absent, sharp. */
   BOSS_NECK_RADIUS: 'boss_neck_radius',
+  /** The round on the bore's edge at the head's inner surface; absent, sharp. */
+  BOSS_BORE_EDGE_RADIUS: 'boss_bore_edge_radius',
 } as const;
 
 /**

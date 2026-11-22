@@ -105,6 +105,14 @@ const EDGE_TITLES: Record<EdgeInfo['curve'], string> = {
   other: 'Edge',
 };
 
+/**
+ * Whether a conical face is a conical opening's wall: a face of revolution about the opening's
+ * own axis reports its centroid on that axis.
+ */
+function conicalWall(opening: Opening, centroid: Vec3, epsilon: number): boolean {
+  return distanceToAxis(centroid, opening.frame.origin, opening.frame.axis) < epsilon;
+}
+
 const FACE_TITLES: Record<FaceInfo['surface'], string> = {
   plane: 'Planar face',
   cylinder: 'Cylindrical face',
@@ -144,13 +152,18 @@ export function describePart(
     if (hiddenIds.has(edge.id)) continue;
     // On the opening's cylinder AND within the depth its tool cut: two necks on one line — at
     // 0° and 180° on one course — share an axis, and only the depth tells their edges apart.
+    // A conical cut has a second radius, on the inside surface.
+    const onOpening = (opening: Opening, point: Vec3): boolean => {
+      const off = distanceToAxis(point, opening.frame.origin, opening.frame.axis);
+      return (
+        Math.abs(off - opening.radius) < epsilon ||
+        (opening.insideRadius !== undefined && Math.abs(off - opening.insideRadius) < epsilon)
+      );
+    };
     const matches = part.openings.filter((opening) =>
       [edge.start, edge.middle, edge.end].every((point) => {
         const along = dot(sub(point, opening.frame.origin), opening.frame.axis);
-        return (
-          along > -opening.depth - epsilon &&
-          Math.abs(distanceToAxis(point, opening.frame.origin, opening.frame.axis) - opening.radius) < epsilon
-        );
+        return along > -opening.depth - epsilon && onOpening(opening, point);
       })
     );
     if (matches.length > 1) {
@@ -198,7 +211,10 @@ export function describePart(
         componentId: part.componentId,
         entity: 'edge',
         title,
-        dimension: { label: 'Opening diameter', value: 2 * opening.opening.radius },
+        dimension: {
+          label: 'Opening diameter',
+          value: 2 * (opening.side === 'inside' ? (opening.opening.insideRadius ?? opening.opening.radius) : opening.opening.radius),
+        },
         role: `Opening edge of ${opening.opening.name} on ${part.name} (${opening.side} surface)`,
       };
     }
@@ -292,6 +308,13 @@ export function describePart(
         const landmark = part.landmarks.find((l) => Math.abs(l.diameter - 2 * smallest) < epsilon);
         if (landmark) role = landmark.key.endsWith('outside') ? 'Outside surface' : 'Inside surface';
       }
+    } else if (
+      face.surface === 'cone' &&
+      part.openings.some((o) => o.insideRadius !== undefined && conicalWall(o, face.center, epsilon))
+    ) {
+      // A conical cut through the wall: a boss's joint face, normal to the plate.
+      const opening = part.openings.find((o) => o.insideRadius !== undefined && conicalWall(o, face.center, epsilon))!;
+      role = `Opening wall of ${opening.name}`;
     } else if (face.surface === 'sphere' && smallest !== undefined) {
       dimension = { label: 'Radius', value: smallest };
       role = part.kind === 'spherical_shell' ? 'Shell' : 'Crown';

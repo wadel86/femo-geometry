@@ -152,6 +152,7 @@ const carryingVessel = () =>
 const POLE_BOSS = {
   boss_disc_diameter: 400, boss_outside_diameter: 280, boss_pipe_outside_diameter: 170, boss_bore_diameter: 120,
   boss_height: 300, boss_cone_height: 150, boss_cone_angle: 45, boss_root_radius: 8, boss_break_radius: 4, boss_neck_radius: 6,
+  boss_bore_edge_radius: 5,
 };
 
 // A short course: every turn of the helix is a sweep, and a long one takes seconds each.
@@ -426,7 +427,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       "ENSA's arrangement: the bore runs down to the head's tangent line INSIDE the ring, the ring carries the head's straight flange and the first part of its knuckle " +
       'to a seam drawn normal to the wall at head_seam_distance along the head\'s mid-surface, and the head below is drawn from that seam on. The ring reads the head\'s ' +
       'radii and thickness from the head itself. The slot is bounded by the skirt leg and the head\'s OUTER surface — the knuckle\'s here, its root below the tangent line — ' +
-      "closing with a flat top and two corner radii. The run joint is an inclined butt weld on a torus; the head's tangent line is the ring's discontinuity, its crown-to-knuckle junction the head's",
+      "closing with a flat top and two corner radii, or — crotch height not stated — with a full round tangent to both sides. The run joint is an inclined butt weld on a torus; the head's tangent line is the ring's discontinuity, its crown-to-knuckle junction the head's",
   },
   {
     id: 'head_pole_boss', article: '§4.5', title: 'Forged boss set into a head at its pole', entry: 'component', status: 'captured',
@@ -434,14 +435,15 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     specimen: vessel([run('H', Kind.TORISPHERICAL_HEAD, 0, TORISPHERE), course('S', 1), on('M', Kind.HEAD_POLE_BOSS, 'H', POLE_BOSS)], { M: crown(0) }),
     parameters: [
       Sym.BOSS_DISC_DIAMETER, Sym.BOSS_OUTSIDE_DIAMETER, Sym.BOSS_PIPE_OUTSIDE_DIAMETER, Sym.BOSS_BORE_DIAMETER, Sym.BOSS_HEIGHT, Sym.BOSS_CONE_HEIGHT,
-      Sym.BOSS_CONE_ANGLE, Sym.BOSS_ROOT_RADIUS, Sym.BOSS_BREAK_RADIUS, Sym.BOSS_NECK_RADIUS,
+      Sym.BOSS_CONE_ANGLE, Sym.BOSS_ROOT_RADIUS, Sym.BOSS_BREAK_RADIUS, Sym.BOSS_NECK_RADIUS, Sym.BOSS_BORE_EDGE_RADIUS,
     ],
     ports: ['neck:host-end', 'neck:outer-end'],
     joint: { kind: 'butt_weld', between: ['H', 'M'], ports: ['opening:M', 'neck:host-end'] },
     note:
       'Draft kind until DBR names it. A SET-IN forging, not a nozzle through an intact head: a disc of the head\'s full thickness replaces a patch of the crown and is ' +
-      'butt-welded into the plate at its diameter (the joint face drawn parallel to the axis); out of it stand a cylinder with a root fillet, a break radius into a cone, ' +
-      "and a fillet into the spigot the pipe butt-welds onto. Heights run from the spigot's end; the cone's angle fixes the spigot's length. On a spherical crown only",
+      'butt-welded into the plate on a joint face normal to the wall — a cone through the sphere\'s centre, the disc diameter measured on the outer surface; ' +
+      'out of it stand a cylinder with a root fillet, a break radius into a cone, ' +
+      "and a fillet into the spigot the pipe butt-welds onto; the bore's edge on the inner surface may be rounded. Heights run from the spigot's end; the cone's angle fixes the spigot's length. On a spherical crown only",
   },
   {
     id: 'skirt_support.transition_ring', article: '§4.15.4', title: 'Skirt on a forged transition ring', entry: 'joint', status: 'captured',

@@ -22,6 +22,7 @@ const BOSS = {
   boss_root_radius: 30,
   boss_break_radius: 10,
   boss_neck_radius: 15,
+  boss_bore_edge_radius: 8,
 };
 const pole: Placement = { anchor: 'head_crown', axialOffset: 0, azimuth: 0 };
 
@@ -84,12 +85,41 @@ test('on the top head, crown up, the boss stands above it', () => {
   assert.equal(boss.transform.flipped, false);
 });
 
-test('what is not stated is drawn and said: the cone angle, the root, the break and the neck', () => {
-  const { boss_cone_angle: _a, boss_root_radius: _r, boss_break_radius: _b, boss_neck_radius: _n, ...bare } = BOSS;
+test('the joint face is normal to the wall: a cone through the sphere centre, the disc diameter on the outer surface', () => {
+  const { model, geometry } = build(vessel());
+  const head = geometry.parts.find((p) => p.componentId === 'H1')!;
+  const diameterOf = (side: string) => 2 * head.edges.find((e) => e.ref === `H1/opening/B/${side}`)!.radius!;
+  // Outer sphere 1860, inner 1800: the inside edge is smaller by exactly their ratio.
+  close(diameterOf('outside'), 500, 1e-3);
+  close(diameterOf('inside'), (500 * 1800) / 1860, 1e-3);
+  assert.ok(head.faces.some((f) => f.role === 'Opening wall of B'), 'the conical cut is not named');
+  // The boss fills the hole exactly: head cut + boss's disc = the uncut head, so the two share
+  // no metal and leave no gap — measured as boss + cut head against uncut head + what stands out.
+  const uncut = build({ ...vessel(), components: vessel().components.filter((c) => c.id !== 'B') });
+  const cutHead = kernel.volume(model.parts.find((p) => p.componentId === 'H1')!.solids[0]);
+  const wholeHead = kernel.volume(uncut.model.parts.find((p) => p.componentId === 'H1')!.solids[0]);
+  const disc = wholeHead - cutHead;
+  // A spherical-shell cap between two cones' worth of solid angle: (2π/3)(1 − cos θ)(outer³ − inner³).
+  const theta = Math.asin(250 / 1860);
+  close(disc, ((2 * Math.PI) / 3) * (1 - Math.cos(theta)) * (1860 ** 3 - 1800 ** 3), 1e-6 * disc);
+});
+
+test("the bore's edge on the inner surface is rounded when stated, and refused when the round would reach the joint", () => {
+  const sharp = build(vessel({ ...BOSS, boss_bore_edge_radius: 0 }));
+  const round = build(vessel());
+  const volume = (built: ReturnType<typeof build>) => kernel.volume(built.model.parts.find((p) => p.componentId === 'B')!.solids[0]);
+  assert.ok(volume(round) < volume(sharp), 'a round takes metal off the corner');
+  const tooBig = build(vessel({ ...BOSS, boss_bore_edge_radius: 400 })).model.parts.find((p) => p.componentId === 'B')!;
+  assert.equal(tooBig.status, 'failed');
+  assert.equal(tooBig.scope?.parameter, 'boss_bore_edge_radius', tooBig.message);
+});
+
+test('what is not stated is drawn and said: the cone angle, the root, the break, the neck and the bore edge', () => {
+  const { boss_cone_angle: _a, boss_root_radius: _r, boss_break_radius: _b, boss_neck_radius: _n, boss_bore_edge_radius: _e, ...bare } = BOSS;
   const { model, geometry } = build(vessel(bare));
   assert.equal(model.parts.find((p) => p.componentId === 'B')!.status, 'drawn');
   const said = geometry.refusals.filter((r) => r.componentId === 'B').map((r) => r.parameter).sort();
-  assert.deepEqual(said, ['boss_break_radius', 'boss_cone_angle', 'boss_neck_radius', 'boss_root_radius']);
+  assert.deepEqual(said, ['boss_bore_edge_radius', 'boss_break_radius', 'boss_cone_angle', 'boss_neck_radius', 'boss_root_radius']);
 });
 
 test('a boss off the pole, past the crown, or with no room for its spigot is refused', () => {

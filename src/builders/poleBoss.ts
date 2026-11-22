@@ -9,8 +9,10 @@
 // The cone's angle fixes the spigot's length, so the spigot is not stated.
 //
 // One revolved profile in the head's frame, crown up: the boss is a body of revolution about the
-// vessel axis, so it stands on the pole and nowhere else. The joint face to the plate is drawn as
-// a cylinder of the disc's diameter, parallel to the axis.
+// vessel axis, so it stands on the pole and nowhere else. The joint face to the plate is normal to
+// the wall — a cone through the sphere's centre — so the butt weld is square to the plate; the
+// disc's diameter is the joint's on the OUTER surface, and on the inner one it is smaller by
+// inner/outer. The bore's edge on the inner surface may be rounded.
 import {
   BuildError,
   Sym,
@@ -97,6 +99,8 @@ export const headPoleBoss: MountedBuilder = (component, context) => {
   const neckRadius = optionalDimension(component, Sym.BOSS_NECK_RADIUS) ?? 0;
   if (breakRadius === 0) notes.push(assumedNote('Cylinder-to-cone break radius not stated — drawn sharp', Sym.BOSS_BREAK_RADIUS, 'sharp'));
   if (neckRadius === 0) notes.push(assumedNote('Cone-to-spigot fillet radius not stated — drawn sharp', Sym.BOSS_NECK_RADIUS, 'sharp'));
+  const boreEdge = optionalDimension(component, Sym.BOSS_BORE_EDGE_RADIUS) ?? 0;
+  if (boreEdge === 0) notes.push(assumedNote("Bore edge radius on the head's inner surface not stated — drawn sharp", Sym.BOSS_BORE_EDGE_RADIUS, 'sharp'));
 
   if (!(ri < rp && rp < rb && rb < rd)) {
     throw new BuildError(
@@ -150,13 +154,38 @@ export const headPoleBoss: MountedBuilder = (component, context) => {
     );
   }
 
+  // The joint face, on the radius from the sphere's centre through the disc's outer corner.
+  const centre: Vec = [0, zCentre];
+  const jointOut: Vec = [rd, zOut(rd)];
+  const jointIn = add(centre, [jointOut[0], jointOut[1] - zCentre], inner / outer);
+
+  // The bore's edge: a round tangent to the bore and to the inner sphere, inside the metal.
+  let start: Vec = [ri, zIn(ri)];
+  const edgeSteps: ProfileStep[] = [];
+  let innerFrom = ri;
+  if (boreEdge > 0) {
+    const c: Vec = [ri + boreEdge, zCentre + Math.sqrt((inner + boreEdge) ** 2 - (ri + boreEdge) ** 2)];
+    const onInner = add(centre, [c[0], c[1] - zCentre], inner / (inner + boreEdge));
+    if (!(onInner[0] < jointIn[0])) {
+      throw new BuildError(
+        component,
+        `has a ${mm(boreEdge)} bore edge radius reaching past its joint face`,
+        scope('out_of_scope', Sym.BOSS_BORE_EDGE_RADIUS, 'small enough to stay on the disc', mm(boreEdge))
+      );
+    }
+    start = [ri, c[1]];
+    edgeSteps.push({ kind: 'arc', to: onInner, through: add(c, unit([ri - c[0], zIn(ri) - c[1]]), boreEdge) });
+    innerFrom = onInner[0];
+  }
+
   const arcThrough = (to: Vec, through: Vec): ProfileStep => ({ kind: 'arc', to, through });
   const line = (to: Vec): ProfileStep => ({ kind: 'line', to });
-  const midIn = (ri + rd) / 2;
+  const midIn = (innerFrom + jointIn[0]) / 2;
   const midOut = (rd + onSphere[0]) / 2;
   const steps: ProfileStep[] = [
-    arcThrough([rd, zIn(rd)], [midIn, zIn(midIn)]),
-    line([rd, zOut(rd)]),
+    ...edgeSteps,
+    arcThrough(jointIn, [midIn, zIn(midIn)]),
+    line(jointOut),
     arcThrough(onSphere, [midOut, zOut(midOut)]),
     arcThrough(onCylinder, rootMid),
     line([rb, cylinderTop]),
@@ -166,13 +195,23 @@ export const headPoleBoss: MountedBuilder = (component, context) => {
     line([rp, end]),
     line([ri, end]),
   ];
-  const boss = kernel.revolve({ start: [ri, zIn(ri)], steps });
+  const boss = kernel.revolve({ start, steps });
 
+  // The plate is cut by exactly the disc: its faces on the head's own spheres, so the cut's edges
+  // are the disc's circles rather than a cone-sphere intersection the kernel would fit a spline to.
   const frame = hostSurface.frameAt(0, 0);
   const through = frame.wall + 2 * rd + 1;
+  const tool = kernel.revolve({
+    start: [0, zIn(0)],
+    steps: [
+      arcThrough(jointIn, [jointIn[0] / 2, zIn(jointIn[0] / 2)]),
+      line(jointOut),
+      arcThrough([0, zOut(0)], [rd / 2, zOut(rd / 2)]),
+    ],
+  });
   const part: MountedPart = {
     solids: [boss],
-    opening: { tool: kernel.tube(frame, 0, rd, -through, 2 * rd + 10), frame, radius: rd, depth: through },
+    opening: { tool, frame, radius: rd, insideRadius: jointIn[0], depth: through },
     footprint: rd,
     neck: {
       insideRadius: ri,

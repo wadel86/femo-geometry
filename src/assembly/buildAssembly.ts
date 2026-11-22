@@ -65,6 +65,8 @@ export interface Opening {
   readonly name: string;
   readonly frame: HostFrame;
   readonly radius: number;
+  /** Its radius on the host's inside surface, where that differs from `radius`: a conical cut. */
+  readonly insideRadius?: number;
   /** How far into the host, along the axis from the frame's origin, the opening was cut. */
   readonly depth: number;
   /** Which surface of the host a point of the opening lies on. */
@@ -424,6 +426,7 @@ export class AssemblyBuilder {
             name: component.name,
             frame: mounted.opening.frame,
             radius: mounted.opening.radius,
+            ...(mounted.opening.insideRadius !== undefined ? { insideRadius: mounted.opening.insideRadius } : {}),
             depth: mounted.opening.depth,
             sideOf: host.part.host.sideOf,
           },

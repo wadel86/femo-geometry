@@ -302,7 +302,8 @@ export const forgedTransitionRing: RunBuilder = (component, context: RunContext)
  * face then follows the head's inner surface to a seam drawn normal to the wall at `s` along the
  * head's mid-surface, and the slot is bounded by the skirt leg's inner face and the head's OUTER
  * surface — the flange's above the tangent line, the knuckle's below it — closing at the tip
- * with a flat top and two corner radii.
+ * with a flat top and two corner radii where the crotch height is stated, and with a full round
+ * tangent to both sides where it is not.
  *
  * The head's radii and thickness are the head's own, read from the head below in the run; the
  * ring states only where its tangent line and its seam are. Frame: z = 0 at the tangent line,
@@ -346,16 +347,28 @@ function carryingRing(component: ComponentDefinition, context: RunContext, tange
     );
   }
 
+  const a = diameter / 2;
+  const R = a + upperLeg;
+  const rk = head.knuckleRadius;
+  const xc = a - rk;
+  const rko = rk + headLeg;
+  const xs = R - skirtLeg;
+
+  // No crotch height: the root is a FULL ROUND, one radius tangent to the skirt leg's inner face
+  // and to the knuckle's outer surface with no flat between — which only exists where the slot
+  // at the tangent line is narrower than the round, so the round reaches down onto the knuckle.
   let crotchHeight = signedDimension(component, Sym.CROTCH_HEIGHT);
   if (crotchHeight === undefined) {
-    crotchHeight = height / 2;
-    notes.push(
-      analysisNote(
-        `Crotch height not stated — the crotch drawn at mid-height, ${mm(crotchHeight)} above the bottom face`,
-        Sym.CROTCH_HEIGHT,
-        scope('assumed', Sym.CROTCH_HEIGHT, 'stated', `not stated — drawn ${mm(crotchHeight)}, half the ring's height`)
-      )
-    );
+    const slotAtTangent = xs - (a + headLeg);
+    if (!(slotAtTangent <= 2 * rc + 1e-9)) {
+      throw new BuildError(
+        component,
+        `states no crotch height, and a ${mm(rc)} full round cannot touch both sides of a slot ${mm(slotAtTangent)} wide at the tangent line`,
+        scope('out_of_scope', Sym.CROTCH_RADIUS, `≥ ${mm(slotAtTangent / 2)}, half the slot at the tangent line, for a full round`, mm(rc))
+      );
+    }
+    const z = -Math.sqrt(Math.max(0, (rko + rc) ** 2 - (xs - rc - xc) ** 2));
+    crotchHeight = tangentHeight + z + rc;
   }
   if (!(crotchHeight >= rc && crotchHeight < height)) {
     throw new BuildError(
@@ -365,10 +378,6 @@ function carryingRing(component: ComponentDefinition, context: RunContext, tange
     );
   }
 
-  const a = diameter / 2;
-  const R = a + upperLeg;
-  const rk = head.knuckleRadius;
-  const xc = a - rk;
   const zcCrown = -Math.sqrt((head.crownRadius - rk) ** 2 - xc ** 2);
   const beta = Math.atan2(-zcCrown, xc);
   // The seam angle is the head's own: s along ITS mid-surface, whatever the ring's leg.
@@ -384,11 +393,9 @@ function carryingRing(component: ComponentDefinition, context: RunContext, tange
 
   // In the ring's frame the knuckle runs DOWN from the tangent line at z = 0.
   const on = (r: number, phi: number): Point2 => [xc + r * Math.cos(phi), -r * Math.sin(phi)];
-  const rko = rk + headLeg;
   const bottom = -tangentHeight;
   const top = height - tangentHeight;
   const tip = crotchHeight - tangentHeight;
-  const xs = R - skirtLeg;
   const z0 = tip - rc;
 
   // The root's corner on the head side: against the flange's outer face above the tangent
@@ -440,9 +447,10 @@ function carryingRing(component: ComponentDefinition, context: RunContext, tange
   } else {
     steps.push({ kind: 'arc', to: contact, through: on(rko, (phiS + phiContact) / 2) });
   }
+  // A full round leaves no flat: its two arcs meet at the apex, which stays an edge to start from.
+  steps.push({ kind: 'arc', to: [cx, tip], through: [cx + rc * Math.cos(rootMid), z0 + rc * Math.sin(rootMid)] });
+  if (xs - rc - cx > 1e-9) steps.push(line(xs - rc, tip));
   steps.push(
-    { kind: 'arc', to: [cx, tip], through: [cx + rc * Math.cos(rootMid), z0 + rc * Math.sin(rootMid)] },
-    line(xs - rc, tip),
     { kind: 'arc', to: [xs, z0], through: [xs - rc + h, z0 + h] },
     line(xs, bottom),
     line(R, bottom),

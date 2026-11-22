@@ -224,6 +224,11 @@ export interface MountedPart {
     readonly tool: Solid;
     readonly frame: HostFrame;
     readonly radius: number;
+    /**
+     * For a hole whose wall is not parallel to its axis — a boss's joint face, a cone through the
+     * sphere's centre — its radius on the host's inside surface; `radius` is then the outside one.
+     */
+    readonly insideRadius?: number;
     /** How far into the host, along the axis from the frame's origin, the tool cuts. */
     readonly depth: number;
   };
