@@ -1535,9 +1535,19 @@ export const pipeBend: RunBuilder = (component, context) => {
   };
 };
 
+/**
+ * A valve body — RCC-M C3540: in the line, at the bore d_m near its weld ends and its minimum body
+ * wall. C3540 judges it on its pressure series and bore (Table C3542.1), never on a shape, so it
+ * is drawn as the short thick course those two fix — a globe or gate outline would be a drawing
+ * choice the engine reads nothing of. Its face-to-face length is `course_length`, drawn one bore
+ * long and noted where not stated; the rating table and the local bore are the engine's.
+ */
+export const valveBody: RunBuilder = (component, context) => cylindricalShell(component, context);
+
 export const RUN_BUILDERS: Readonly<Record<string, RunBuilder>> = {
   pipe_segment: pipeSegment,
   pipe_bend: pipeBend,
+  valve_body: valveBody,
   cylindrical_shell: cylindricalShell,
   conical_shell: conicalShell,
   spherical_shell: sphericalShell,

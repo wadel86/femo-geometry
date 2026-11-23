@@ -164,6 +164,7 @@ const REVOLVED: ReadonlySet<string> = new Set([
   Kind.TORISPHERICAL_HEAD,
   Kind.ELLIPSOIDAL_HEAD,
   Kind.PIPE_SEGMENT,
+  Kind.VALVE_BODY,
 ]);
 
 /**

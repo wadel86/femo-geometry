@@ -270,6 +270,22 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'drawn as a cylindrical course of bore D_o − 2·t_n, so it hosts a branch and meets a neighbour as a course does',
   },
   {
+    id: 'valve_body', article: 'RCC-M C3540', title: 'Valve body', entry: 'component', status: 'captured',
+    kinds: [Kind.VALVE_BODY, Kind.PIPE_SEGMENT], focus: 'V',
+    specimen: vessel([
+      run('P', Kind.PIPE_SEGMENT, 0, PIPE_DIMENSIONS),
+      run('V', Kind.VALVE_BODY, 1, { inside_diameter: 202.74, thickness: 22, course_length: 400 }),
+      run('Q', Kind.PIPE_SEGMENT, 2, PIPE_DIMENSIONS),
+    ]),
+    parameters: [Sym.INSIDE_DIAMETER, Sym.THICKNESS, Sym.COURSE_LENGTH],
+    ports: ['lower', 'upper'],
+    joint: { kind: 'butt_weld', between: ['P', 'V'], ports: ['upper', 'lower'] },
+    note:
+      'Draft kind until TRESCA DBR\'s VALVE_BODY reaches develop. C3540 judges a valve body on its pressure series and bore, never on a shape, so it is drawn as the short thick course ' +
+      'the bore d_m and the minimum body wall fix, between two pipes of the same bore; its welds to them taper the thicker body down to each pipe, as any two walls of unequal thickness do. ' +
+      'course_length is its face-to-face, drawn one bore long and noted where not stated; valve_rating_table and valve_local_bore are the engine\'s',
+  },
+  {
     id: 'pipe_bend', article: 'RCC-M C3642', title: 'Pipe bend', entry: 'component', status: 'captured',
     kinds: [Kind.PIPE_BEND, Kind.PIPE_SEGMENT], focus: 'B',
     specimen: vessel([

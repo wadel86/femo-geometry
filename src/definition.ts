@@ -93,6 +93,9 @@ export const Kind = {
   // A shell-and-tube exchanger's single-segmental baffles, the whole set as one part. No ASME
   // VIII-2 clause sizes a baffle; whether it becomes a `ComponentType` is TRESCA DBR's call.
   SEGMENTAL_BAFFLES: 'segmental_baffles',
+  // RCC-M C3540: a valve body in the line, judged on its pressure series and bore rather than a
+  // stress formula (TRESCA DBR, feat/rccm-c3540-valve-body). A draft until that reaches develop.
+  VALVE_BODY: 'valve_body',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -103,6 +106,7 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
   Kind.SEGMENTAL_BAFFLES,
+  Kind.VALVE_BODY,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
