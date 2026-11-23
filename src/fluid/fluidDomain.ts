@@ -33,6 +33,26 @@ export interface FluidFace {
   readonly surface: string;
   readonly area: number;
   readonly bounds: Bounds;
+  /**
+   * For a face of revolution, its axis (`origin` a point ON the axis, not a canonical one) and its
+   * radius — the finite principal radius at the face's middle. Two faces with parallel axes, each
+   * origin on the other's line and one radius lie on one surface: a set-in nozzle's end ring on the
+   * shell's cylinder is such a pair, kept as two faces because OCC does not merge them.
+   */
+  readonly axis?: { readonly origin: Vec3; readonly direction: Vec3 };
+  readonly radius?: number;
+}
+
+/** A domain face as the manifest carries it. */
+function fluidFace(f: { surface: string; area: number; bounds: Bounds; radii: readonly [number, number]; axis: { origin: Vec3; axis: Vec3 } | null }): FluidFace {
+  const finite = f.radii.filter(Number.isFinite);
+  return {
+    surface: f.surface,
+    area: f.area,
+    bounds: f.bounds,
+    ...(f.axis ? { axis: { origin: f.axis.origin, direction: f.axis.axis } } : {}),
+    ...(f.axis && finite.length > 0 ? { radius: Math.min(...finite) } : {}),
+  };
 }
 
 export interface FluidBoundary {
@@ -47,6 +67,8 @@ export interface FluidBoundary {
   readonly faces?: readonly FluidFace[];
   /** The face itself, where it is not one of the domain's — a baffle inside the volume. */
   readonly sheet?: Sheet;
+  /** The sheet's box, so a reader pairing sheets by position can check each one. */
+  readonly bounds?: Bounds;
 }
 
 export interface FluidDomain {
@@ -225,7 +247,7 @@ export function fluidDomain(definition: AssemblyDefinition, model: AssemblyModel
       area: face?.area ?? Math.PI * o.insideRadius ** 2,
       source: o.id,
       locator: { point: o.centre, normal: o.axis },
-      ...(face ? { faces: [{ surface: face.surface, area: face.area, bounds: face.bounds }] } : {}),
+      ...(face ? { faces: [fluidFace(face)] } : {}),
     });
   }
   // Each remaining face belongs to the wall that bounds it: the smallest part whose box holds it.
@@ -237,7 +259,7 @@ export function fluidDomain(definition: AssemblyDefinition, model: AssemblyModel
     const holders = boxes.filter((b) => holds(b.bounds, f.bounds, tolerance)).sort((a, b) => size(a.bounds) - size(b.bounds));
     const id = holders[0]?.id ?? 'unassigned';
     if (!byWall.has(id)) byWall.set(id, []);
-    byWall.get(id)!.push({ surface: f.surface, area: f.area, bounds: f.bounds });
+    byWall.get(id)!.push(fluidFace(f));
   }
   for (const [id, list] of byWall) {
     if (id === 'unassigned') notes.push(`${list.length} face(s) of the domain lie in no single wall's box: grouped as wall:unassigned`);
@@ -257,7 +279,7 @@ export function fluidDomain(definition: AssemblyDefinition, model: AssemblyModel
       }
       const area = kernel.area(sheet);
       if (area <= 0) continue;
-      boundaries.push({ name: spec.name, type: 'baffle', area, source: part.componentId, sheet });
+      boundaries.push({ name: spec.name, type: 'baffle', area, source: part.componentId, sheet, bounds: kernel.sheetBounds(sheet) });
     }
   }
   // Two zones meet where their union has less surface than the two of them apart.
@@ -288,19 +310,29 @@ export function fluidDomain(definition: AssemblyDefinition, model: AssemblyModel
 }
 
 /** The manifest: everything of the domain but its shapes, millimetres. */
-export function fluidManifest(domain: FluidDomain) {
+export function fluidManifest(domain: FluidDomain, kernel: GeometryKernel) {
   return {
     units: { length: 'mm', area: 'mm2', volume: 'mm3' },
     chamber: domain.chamber,
     volume: domain.volume,
-    zones: domain.zones.map(({ name, type, axis, source, volume }) => ({ name, type, axis, source, volume })),
-    boundaries: domain.boundaries.map(({ name, type, area, source, locator, faces }) => ({
+    // Each solid's volume and box, in STEP order: two zones of one volume trading places (the lanes
+    // of a symmetric bundle) are told apart by where they are, not by how big.
+    zones: domain.zones.map(({ name, type, axis, source, volume, solids }) => ({
+      name,
+      type,
+      axis,
+      source,
+      volume,
+      solids: solids.map((solid) => ({ volume: kernel.volume(solid), bounds: kernel.bounds(solid) })),
+    })),
+    boundaries: domain.boundaries.map(({ name, type, area, source, locator, faces, bounds }) => ({
       name,
       type,
       area,
       source,
       ...(locator ? { locator } : {}),
       ...(faces ? { faces } : {}),
+      ...(bounds ? { bounds } : {}),
     })),
     leakage: domain.leakage,
     notes: domain.notes,

@@ -121,7 +121,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     const model = withDetailNotes(builder.build(definition), details);
     const domain = fluidDomain(definition, model, kernel, { chamber, ...(extension !== undefined ? { extension } : {}) });
     if (format === 'manifest') {
-      json(response, 200, { revision, ...fluidManifest(domain) });
+      json(response, 200, { revision, ...fluidManifest(domain, kernel) });
     } else {
       const step = fluidStep(domain, kernel);
       response.writeHead(200, { 'Content-Type': 'model/step', 'Content-Length': Buffer.byteLength(step) });

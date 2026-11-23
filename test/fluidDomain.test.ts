@@ -84,9 +84,32 @@ test('its leakage areas match the rating book form for book form, on the design\
 });
 
 test('its manifest carries every group by name, and its STEP every zone, baffle and opening as a product', () => {
-  const manifest = fluidManifest(e101);
+  const manifest = fluidManifest(e101, kernel);
   assert.equal(manifest.chamber, 'N1');
   assert.ok(manifest.boundaries.every((b) => !('sheet' in b)), 'no shape in the manifest');
+  // Every zone solid and every baffle carries its box, so a reader pairing STEP products by
+  // position can check each pair by place as well as by size.
+  for (const z of manifest.zones) {
+    assert.ok(z.solids.length > 0, `${z.name} has solids`);
+    close(z.solids.reduce((s, x) => s + x.volume, 0), z.volume);
+    for (const s of z.solids) assert.ok([0, 1, 2].every((i) => s.bounds.min[i]! <= s.bounds.max[i]!), `${z.name} solid has a box`);
+  }
+  const lane = manifest.zones.find((z) => z.name === 'zone:lane:1')!;
+  close(lane.solids[0]!.bounds.max[0]! - lane.solids[0]!.bounds.min[0]!, 16 + 2 * 0.177669529663703, 1e-6);
+  for (const b of manifest.boundaries.filter((b) => b.type === 'baffle')) {
+    assert.ok(b.bounds, `${b.name} carries its box`);
+    assert.ok(b.bounds.max[2]! - b.bounds.min[2]! < 1e-6, `${b.name} is flat, square to the axis`);
+  }
+  const zs = manifest.boundaries.filter((b) => b.type === 'baffle').map((b) => b.bounds!.min[2]!);
+  assert.deepEqual(zs, [...zs].sort((a, b) => a - b), 'baffles in order along the shell');
+  // N1's end ring on the shell's inside surface is its own face, and the manifest says it lies on
+  // the shell's cylinder: parallel axis, on the same line, the same radius.
+  const shell = manifest.boundaries.find((b) => b.name === 'wall:S')!.faces!.find((f) => f.surface === 'cylinder')!;
+  const ring = manifest.boundaries.find((b) => b.name === 'wall:N1')!.faces!.find((f) => f.surface === 'cylinder' && Math.abs(f.radius! - 193.5) < 1e-6);
+  assert.ok(ring, 'wall:N1 has a face on the shell bore');
+  close(shell.radius!, 193.5);
+  assert.deepEqual(ring.axis!.direction.map((x) => Math.round(x * 1e9) / 1e9), shell.axis!.direction.map((x) => Math.round(x * 1e9) / 1e9));
+  assert.ok(Math.hypot(ring.axis!.origin[0], ring.axis!.origin[1]) < 1e-6, 'the ring\'s axis is the vessel axis');
   const step = fluidStep(e101, kernel);
   for (const name of ['zone:bundle', 'zone:bypass', 'zone:lane:1', 'zone:fluid', 'baffle:1', 'baffle:14', 'opening:N1', 'opening:N2']) {
     assert.ok(step.includes(`PRODUCT('${name}'`), `${name} is a product of the STEP`);
