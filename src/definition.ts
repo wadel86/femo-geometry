@@ -68,6 +68,12 @@ export const Kind = {
    * the engine's `RING_SUPPORT`, on its symbols. Was the draft kind `support_ring` until 2026-11-24.
    */
   RING_SUPPORT: 'ring_support',
+  /**
+   * A forged boss set into a cylindrical shell, radial or tilted — a manhole forging carrying its
+   * own reinforcement: head_pole_boss's family on a course. The engine's `SHELL_BOSS`, catalogued
+   * on develop (TRESCA DBR, 2026-11-24) on the same symbols.
+   */
+  SHELL_BOSS: 'shell_boss',
   // Draft kinds: drawn by the catalogue's wave 1b, with no `ComponentType` behind them yet. The
   // backend cannot store one, so they live in draft entries' specimens until it can.
   ECCENTRIC_CONICAL_SHELL: 'eccentric_conical_shell',
@@ -77,9 +83,6 @@ export const Kind = {
   // CODAP 2005 Partie C's C9.6 lifting lug, which Part 4 does not size. A draft kind for the same
   // reason as the four above.
   LIFTING_LUG: 'lifting_lug',
-  // A forged boss set into a cylindrical shell, radial — a manhole forging carrying its own
-  // reinforcement: head_pole_boss's family on a course. A draft kind until TRESCA DBR names it.
-  SHELL_BOSS: 'shell_boss',
   // A shell-and-tube exchanger's single-segmental baffles, the whole set as one part. No ASME
   // VIII-2 clause sizes a baffle; whether it becomes a `ComponentType` is TRESCA DBR's call.
   SEGMENTAL_BAFFLES: 'segmental_baffles',
@@ -97,7 +100,6 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.PASS_PARTITION_PLATE,
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
-  Kind.SHELL_BOSS,
   Kind.SEGMENTAL_BAFFLES,
   Kind.PIPE_SEGMENT,
   Kind.PIPE_BEND,

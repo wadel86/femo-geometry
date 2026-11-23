@@ -494,7 +494,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['neck:host-end', 'neck:outer-end'],
     joint: { kind: 'butt_weld', between: ['S', 'M'], ports: ['opening:M', 'neck:host-end'] },
     note:
-      'Draft kind until DBR names it. head_pole_boss\'s family on a cylindrical course, radial: a manhole or large nozzle whose forging carries its own reinforcement. ' +
+      'The engine\'s SHELL_BOSS, on its symbols. head_pole_boss\'s family on a cylindrical course, radial: a manhole or large nozzle whose forging carries its own reinforcement. ' +
       'A disc of the shell\'s own thickness and curvature replaces a patch of the wall and is butt-welded into the plate on a joint face about the nozzle axis — a cylinder, or a cone leaning ' +
       'boss_joint_angle, wider at the inner surface; out of it stand a boss with a root fillet, a break radius into a cone, a fillet into the neck, and the neck to its end; the bore\'s edge on the inner surface may be rounded. ' +
       'A cylinder\'s outside is not level round the nozzle, so boss_height runs from the neck\'s end to the shell\'s outer surface ON THE AXIS — the radial nozzle\'s datum — and boss_disc_diameter is the joint\'s at that level. ' +
