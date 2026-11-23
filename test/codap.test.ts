@@ -79,19 +79,43 @@ test('C9.6: a lug turned anywhere but along or round the axis is refused', () =>
 });
 
 test('C9.3.3: past 180° the supports are not drawn, and outside C9.3.3.1.7-1 they are refused', () => {
-  const wide = partOf(restated('support_ring.cradle', 'M', { support_opening_angle: 240 }), 'M');
+  const wide = partOf(restated('ring_support.cradle', 'M', { support_opening_angle: 240 }), 'M');
   assert.equal(wide.status, 'not_drawn');
   assert.equal(wide.scope?.reason, 'not_built');
-  const narrow = partOf(restated('support_ring.cradle', 'M', { support_opening_angle: 20 }), 'M');
+  const narrow = partOf(restated('ring_support.cradle', 'M', { support_opening_angle: 20 }), 'M');
   assert.equal(narrow.status, 'failed');
   assert.equal(narrow.scope?.limit, '30° to 330°, C9.3.3.1.7-1');
 });
 
-test('C9.3.3: a cradle stands on one base and two links on two', () => {
+test('C9.3.3: a cradle stands on one base and two hinges on two', () => {
   const solidsOf = (id: string) => partOf(specimen(id), 'M').solids.length;
   // The ring, two posts, then one base or two.
-  assert.equal(solidsOf('support_ring.cradle'), 4);
-  assert.equal(solidsOf('support_ring.two_links'), 5);
+  assert.equal(solidsOf('ring_support.cradle'), 4);
+  assert.equal(solidsOf('ring_support.two_links'), 5);
+  // C9.3.3.6's two points are §16.9's two hinges: either name, the same ring.
+  assert.equal(partOf(restated('ring_support.cradle', 'M', { ring_on_two_hinges: undefined as unknown as number, support_ring_two_point: 1 }), 'M').solids.length, 5);
+});
+
+test('§16.9: the section the engine checks is the bar drawn — A_R, h_G, R_R and t_ring agree or are refused', () => {
+  // The specimen: a 120 × 20 bar on a course of 1500 inside, 16 thick, so R_o = 766 and R_R = 826.
+  const agreeing = partOf(restated('ring_support.cradle', 'M', { support_ring_area: 2400, support_ring_centroid: 60, support_ring_radius: 826, support_ring_contact_width: 20 }), 'M');
+  assert.equal(agreeing.status, 'drawn', agreeing.message);
+  for (const [symbol, value] of [['support_ring_area', 3000], ['support_ring_centroid', 70], ['support_ring_radius', 850], ['support_ring_contact_width', 25]] as const) {
+    const off = partOf(restated('ring_support.cradle', 'M', { [symbol]: value }), 'M');
+    assert.equal(off.status, 'failed', `${symbol} ${value} was drawn`);
+    assert.equal(off.scope?.reason, 'mismatch');
+    assert.equal(off.scope?.parameter, symbol);
+  }
+  // Stated only as the engine requires it — A_R, h_G, R_R and δ — the bar is still fixed, and drawn.
+  const engineOnly = restated('ring_support.cradle', 'M', { support_ring_area: 2400, support_ring_centroid: 60, support_ring_radius: 826 });
+  const m = engineOnly.components.find((c) => c.id === 'M')!;
+  const { support_ring_height: _h, support_ring_web_thickness: _t, ...rest } = m.dimensions;
+  const asEngine = partOf({ ...engineOnly, components: engineOnly.components.map((c) => (c.id === 'M' ? { ...c, dimensions: rest } : c)) }, 'M');
+  assert.equal(asEngine.status, 'drawn', asEngine.message);
+  assert.equal(asEngine.solids.length, 4);
+  const both = partOf(restated('ring_support.cradle', 'M', { ring_on_two_hinges: 0, support_ring_two_point: 1 }), 'M');
+  assert.equal(both.scope?.reason, 'mismatch');
+  assert.equal(partOf(restated('ring_support.cradle', 'M', { ring_on_two_hinges: 2 }), 'M').scope?.parameter, 'ring_on_two_hinges');
 });
 
 test('C9.5: a leg on a head stands clear of it and reaches leg_length below where it meets it', () => {

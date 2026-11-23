@@ -964,18 +964,30 @@ export const liftingLug: MountedBuilder = (component, context) => {
 };
 
 /**
- * A support ring — CODAP C9.3.3.1.7: a ring `ring_height` by `ring_thickness` round a horizontal
- * course, and what carries it — two posts down to the ground at ±δ_a/2 from the bottom, on one
- * base plate for a cradle (Figure C9.3.3.1.7-2) or each on its own for two links (-3). Azimuth 0
- * is the bottom, as for a saddle. C9.3.3.1.7 allows δ_a up to 330°, the links then bearing on
+ * A support ring under a horizontal vessel — EN 13445-3 §16.9 and CODAP C9.3.3.1.7, the engine's
+ * `RING_SUPPORT` on its symbols: a flat bar `h1a` high (radially) by `e1a` thick (axially) round
+ * the course, and what carries it — two posts down to the ground at ±δ/2 from the bottom, on one
+ * base plate for a cradle (Figure C9.3.3.1.7-2) or each on its own on two hinges (-3). Azimuth 0
+ * is the bottom, as for a saddle. C9.3.3.1.7 allows δ up to 330°, the links then bearing on
  * brackets above the ring's middle; a vertical post from there would pass through the vessel, so
  * past 180° the supports are not drawn.
+ *
+ * The engine checks the ring on A_R, h_G and R_R, which a flat bar fixes: t·h, h/2 and R_o + h/2.
+ * They are not read to draw, but where the assembly states them they must be the bar drawn — two
+ * sources for one number is how a drawing and its check come apart. Likewise t_ring, the contact
+ * width, is the bar's thickness, and §16.9's two hinges and C9.3.3.6's two points are one fact.
  */
-export const supportRing: MountedBuilder = (component, context) => {
+export const ringSupport: MountedBuilder = (component, context) => {
   const { kernel, placement } = context;
   const course = cylinderOf(component, context, 'a support ring');
-  const height = requireDimension(component, Sym.RING_HEIGHT);
-  const thickness = requireDimension(component, Sym.RING_THICKNESS);
+  // The bar is h × t; what the engine requires — A_R and h_G — fixes it as well (h = 2·h_G, t = A_R/h),
+  // so a ring stated only as the engine asks is drawn, and one stated both ways must agree below.
+  const statedArea = optionalDimension(component, Sym.SUPPORT_RING_AREA);
+  const statedCentroid = optionalDimension(component, Sym.SUPPORT_RING_CENTROID);
+  const height = optionalDimension(component, Sym.SUPPORT_RING_HEIGHT) ?? (statedCentroid !== undefined ? 2 * statedCentroid : requireDimension(component, Sym.SUPPORT_RING_HEIGHT));
+  const thickness =
+    optionalDimension(component, Sym.SUPPORT_RING_WEB_THICKNESS) ??
+    (statedArea !== undefined ? statedArea / height : requireDimension(component, Sym.SUPPORT_RING_WEB_THICKNESS));
   const opening = requireDimension(component, Sym.SUPPORT_OPENING_ANGLE);
   const notes: Note[] = [];
   const stated = (symbol: string, label: string, assumed: number): number => {
@@ -994,16 +1006,44 @@ export const supportRing: MountedBuilder = (component, context) => {
       scope('not_built', Sym.SUPPORT_OPENING_ANGLE, '< 180°, posts down to the ground', `${opening}°`)
     );
   }
-  const links = signedDimension(component, Sym.SUPPORT_RING_LINKS);
-  if (links === undefined) notes.push(assumedNote('Support not stated — drawn as a cradle, both posts on one base', Sym.SUPPORT_RING_LINKS, '0'));
-  else if (links !== 0 && links !== 2) {
-    throw new BuildError(component, `is carried by ${links} links`, scope('out_of_scope', Sym.SUPPORT_RING_LINKS, '0 (a cradle) or 2 (two links)', `${links}`));
+  // Two hinges (§16.9) or two points (C9.3.3.6): one fact, a flag each code reads under its own name.
+  const flag = (symbol: string): boolean | undefined => {
+    const value = signedDimension(component, symbol);
+    if (value === undefined) return undefined;
+    if (value !== 0 && value !== 1) throw new BuildError(component, `states ${symbol} = ${value}`, scope('out_of_scope', symbol, '0 (a cradle) or 1 (two hinges)', `${value}`));
+    return value === 1;
+  };
+  const hinges = flag(Sym.RING_ON_TWO_HINGES);
+  const points = flag(Sym.SUPPORT_RING_TWO_POINT);
+  if (hinges !== undefined && points !== undefined && hinges !== points) {
+    throw new BuildError(
+      component,
+      `states ${hinges ? '' : 'no '}two hinges and ${points ? '' : 'no '}two points, which are one fact`,
+      scope('mismatch', Sym.SUPPORT_RING_TWO_POINT, `${Sym.RING_ON_TWO_HINGES} = ${hinges ? 1 : 0}`, `${points ? 1 : 0}`)
+    );
   }
+  const twoLinks = hinges ?? points;
+  if (twoLinks === undefined) notes.push(assumedNote('Support not stated — drawn as a cradle, both posts on one base', Sym.RING_ON_TWO_HINGES, '0'));
   requireWithinHost(component, context, thickness / 2);
 
   const z = placement.axialOffset;
   const outside = course.outsideRadiusAt(z);
   const ring = outside + height;
+  // The section the engine checks, which the bar drawn fixes: each stated value must be it.
+  const agrees = (symbol: string, label: string, drawn: number, tolerance: number, unit: string) => {
+    const value = optionalDimension(component, symbol);
+    if (value !== undefined && Math.abs(value - drawn) > tolerance) {
+      throw new BuildError(
+        component,
+        `states ${label} ${value.toFixed(1)} ${unit} where the ${mm(height)} × ${mm(thickness)} bar drawn has ${drawn.toFixed(1)}`,
+        scope('mismatch', symbol, `${drawn.toFixed(1)} ${unit}, the flat bar drawn`, `${value} ${unit}`)
+      );
+    }
+  };
+  agrees(Sym.SUPPORT_RING_AREA, 'A_R', height * thickness, 5e-3 * height * thickness, 'mm²');
+  agrees(Sym.SUPPORT_RING_CENTROID, 'h_G', height / 2, 0.5, 'mm');
+  agrees(Sym.SUPPORT_RING_RADIUS, 'R_R', outside + height / 2, 0.5, 'mm');
+  agrees(Sym.SUPPORT_RING_CONTACT_WIDTH, 't_ring', thickness, 0.5, 'mm');
   const drop = stated(Sym.SUPPORT_HEIGHT, 'Support height', Math.max(150, 0.25 * outside));
   const width = stated(Sym.SUPPORT_POST_WIDTH, 'Post width', Math.max(80, 4 * thickness));
   const basePlate = stated(Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS, 'Base plate thickness', 16);
@@ -1045,7 +1085,7 @@ export const supportRing: MountedBuilder = (component, context) => {
     solids.push(kernel.cut(post, [ringDisc]));
   }
   const foot = Math.max(width, 2 * thickness);
-  if ((links ?? 0) === 0) {
+  if (!twoLinks) {
     solids.push(kernel.extrude(rectangle(baseTop, base, -py - foot / 2, py + foot / 2), z - foot / 2, z + foot / 2));
   } else {
     for (const y of [-py, py]) solids.push(kernel.extrude(rectangle(baseTop, base, y - foot / 2, y + foot / 2), z - foot / 2, z + foot / 2));

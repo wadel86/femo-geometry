@@ -593,7 +593,7 @@ export class AssemblyBuilder {
     counter.set(hostId, index + 1);
     const spread = (0.5 + index * 0.618034) % 1;
     // A support ring stands on the ground, which is azimuth 0, as a saddle's is.
-    const azimuth = component.kind === Kind.SUPPORT_RING ? 0 : (index * 137.5) % 360;
+    const azimuth = component.kind === Kind.RING_SUPPORT ? 0 : (index * 137.5) % 360;
     if (host.anchor === 'head_crown') {
       return { anchor: 'head_crown', axialOffset: index === 0 ? 0 : spread * 0.6 * high, azimuth };
     }

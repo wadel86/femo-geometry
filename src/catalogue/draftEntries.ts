@@ -126,6 +126,12 @@ const BAFFLE_PARAMETERS = [
   Sym.SHELL_BAFFLE_CLEARANCE, Sym.TUBE_BAFFLE_CLEARANCE,
 ];
 
+/** §16.9's ring on the engine's symbols: the bar drawn, the section it fixes, and how it is carried. */
+const RING_SUPPORT_SECTION = [
+  Sym.SUPPORT_RING_HEIGHT, Sym.SUPPORT_RING_WEB_THICKNESS, Sym.SUPPORT_OPENING_ANGLE, Sym.RING_ON_TWO_HINGES, Sym.SUPPORT_RING_TWO_POINT,
+  Sym.SUPPORT_RING_AREA, Sym.SUPPORT_RING_CENTROID, Sym.SUPPORT_RING_RADIUS, Sym.SUPPORT_RING_CONTACT_WIDTH,
+];
+
 const CORRODED = [Detail.CORRODED_MODEL, Detail.CORROSION_ALLOWANCE, Detail.CORRODED_SURFACES];
 
 // A skirt on a forged transition ring: the lower head butts on the ring's inner leg, the course on
@@ -687,38 +693,32 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     note: 'Figure C9.6.2.4-2, with no pad: the plate square to the axis, extruded along it and cut to the shell\'s circle so its base follows it',
   },
   {
-    id: 'support_ring.cradle', article: 'CODAP C9.3.3', title: 'Support ring on a cradle', entry: 'component', status: 'captured',
-    kinds: [Kind.SUPPORT_RING], focus: 'M',
-    specimen: mountedOnCourse(Kind.SUPPORT_RING, {
-      ring_height: 120, ring_thickness: 20, support_opening_angle: 120, support_ring_links: 0, support_height: 600, support_post_width: 120,
+    id: 'ring_support.cradle', article: 'EN 13445-3 §16.9', title: 'Support ring on a cradle', entry: 'component', status: 'captured',
+    kinds: [Kind.RING_SUPPORT], focus: 'M',
+    specimen: mountedOnCourse(Kind.RING_SUPPORT, {
+      support_ring_height: 120, support_ring_web_thickness: 20, support_opening_angle: 120, ring_on_two_hinges: 0, support_height: 600, support_post_width: 120,
       support_lug_base_plate_thickness: 20,
     }, side(1000, 0)),
-    parameters: [
-      Sym.RING_HEIGHT, Sym.RING_THICKNESS, Sym.SUPPORT_OPENING_ANGLE, Sym.SUPPORT_RING_LINKS, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH,
-      Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS,
-    ],
+    parameters: [RING_SUPPORT_SECTION, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS].flat(),
     ports: ['attach'],
     joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
     constructionDetails: [],
     note:
-      'Draft kind: §4.15.3 carries a horizontal drum on saddles and has nothing for a ring. Figure C9.3.3.1.7-2: the ring, and two posts at ±δ_a/2 from the bottom on one base. ' +
-      'The ring is the flat bar C9.A5.3 computes; a T or built-up section is not drawn. Past δ_a = 180° the supports bear above the ring\'s middle and are refused as not built',
+      'The engine\'s RING_SUPPORT (§16.9, CODAP C9.3.3), on its symbols: a flat bar h1a high radially by e1a thick, and two posts at ±δ/2 from the bottom on one base (Figure C9.3.3.1.7-2). ' +
+      'A_R, h_G, R_R and t_ring are the bar drawn (t·h, h/2, R_o + h/2, t); stated, they must agree with it. A T or channel section is not drawn. Past δ = 180° the supports bear above the ring\'s middle and are refused as not built',
   },
   {
-    id: 'support_ring.two_links', article: 'CODAP C9.3.3', title: 'Support ring on two links', entry: 'component', status: 'captured',
-    kinds: [Kind.SUPPORT_RING], focus: 'M',
-    specimen: mountedOnCourse(Kind.SUPPORT_RING, {
-      ring_height: 120, ring_thickness: 20, support_opening_angle: 90, support_ring_links: 2, support_height: 800, support_post_width: 100,
+    id: 'ring_support.two_links', article: 'EN 13445-3 §16.9', title: 'Support ring on two hinges', entry: 'component', status: 'captured',
+    kinds: [Kind.RING_SUPPORT], focus: 'M',
+    specimen: mountedOnCourse(Kind.RING_SUPPORT, {
+      support_ring_height: 120, support_ring_web_thickness: 20, support_opening_angle: 90, ring_on_two_hinges: 1, support_height: 800, support_post_width: 100,
       support_lug_base_plate_thickness: 20,
     }, side(1000, 0)),
-    parameters: [
-      Sym.RING_HEIGHT, Sym.RING_THICKNESS, Sym.SUPPORT_OPENING_ANGLE, Sym.SUPPORT_RING_LINKS, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH,
-      Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS,
-    ],
+    parameters: [RING_SUPPORT_SECTION, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS].flat(),
     ports: ['attach'],
     joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
     constructionDetails: [],
-    note: 'Figure C9.3.3.1.7-3: the same ring carried at two points, each post on its own base — the case C9.3.3.6 checks rather than C9.3.3.5',
+    note: 'Figure C9.3.3.1.7-3: the same ring on two hinges (§16.9) — held at two points, C9.3.3.6\'s case — each post on its own base. ring_on_two_hinges and support_ring_two_point are one fact; stated both, they must agree',
   },
   {
     id: 'leg_support.on_head', article: 'CODAP C9.5', title: 'Leg under a dished head', entry: 'component', status: 'captured',

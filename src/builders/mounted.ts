@@ -25,7 +25,7 @@ import {
   verticalSupportRing,
   saddleSupport,
   skirtSupport,
-  supportRing,
+  ringSupport,
 } from './supports.ts';
 import type { MountedBuilder } from './types.ts';
 
@@ -97,7 +97,7 @@ export const MOUNTED_BUILDERS: Readonly<Record<string, MountedBuilder>> = {
   tube_bundle: tubeBundle,
   segmental_baffles: segmentalBaffles,
   lifting_lug: liftingLug,
-  support_ring: supportRing,
+  ring_support: ringSupport,
   vertical_support_ring: verticalSupportRing,
   head_pole_boss: headPoleBoss,
   shell_boss: shellBoss,

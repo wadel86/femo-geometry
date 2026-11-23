@@ -63,16 +63,20 @@ export const Kind = {
    * `VERTICAL_SUPPORT_RING`. Not its `RING_SUPPORT`, which is §16.9's ring under a horizontal one.
    */
   VERTICAL_SUPPORT_RING: 'vertical_support_ring',
+  /**
+   * EN 13445-3 §16.9 and CODAP C9.3.3: a ring round a HORIZONTAL vessel, on a cradle or two links —
+   * the engine's `RING_SUPPORT`, on its symbols. Was the draft kind `support_ring` until 2026-11-24.
+   */
+  RING_SUPPORT: 'ring_support',
   // Draft kinds: drawn by the catalogue's wave 1b, with no `ComponentType` behind them yet. The
   // backend cannot store one, so they live in draft entries' specimens until it can.
   ECCENTRIC_CONICAL_SHELL: 'eccentric_conical_shell',
   LEG_SUPPORT: 'leg_support',
   PASS_PARTITION_PLATE: 'pass_partition_plate',
   TUBE_BUNDLE: 'tube_bundle',
-  // CODAP 2005 Partie C parts that Part 4 does not size: C9.6's lifting lug and C9.3.3's
-  // support ring. Draft kinds for the same reason as the four above.
+  // CODAP 2005 Partie C's C9.6 lifting lug, which Part 4 does not size. A draft kind for the same
+  // reason as the four above.
   LIFTING_LUG: 'lifting_lug',
-  SUPPORT_RING: 'support_ring',
   // A forged boss set into a cylindrical shell, radial — a manhole forging carrying its own
   // reinforcement: head_pole_boss's family on a course. A draft kind until TRESCA DBR names it.
   SHELL_BOSS: 'shell_boss',
@@ -88,7 +92,6 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.PASS_PARTITION_PLATE,
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
-  Kind.SUPPORT_RING,
   Kind.SHELL_BOSS,
   Kind.SEGMENTAL_BAFFLES,
 ]);
@@ -246,8 +249,22 @@ export const Sym = {
   // itself is `ring_height` by `ring_thickness`, as a stiffening ring is.
   /** δ_a: the angle between the two supports, at the axis, symmetric about the bottom. */
   SUPPORT_OPENING_ANGLE: 'support_opening_angle',
-  /** 0 for a cradle — both posts on one base — and 2 for two links, each on its own. */
-  SUPPORT_RING_LINKS: 'support_ring_links',
+  // §16.9's ring on a horizontal vessel (the engine's RING_SUPPORT), on the engine's symbols. Its
+  // radial height is SUPPORT_RING_HEIGHT (h1a), shared with §16.13's ring where it runs axially.
+  /** e1a: the web's thickness along the axis — a flat bar's whole thickness. */
+  SUPPORT_RING_WEB_THICKNESS: 'support_ring_web_thickness',
+  /** t_ring: the ring's contact width on the shell — a flat bar's thickness. */
+  SUPPORT_RING_CONTACT_WIDTH: 'support_ring_contact_width',
+  /** A_R: the ring's cross-sectional area, without the shell. */
+  SUPPORT_RING_AREA: 'support_ring_area',
+  /** h_G: the ring's neutral axis from the shell's outside surface. */
+  SUPPORT_RING_CENTROID: 'support_ring_centroid',
+  /** R_R: the ring's neutral axis from the vessel axis. */
+  SUPPORT_RING_RADIUS: 'support_ring_radius',
+  /** EN 13445-3 §16.9: 1 when the ring is carried on two hinges (two links), 0 on a cradle. */
+  RING_ON_TWO_HINGES: 'ring_on_two_hinges',
+  /** CODAP C9.3.3.6's reading of the same thing: 1 when the ring is held at exactly two points. */
+  SUPPORT_RING_TWO_POINT: 'support_ring_two_point',
   /** From the bottom of the ring to the underside of the base plate. */
   SUPPORT_HEIGHT: 'support_height',
   /** A post's width in the ring's plane; along the axis it is as wide as the ring. */
