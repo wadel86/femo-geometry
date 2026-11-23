@@ -287,6 +287,7 @@ export const forgedTransitionRing: RunBuilder = (component, context: RunContext)
       [upperMid, s.top],
     ],
     crotch: {
+      radius: s.crotchRadius,
       apexZ: s.apex,
       meridianPoint: [headMid, s.apex],
       below: { radius: headMid, thickness: s.headLeg },
@@ -519,6 +520,7 @@ function carryingRing(component: ComponentDefinition, context: RunContext, tange
       [upperMid, top] as Point2,
     ].filter((p, i, all) => i === 0 || Math.hypot(p[0] - all[i - 1][0], p[1] - all[i - 1][1]) > 1e-9),
     crotch: {
+      radius: rc,
       apexZ: tip,
       meridianPoint: [headMid, apex] as Point2,
       below: { radius: headMid, thickness: headLeg },

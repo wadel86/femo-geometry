@@ -99,6 +99,8 @@ export interface HostSurface {
  * point of the run's meridian there, and the walls either side along the run.
  */
 export interface Crotch {
+  /** The crotch's own radius: the root of the slot is rounded to it. */
+  readonly radius: number;
   readonly apexZ: number;
   readonly meridianPoint: Point2;
   /** The wall below the crotch along the run (the head side) and above it, as (mean radius, thickness). */

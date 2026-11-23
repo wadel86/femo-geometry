@@ -286,6 +286,14 @@ export function describePart(
   });
 
   // ------------------------------------------------ faces
+  // A ring carrying its head has the head's knuckle in it as two tori besides the crotch's: the
+  // smaller is the vessel's inside, the larger the slot's head side. Told apart by radius.
+  const minorOf = (face: (typeof tessellation.faces)[number]) => Math.min(...face.radii.filter(Number.isFinite));
+  const crotchRadius = part.crotch?.radius;
+  const knuckles = part.kind === 'forged_transition_ring' && crotchRadius !== undefined
+    ? tessellation.faces.filter((f) => f.surface === 'torus' && Math.abs(minorOf(f) - crotchRadius) >= epsilon).map(minorOf)
+    : [];
+  const innerKnuckle = knuckles.length > 0 ? Math.min(...knuckles) : undefined;
   const faces = tessellation.faces.map((face): EntityDescriptor => {
     const title = FACE_TITLES[face.surface];
     const finite = face.radii.filter(Number.isFinite);
@@ -323,8 +331,14 @@ export function describePart(
       dimension = { label: 'Radius', value: smallest };
       role = part.kind === 'spherical_shell' ? 'Shell' : 'Crown';
     } else if (face.surface === 'torus' && smallest !== undefined && part.kind === 'forged_transition_ring') {
-      dimension = { label: 'Crotch radius', value: smallest };
-      role = 'Crotch';
+      if (crotchRadius === undefined || Math.abs(smallest - crotchRadius) < epsilon) {
+        dimension = { label: 'Crotch radius', value: smallest };
+        role = 'Crotch';
+      } else {
+        // The carried head's knuckle: its inner surface is the vessel's, its outer the slot's head side.
+        dimension = { label: 'Knuckle radius', value: smallest };
+        role = innerKnuckle !== undefined && Math.abs(smallest - innerKnuckle) < epsilon ? 'Inside surface' : 'Slot, head leg side';
+      }
     } else if (face.surface === 'torus' && smallest !== undefined) {
       dimension = { label: 'Knuckle radius', value: smallest };
       role = 'Knuckle';

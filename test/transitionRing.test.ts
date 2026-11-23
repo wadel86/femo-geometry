@@ -371,3 +371,15 @@ test("the skirt's base face is named, with and without a base plate", () => {
   const faces = plated.geometry.parts.find((p) => p.componentId === 'K')!.faces.filter((f) => f.role === 'Skirt base');
   assert.equal(faces.length, 1);
 });
+
+test("a carrying ring's tori are named by radius: the crotch's arcs, the vessel's inside, the slot's head side", () => {
+  const { crotch_height: _h, ...fullRound } = CARRYING;
+  for (const ring of [CARRYING, fullRound]) {
+    const faces = build(carried(ring)).geometry.parts.find((p) => p.componentId === 'R')!.faces.filter((f) => f.surface === 'torus');
+    const roles = faces.map((f) => f.role).sort();
+    assert.ok(roles.includes('Inside surface'), `the head's inner knuckle is the vessel's inside: ${roles.join(', ')}`);
+    assert.ok(roles.includes('Slot, head leg side'), `the head's outer knuckle bounds the slot: ${roles.join(', ')}`);
+    for (const f of faces.filter((f) => f.role === 'Crotch')) close(Math.min(...f.radii.filter((r): r is number => r !== null)), 15, 1e-6);
+    assert.ok(faces.some((f) => f.role === 'Crotch'), 'the root is still the crotch');
+  }
+});
