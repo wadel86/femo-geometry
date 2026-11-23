@@ -151,6 +151,47 @@ export interface AssemblyModel {
 const CLOSURE_OR_FLAT: ReadonlySet<string> = RUN_KINDS_THAT_CLOSE;
 const COURSES: ReadonlySet<string> = new Set([Kind.CYLINDRICAL_SHELL, Kind.CONICAL_SHELL]);
 
+/**
+ * Run parts whose body is a plain solid of revolution — nothing in it but the swept profile — so
+ * turning it about Z changes its seam and nothing else. Not a flange or a tubesheet (bolt and tube
+ * holes), a cover (bolts), a convoluted or special vessel, nor a bend.
+ */
+const REVOLVED: ReadonlySet<string> = new Set([
+  Kind.CYLINDRICAL_SHELL,
+  Kind.CONICAL_SHELL,
+  Kind.SPHERICAL_SHELL,
+  Kind.HEMISPHERICAL_HEAD,
+  Kind.TORISPHERICAL_HEAD,
+  Kind.ELLIPSOIDAL_HEAD,
+  Kind.PIPE_SEGMENT,
+]);
+
+/**
+ * Degrees to turn a revolved wall so its seam, swept from azimuth 0, lies mid-way across the
+ * widest gap between its openings' azimuths — or 0, leaving the wall as drawn, when no opening
+ * reaches azimuth 0 (its half-width asin(r/ρ), plus a degree). An opening on the axis (a head's
+ * pole) has no azimuth and reaches no seam.
+ */
+function seamAzimuth(openings: readonly { readonly origin: Vec3; readonly radius: number }[]): number {
+  const around = openings
+    .map((o) => ({ rho: Math.hypot(o.origin[0], o.origin[1]), radius: o.radius, origin: o.origin }))
+    .filter((o) => o.rho > 1)
+    .map((o) => ({
+      azimuth: ((Math.atan2(o.origin[1], o.origin[0]) * 180) / Math.PI + 360) % 360,
+      half: (Math.asin(Math.min(1, o.radius / o.rho)) * 180) / Math.PI + 1,
+    }))
+    .sort((a, b) => a.azimuth - b.azimuth);
+  const reaches = around.some((o) => Math.min(o.azimuth, 360 - o.azimuth) < o.half);
+  if (!reaches) return 0;
+  let best = { gap: -1, middle: 0 };
+  around.forEach((o, i) => {
+    const next = i + 1 < around.length ? around[i + 1]!.azimuth : around[0]!.azimuth + 360;
+    const gap = next - o.azimuth;
+    if (gap > best.gap + 1e-9) best = { gap, middle: (o.azimuth + gap / 2) % 360 };
+  });
+  return best.middle;
+}
+
 const IDENTITY: PartTransform = { flipped: false, dz: 0 };
 
 /** Parts whose kind has a builder, and a sensible default place on each kind of host. */
@@ -512,9 +553,14 @@ export class AssemblyBuilder {
       if (openings.length > 0) {
         const key = stableStringify({ host: entry.key, openings: openings.map((o) => o.key) });
         try {
-          solid = this.remember(this.piercedCache, key, () =>
-            this.kernel.cut(entry.part.solid, openings.map((o) => o.tool))
-          );
+          // A revolved wall's seam is where its profile was swept from, azimuth 0. An opening there
+          // straddles it and leaves a stub of seam ending on whatever crosses the wall next — a
+          // baffle's plane in a fluid domain — which no swept mesh can take. Turned about its own
+          // axis, a body of revolution is the same solid with its seam elsewhere: in the middle
+          // of the widest gap between its openings.
+          const seam = REVOLVED.has(component.kind) ? seamAzimuth(openings.map((o) => ({ origin: o.opening.frame.origin, radius: o.opening.radius }))) : 0;
+          const wall = Math.abs(seam) > 1e-9 ? this.kernel.rotateZ(entry.part.solid, seam) : entry.part.solid;
+          solid = this.remember(this.piercedCache, key, () => this.kernel.cut(wall, openings.map((o) => o.tool)));
         } catch (error) {
           status = 'failed';
           message = `The openings could not be cut: ${errorMessage(error)}`;

@@ -108,8 +108,19 @@ test('its manifest carries every group by name, and its STEP every zone, baffle 
   const ring = manifest.boundaries.find((b) => b.name === 'wall:N1')!.faces!.find((f) => f.surface === 'cylinder' && Math.abs(f.radius! - 193.5) < 1e-6);
   assert.ok(ring, 'wall:N1 has a face on the shell bore');
   close(shell.radius!, 193.5);
-  assert.deepEqual(ring.axis!.direction.map((x) => Math.round(x * 1e9) / 1e9), shell.axis!.direction.map((x) => Math.round(x * 1e9) / 1e9));
+  // Rounded, and +0 so a −0 from a turned part compares equal to 0.
+  const unit = (v: readonly number[]) => v.map((x) => Math.round(x * 1e9) / 1e9 + 0);
+  assert.deepEqual(unit(ring.axis!.direction), unit(shell.axis!.direction));
   assert.ok(Math.hypot(ring.axis!.origin[0], ring.axis!.origin[1]) < 1e-6, 'the ring\'s axis is the vessel axis');
+  // The shell's seam is turned clear of both nozzles (N1 at 180°, N2 at 0°): one unbroken axial
+  // line on the bore, mid-way across the widest gap, so no stub of seam ends on a baffle's circle.
+  const seams = kernel
+    .topology(e101.cavity)
+    .edges.filter((e) => e.bounds.max[2]! - e.bounds.min[2]! > 100 && e.bounds.max[0]! - e.bounds.min[0]! < 1e-3 && e.bounds.max[1]! - e.bounds.min[1]! < 1e-3);
+  assert.equal(seams.length, 1, 'one seam on the shell bore');
+  close(seams[0]!.bounds.min[2]!, 340, 1e-6);
+  close(seams[0]!.bounds.max[2]!, 340 + SHELL, 1e-6);
+  close(Math.abs(Math.atan2(seams[0]!.bounds.min[1]!, seams[0]!.bounds.min[0]!) * 180 / Math.PI), 90, 1e-6);
   const step = fluidStep(e101, kernel);
   for (const name of ['zone:bundle', 'zone:bypass', 'zone:lane:1', 'zone:fluid', 'baffle:1', 'baffle:14', 'opening:N1', 'opening:N2']) {
     assert.ok(step.includes(`PRODUCT('${name}'`), `${name} is a product of the STEP`);
