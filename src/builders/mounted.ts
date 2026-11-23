@@ -20,6 +20,7 @@ import { shellBoss } from './shellBoss.ts';
 import {
   halfPipeJacket,
   legSupport,
+  linearSupportMember,
   liftingLug,
   lugSupport,
   verticalSupportRing,
@@ -93,6 +94,7 @@ export const MOUNTED_BUILDERS: Readonly<Record<string, MountedBuilder>> = {
   jacket_closure: jacketClosure,
   pressure_relief_device: pressureReliefDevice,
   leg_support: legSupport,
+  linear_support_member: linearSupportMember,
   pass_partition_plate: passPartitionPlate,
   tube_bundle: tubeBundle,
   segmental_baffles: segmentalBaffles,

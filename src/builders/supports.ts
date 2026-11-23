@@ -750,6 +750,88 @@ export const legSupport: MountedBuilder = (component, context) => {
 };
 
 /**
+ * A linear support member — RCC-M H3232 / Annexe ZVI: a strut, tie, column or beam holding a
+ * vessel up, mounted on the part it carries. The engine checks it on its section's PROPERTIES
+ * (A, r_x, r_y, Z_x, Z_y), never a shape, so the drawing is what A and l fix and no more: a square
+ * bar of side √A, `member_length` long. A stated `member_profile` other than 0 is noted as not
+ * built rather than invented from radii of gyration. On a course it touches the shell along one
+ * generatrix, its top at the placement, hanging down and swung OUTWARD by `member_inclination`
+ * in the plane of its azimuth; on a head it stands parallel to the axis, cut to the head's surface
+ * as a leg on a head is, and an inclination there is not built.
+ */
+export const linearSupportMember: MountedBuilder = (component, context) => {
+  const { kernel, placement, hostSurface } = context;
+  const area = requireDimension(component, Sym.MEMBER_AREA);
+  const length = requireDimension(component, Sym.MEMBER_LENGTH);
+  const side = Math.sqrt(area);
+  const notes: Note[] = [];
+  const profile = signedDimension(component, Sym.MEMBER_PROFILE) ?? 0;
+  if (![0, 1, 2, 3].includes(profile)) {
+    throw new BuildError(component, `states profile ${profile}`, scope('out_of_scope', Sym.MEMBER_PROFILE, '0 square, 1 I/H, 2 tube, 3 angle', `${profile}`));
+  }
+  if (profile !== 0) {
+    notes.push(
+      note(
+        `Profile ${['square', 'I or H', 'tube', 'angle'][profile]} not drawn — a square bar of side √A = ${mm(side)} stands for it; the engine reads A and r, not the shape`,
+        Sym.MEMBER_PROFILE,
+        scope('not_built', Sym.MEMBER_PROFILE, '0, a square of side √A', `${profile}`)
+      )
+    );
+  }
+  const inclination = signedDimension(component, Sym.MEMBER_INCLINATION) ?? 0;
+  if (!(inclination >= 0 && inclination < 80)) {
+    throw new BuildError(component, `leans ${inclination}° from vertical`, scope('out_of_scope', Sym.MEMBER_INCLINATION, '0° to 80°', `${inclination}°`));
+  }
+  if (!(length > 0)) {
+    throw new BuildError(component, `is ${mm(length)} long`, scope('out_of_scope', Sym.MEMBER_LENGTH, '> 0', mm(length)));
+  }
+
+  if (hostSurface.anchor === 'head_crown') {
+    if (!context.hostSolid) {
+      throw new NotDrawnError(component, `${context.host.name} offers no surface to cut the member to`, scope('out_of_scope', 'host', 'a drawn head', `${context.host.name}, no solid`));
+    }
+    if (inclination > 0) {
+      notes.push(note('Inclination on a head not drawn — the member stands parallel to the axis', Sym.MEMBER_INCLINATION, scope('not_built', Sym.MEMBER_INCLINATION, '0° on a head', `${inclination}°`)));
+    }
+    requireWithinHost(component, context, side / 2);
+    const rho = placement.axialOffset;
+    const weld = hostSurface.frameAt(rho, 0).origin[2];
+    const reach = Math.min(rho + side, hostSurface.offsetRange[1]);
+    const lowest = Math.min(weld, hostSurface.frameAt(reach, 0).origin[2]) - 1;
+    const bar = kernel.extrude(rectangle(rho - side / 2, rho + side / 2, -side / 2, side / 2), lowest, weld + length);
+    return {
+      solids: [kernel.rotateZ(kernel.cut(bar, [context.hostSolid, hostSurface.cavity()]), placement.azimuth)],
+      footprint: side / 2,
+      attachment: { axial: side, circumferentialDeg: rho > side / 2 ? Math.min(360, (side / rho) * (180 / Math.PI)) : 360, thickness: side },
+      notes,
+    };
+  }
+
+  const course = cylinderOf(component, context, 'a linear support member');
+  requireWithinHost(component, context, side / 2);
+  const z = placement.axialOffset;
+  const outside = course.outsideRadiusAt(z);
+  const upright = kernel.extrude(rectangle(outside, outside + side, -side / 2, side / 2), z - length, z);
+  // Swung about its top inner edge, the line where it meets the shell, so it stays attached there.
+  const bar = inclination > 0 ? kernel.rotate(upright, -inclination, [0, 1, 0], [outside, 0, z]) : upright;
+  notes.push(
+    representedNote(
+      'A square bar touches the shell along one line at its top; the attachment detail is not drawn',
+      'member to vessel attachment',
+      'a weld, a clevis or a bolted bracket',
+      `a patch ${mm(side)} square`,
+      true
+    )
+  );
+  return {
+    solids: [kernel.rotateZ(bar, placement.azimuth)],
+    footprint: side / 2,
+    attachment: { axial: side, circumferentialDeg: (side / outside) * (180 / Math.PI), thickness: side },
+    notes,
+  };
+};
+
+/**
  * A leg under a dished head — CODAP C9.5, the vertical vessel standing on its bottom head rather
  * than on its shell. The pipe stands parallel to the axis at the placement's distance from it,
  * its top cut to the head's outside surface as a skirt on a head is, so the two meet on one

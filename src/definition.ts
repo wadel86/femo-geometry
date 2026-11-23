@@ -74,6 +74,13 @@ export const Kind = {
    * on develop (TRESCA DBR, 2026-11-24) on the same symbols.
    */
   SHELL_BOSS: 'shell_boss',
+  // Catalogued on develop f88499d (TRESCA DBR, 2026-11-24) on the kernel's names: RCC-M B/C/D
+  // 3600's straight pipe and bend, both stated on their OUTSIDE diameter, which C3641.1's t_m
+  // reads; and H3232 / Annexe ZVI's linear support member — a strut, tie, column or beam holding a
+  // vessel up, mounted on the part it carries.
+  PIPE_SEGMENT: 'pipe_segment',
+  PIPE_BEND: 'pipe_bend',
+  LINEAR_SUPPORT_MEMBER: 'linear_support_member',
   // Draft kinds: drawn by the catalogue's wave 1b, with no `ComponentType` behind them yet. The
   // backend cannot store one, so they live in draft entries' specimens until it can.
   ECCENTRIC_CONICAL_SHELL: 'eccentric_conical_shell',
@@ -86,11 +93,6 @@ export const Kind = {
   // A shell-and-tube exchanger's single-segmental baffles, the whole set as one part. No ASME
   // VIII-2 clause sizes a baffle; whether it becomes a `ComponentType` is TRESCA DBR's call.
   SEGMENTAL_BAFFLES: 'segmental_baffles',
-  // RCC-M B/C/D 3600 piping, on TRESCA DBR's names (feat/rccm-c3600-piping): a straight run and
-  // a bend, both stated on their OUTSIDE diameter, which C3641.1's t_m reads. Drafts until that
-  // branch reaches develop.
-  PIPE_SEGMENT: 'pipe_segment',
-  PIPE_BEND: 'pipe_bend',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -101,8 +103,6 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
   Kind.SEGMENTAL_BAFFLES,
-  Kind.PIPE_SEGMENT,
-  Kind.PIPE_BEND,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -280,6 +280,19 @@ export const Sym = {
   PIPE_BEND_RADIUS: 'pipe_bend_radius',
   /** α: the angle a pipe bend turns through, in degrees. */
   PIPE_BEND_ANGLE: 'pipe_bend_angle',
+  // RCC-M H3232 / Annexe ZVI's linear support member, on TRESCA DBR's names: the engine reads the
+  // section's PROPERTIES, so the kernel draws what A and l fix and nothing it would have to invent.
+  /** A: the member's cross-sectional area, mm². */
+  MEMBER_AREA: 'member_area',
+  /** l: the member's length, mm. */
+  MEMBER_LENGTH: 'member_length',
+  /** r_x, r_y: the section's radii of gyration — read by the engine, not by the drawing. */
+  MEMBER_RADIUS_OF_GYRATION_X: 'member_radius_of_gyration_x',
+  MEMBER_RADIUS_OF_GYRATION_Y: 'member_radius_of_gyration_y',
+  /** 0 square from A (the only one drawn), 1 I/H, 2 tube, 3 angle. The engine reads none of them. */
+  MEMBER_PROFILE: 'member_profile',
+  /** Degrees from vertical, swung outward in the plane of the member's azimuth. */
+  MEMBER_INCLINATION: 'member_inclination',
   /** From the bottom of the ring to the underside of the base plate. */
   SUPPORT_HEIGHT: 'support_height',
   /** A post's width in the ring's plane; along the axis it is as wide as the ring. */

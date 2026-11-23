@@ -264,7 +264,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     parameters: [Sym.PIPE_OUTSIDE_DIAMETER, Sym.THICKNESS, Sym.COURSE_LENGTH],
     ports: ['lower', 'upper'],
     note:
-      'Draft kind until TRESCA DBR\'s PIPE_SEGMENT reaches develop. Stated on its OUTSIDE diameter, the dimension C3641.1\'s t_m reads, the wall t_n lying inward; ' +
+      'The engine\'s PIPE_SEGMENT, on its symbols. Stated on its OUTSIDE diameter, the dimension C3641.1\'s t_m reads, the wall t_n lying inward; ' +
       'drawn as a cylindrical course of bore D_o − 2·t_n, so it hosts a branch and meets a neighbour as a course does',
   },
   {
@@ -278,7 +278,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['lower'],
     joint: { kind: 'butt_weld', between: ['P', 'B'], ports: ['upper', 'lower'] },
     note:
-      'Draft kind until TRESCA DBR\'s PIPE_BEND reaches develop. The tube D_o × t_n swept through α on R to its centreline (C3642.1\'s K = R/r_i), turning towards azimuth 0. ' +
+      'The engine\'s PIPE_BEND, on its symbols. The tube D_o × t_n swept through α on R to its centreline (C3642.1\'s K = R/r_i), turning towards azimuth 0. ' +
       'A run is laid along one axis, so a bend ENDS its run: a course after it is refused as not built until the run frame can turn. Its outlet carries no port for the same reason',
   },
   {
@@ -746,6 +746,24 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
     constructionDetails: [],
     note: 'Figure C9.3.3.1.7-3: the same ring on two hinges (§16.9) — held at two points, C9.3.3.6\'s case — each post on its own base. ring_on_two_hinges and support_ring_two_point are one fact; stated both, they must agree',
+  },
+  {
+    id: 'linear_support_member', article: 'RCC-M H3232', title: 'Linear support member', entry: 'component', status: 'captured',
+    kinds: [Kind.LINEAR_SUPPORT_MEMBER], focus: 'M',
+    specimen: mountedOnCourse(
+      Kind.LINEAR_SUPPORT_MEMBER,
+      { member_area: 6400, member_length: 1500, member_inclination: 15 },
+      side(400, 45)
+    ),
+    // r_x and r_y are required by the engine but read by no drawing, so the specimen leaves them out.
+    parameters: [Sym.MEMBER_AREA, Sym.MEMBER_LENGTH, Sym.MEMBER_PROFILE, Sym.MEMBER_INCLINATION],
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'The engine\'s LINEAR_SUPPORT_MEMBER, on its symbols. Annexe ZVI checks the member on its section PROPERTIES, so the drawing is what A and l fix: a square bar of side √A, ' +
+      'its top at the placement against the shell, hanging member_length down and swung outward by member_inclination. member_profile other than 0 is noted as not built; r_x and r_y are the engine\'s, not the drawing\'s, ' +
+      'so the specimen leaves them out (an 80 mm square\'s own would be √A/√12 = 23.1 mm)',
   },
   {
     id: 'leg_support.on_head', article: 'CODAP C9.5', title: 'Leg under a dished head', entry: 'component', status: 'captured',
