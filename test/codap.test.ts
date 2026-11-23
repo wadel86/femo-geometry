@@ -121,13 +121,18 @@ test('§16.9: the section the engine checks is the bar drawn — A_R, h_G, R_R a
   assert.equal(twice.scope?.parameter, 'support_contact_angle');
 });
 
-test('§16.9 / C9.A5: the engine reads its ring flags as switches, so a stated 0 is refused rather than drawn the other way', () => {
-  for (const symbol of ['ring_on_two_hinges', 'support_ring_two_point', 'support_ring_channel', 'support_ring_external']) {
+test('§16.9 / C9.A5: the ring flags are switches — 1 yes, 0 or absent no — as the engine reads them', () => {
+  // 0 is no: a cradle stays a cradle, a tee stays a tee.
+  for (const symbol of ['ring_on_two_hinges', 'support_ring_two_point', 'support_ring_channel']) {
     const zero = partOf(restated('ring_support.cradle', 'M', { [symbol]: 0 }), 'M');
-    assert.equal(zero.status, 'failed', `${symbol} = 0 was drawn`);
-    assert.equal(zero.scope?.parameter, symbol);
-    assert.equal(zero.scope?.limit, '1, or not stated');
+    assert.equal(zero.status, 'drawn', `${symbol} = 0: ${zero.message ?? ''}`);
+    assert.equal(zero.solids.length, 4, `${symbol} = 0 is a cradle`);
+    assert.equal(partOf(restated('ring_support.cradle', 'M', { [symbol]: 2 }), 'M').scope?.limit, '0 or 1');
   }
+  // Inside the shell, a ring has nothing for its posts to stand on.
+  const inside = partOf(restated('ring_support.cradle', 'M', { support_ring_external: 0 }), 'M');
+  assert.equal(inside.status, 'not_drawn');
+  assert.equal(inside.scope?.parameter, 'support_ring_external');
   // Unstated, the side is drawn outside and said, because the engine reads it as inside.
   const unsided = partOf(restated('ring_support.cradle', 'M', { support_ring_external: undefined as unknown as number }), 'M');
   assert.equal(unsided.status, 'drawn');

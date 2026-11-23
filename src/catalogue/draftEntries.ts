@@ -286,6 +286,27 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'course_length is its face-to-face, drawn one bore long and noted where not stated; valve_rating_table and valve_local_bore are the engine\'s',
   },
   {
+    id: 'pump_casing', article: 'RCC-M C3431', title: 'Pump casing (volute)', entry: 'component', status: 'captured',
+    kinds: [Kind.PUMP_CASING, Kind.PIPE_SEGMENT], focus: 'U',
+    specimen: vessel([
+      run('P', Kind.PIPE_SEGMENT, 0, { pipe_outside_diameter: 219.1, thickness: 8.18, course_length: 600 }),
+      run('U', Kind.PUMP_CASING, 1, {
+        thickness: 20, pump_volute_a1: 150, pump_volute_a2: 120, pump_base_circle_diameter: 400, pump_casing_width: 180,
+        pump_suction_bore: 202.74, pump_discharge_bore: 100,
+      }),
+    ]),
+    parameters: [
+      Sym.THICKNESS, Sym.PUMP_VOLUTE_A1, Sym.PUMP_VOLUTE_A2, Sym.PUMP_BASE_CIRCLE_DIAMETER, Sym.PUMP_CASING_WIDTH, Sym.PUMP_SUCTION_BORE, Sym.PUMP_DISCHARGE_BORE,
+    ],
+    ports: ['lower'],
+    joint: { kind: 'butt_weld', between: ['P', 'U'], ports: ['upper', 'lower'] },
+    note:
+      'Draft kind until TRESCA DBR\'s PUMP_CASING reaches develop. The engine judges the wall on A1, A2 and K; the base circle, casing width, suction and discharge bores are read by no check, ' +
+      'and without them the casing is not drawn rather than invented. With them: a suction neck on the axis (its junction to the pipe below), a drum whose cavity reaches the base circle plus A1, ' +
+      'and a discharge branch leaving tangentially at the throat, azimuth 0, mid-width. The scroll\'s growth from the tongue is not drawn — the volute is held at its throat section, the one C3431 sizes. ' +
+      'pump_type and pump_shape_factor are the engine\'s',
+  },
+  {
     id: 'pipe_bend', article: 'RCC-M C3642', title: 'Pipe bend', entry: 'component', status: 'captured',
     kinds: [Kind.PIPE_BEND, Kind.PIPE_SEGMENT], focus: 'B',
     specimen: vessel([

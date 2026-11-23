@@ -5,6 +5,7 @@
 // turns it over when it closes the bottom of the run.
 import {
   BuildError,
+  NotDrawnError,
   Sym,
   analysisNote,
   assumedNote,
@@ -1544,7 +1545,94 @@ export const pipeBend: RunBuilder = (component, context) => {
  */
 export const valveBody: RunBuilder = (component, context) => cylindricalShell(component, context);
 
+/**
+ * A radially split volute pump casing — RCC-M C3431 to C3434. The engine judges its wall on the
+ * volute section's spans A1 and A2 and a shape factor K; where the scroll IS — its base circle,
+ * the casing's width, the suction and discharge bores — the engine reads nothing of, and without
+ * those four there is nothing honest to draw, so the part is not drawn and says which is missing.
+ *
+ * With them: a suction neck of the suction bore on the axis (its lower end is the junction to the
+ * pipe below), a drum `pump_casing_width` wide whose cavity reaches the base circle plus A1, and a
+ * discharge branch of the discharge bore leaving tangentially at the throat, at azimuth 0, mid-width.
+ * The scroll's growth from the tongue to the throat is not drawn: the volute is held at its throat
+ * section all round, which is the section C3431 sizes the wall on.
+ */
+export const pumpCasing: RunBuilder = (component, context) => {
+  const { kernel } = context;
+  const t = requireDimension(component, Sym.THICKNESS);
+  const a1 = requireDimension(component, Sym.PUMP_VOLUTE_A1);
+  const a2 = requireDimension(component, Sym.PUMP_VOLUTE_A2);
+  const drawing = (symbol: string, what: string): number => {
+    const value = optionalDimension(component, symbol);
+    if (value === undefined) {
+      throw new NotDrawnError(
+        component,
+        `states no ${what}: the engine needs none, and without it there is no scroll to draw that would not be invented`,
+        scope('not_built', symbol, `${what}, stated`, 'not stated')
+      );
+    }
+    return value;
+  };
+  const baseCircle = drawing(Sym.PUMP_BASE_CIRCLE_DIAMETER, 'base circle diameter') / 2;
+  const suction = drawing(Sym.PUMP_SUCTION_BORE, 'suction bore') / 2;
+  const discharge = drawing(Sym.PUMP_DISCHARGE_BORE, 'discharge bore') / 2;
+  const notes: Note[] = [];
+  const statedWidth = optionalDimension(component, Sym.PUMP_CASING_WIDTH);
+  const width = statedWidth ?? a2 + 2 * t;
+  if (statedWidth === undefined) notes.push(assumedNote(`Casing width not stated — drawn ${mm(width)}, A2 and two walls`, Sym.PUMP_CASING_WIDTH, mm(width)));
+  const refuse = (symbol: string, message: string, limit: string, value: number): never => {
+    throw new BuildError(component, message, scope('out_of_scope', symbol, limit, mm(value)));
+  };
+  if (width - 2 * t < a2) refuse(Sym.PUMP_CASING_WIDTH, `is ${mm(width)} wide for a volute ${mm(a2)} across`, `≥ ${mm(a2 + 2 * t)}, A2 and two walls`, width);
+  if (suction >= baseCircle) refuse(Sym.PUMP_SUCTION_BORE, `has a ${mm(2 * suction)} suction inside a ${mm(2 * baseCircle)} base circle`, `< ${mm(2 * baseCircle)}`, 2 * suction);
+  if (2 * discharge > Math.min(a1, width - 2 * t)) {
+    refuse(Sym.PUMP_DISCHARGE_BORE, `has a ${mm(2 * discharge)} discharge from a volute ${mm(a1)} by ${mm(width - 2 * t)}`, `≤ ${mm(Math.min(a1, width - 2 * t))}`, 2 * discharge);
+  }
+
+  const cavity = baseCircle + a1;
+  const outside = cavity + t;
+  const neck = Math.max(suction / 2, 3 * t);
+  const bottom = neck;
+  const top = neck + width;
+  const middle = (bottom + top) / 2;
+  // The throat: the middle of the volute section, at azimuth 0, the branch leaving towards +Y.
+  const throat = baseCircle + a1 / 2;
+  const along = { origin: [throat, 0, middle] as [number, number, number], axis: [0, 1, 0] as [number, number, number] };
+  const reach = outside + 2 * discharge;
+  const axis = (from: number, to: number, r: number) => kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, 0, r, from, to);
+  const metal = [
+    axis(bottom, top, outside),
+    kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, suction, suction + t, 0, bottom + t),
+    kernel.tube(along, 0, discharge + t, 0, reach),
+  ].reduce((a, b) => kernel.fuse(a, b));
+  const solid = kernel.cut(metal, [axis(bottom + t, top - t, cavity), axis(-1, bottom + t + 1, suction), kernel.tube(along, 0, discharge, 0, reach + 1)]);
+  notes.push(
+    representedNote(
+      'The volute is drawn at its throat section all round: the scroll\'s growth from the tongue to the throat is not drawn',
+      'volute scroll',
+      'a section growing from the tongue to A1 × A2 at the throat',
+      `${mm(a1)} × ${mm(a2)} all round`,
+      true
+    )
+  );
+  const surface = cylinderSurface(suction + t / 2);
+  return {
+    solid,
+    height: top,
+    lower: { insideDiameter: 2 * suction, outsideDiameter: 2 * (suction + t), wall: { surface, thickness: t, meridian: DOWN } },
+    // The back of the casing is closed by its cover; the discharge leaves sideways, not up the run.
+    upper: null,
+    landmarks: junctionLandmarks('lower', 0, 2 * suction, 2 * (suction + t), 'Suction end'),
+    meridian: [
+      [suction + t / 2, 0],
+      [suction + t / 2, bottom],
+    ],
+    notes,
+  };
+};
+
 export const RUN_BUILDERS: Readonly<Record<string, RunBuilder>> = {
+  pump_casing: pumpCasing,
   pipe_segment: pipeSegment,
   pipe_bend: pipeBend,
   valve_body: valveBody,

@@ -1059,8 +1059,8 @@ export const liftingLug: MountedBuilder = (component, context) => {
  * The engine checks the ring on A_R, h_G and R_R, which the section fixes; where the assembly
  * states them, under §16.9's names or CODAP's, they must be the section drawn — two sources for one
  * number is how a drawing and its check come apart. A flat bar is also fixed BY A_R and h_G, so
- * one stated only as the engine asks is drawn. The engine reads its four ring flags as switches,
- * stated meaning yes, so they are stated as 1 or not at all.
+ * one stated only as the engine asks is drawn. Its four flags are switches, 1 yes and 0 or absent
+ * no, as the engine reads them; a ring stated inside the shell is not drawn, having no posts.
  */
 export const ringSupport: MountedBuilder = (component, context) => {
   const { kernel, placement } = context;
@@ -1075,17 +1075,14 @@ export const ringSupport: MountedBuilder = (component, context) => {
     }
     return x ?? y;
   };
-  // The engine reads its ring flags as SWITCHES — stated is yes, whatever the value — so a stated 0
-  // would be drawn one way and checked the other. Stated as 1, or not at all.
+  // The engine's ring flags are switches: 1 is yes, 0 or not stated is no (TRESCA DBR's
+  // fix/switch-stated-zero-is-no, 7167dad — before it, ANY stated value read as yes, so a 0 was
+  // drawn one way and checked the other). Anything but 0 or 1 is refused.
   const switchOn = (symbol: string, meaning: string): boolean => {
     const value = signedDimension(component, symbol);
-    if (value === undefined) return false;
+    if (value === undefined || value === 0) return false;
     if (value !== 1) {
-      throw new BuildError(
-        component,
-        `states ${symbol} = ${value}; the engine reads any stated value as "${meaning}"`,
-        scope('out_of_scope', symbol, '1, or not stated', `${value}`)
-      );
+      throw new BuildError(component, `states ${symbol} = ${value} for "${meaning}"`, scope('out_of_scope', symbol, '0 or 1', `${value}`));
     }
     return true;
   };
@@ -1100,7 +1097,17 @@ export const ringSupport: MountedBuilder = (component, context) => {
   if (channel && !flanged) {
     throw new BuildError(component, 'is a channel with no flange', scope('out_of_scope', Sym.SUPPORT_RING_FLANGE_WIDTH, 'b_2a and e_2a for a channel', 'not stated'));
   }
+  const side = signedDimension(component, Sym.SUPPORT_RING_EXTERNAL);
   if (!switchOn(Sym.SUPPORT_RING_EXTERNAL, 'outside the shell')) {
+    if (side === 0) {
+      // Inside the bore, a ring has nothing to stand its posts on: an internal ring at a support is
+      // the saddle's stiffener (CODAP C9.3.2.6), not a ring support.
+      throw new NotDrawnError(
+        component,
+        'is stated inside the shell, where no post can reach it; a ring inside the bore stiffens a saddle and is the saddle\'s',
+        scope('not_built', Sym.SUPPORT_RING_EXTERNAL, '1, a ring outside on its posts', '0')
+      );
+    }
     notes.push(assumedNote('Ring side not stated — drawn outside the shell, where the engine reads an unstated side as inside', Sym.SUPPORT_RING_EXTERNAL, 'outside'));
   }
   const statedArea = either(Sym.SUPPORT_RING_AREA, Sym.SUPPORT_SECTION_AREA, 'the ring\'s area');

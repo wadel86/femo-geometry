@@ -96,6 +96,9 @@ export const Kind = {
   // RCC-M C3540: a valve body in the line, judged on its pressure series and bore rather than a
   // stress formula (TRESCA DBR, feat/rccm-c3540-valve-body). A draft until that reaches develop.
   VALVE_BODY: 'valve_body',
+  // RCC-M C3431–C3434: a radially split volute pump casing (TRESCA DBR, 9ad07b0). A draft until
+  // that reaches develop.
+  PUMP_CASING: 'pump_casing',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -107,6 +110,7 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.LIFTING_LUG,
   Kind.SEGMENTAL_BAFFLES,
   Kind.VALVE_BODY,
+  Kind.PUMP_CASING,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -312,6 +316,18 @@ export const Sym = {
   MEMBER_PROFILE: 'member_profile',
   /** Degrees from vertical, swung outward in the plane of the member's azimuth. */
   MEMBER_INCLINATION: 'member_inclination',
+  // RCC-M C3431–C3434's volute casing, on TRESCA DBR's names. The engine reads A1, A2 and K and the
+  // wall; the four drawing dimensions below are read by no check, so a drawing can move no verdict.
+  /** A1, A2: the volute section's two spans — drawn as its radial and its axial extent. */
+  PUMP_VOLUTE_A1: 'pump_volute_a1',
+  PUMP_VOLUTE_A2: 'pump_volute_a2',
+  /** The volute's base circle diameter: where the scroll begins, outside the impeller. */
+  PUMP_BASE_CIRCLE_DIAMETER: 'pump_base_circle_diameter',
+  /** The casing's width along the shaft. */
+  PUMP_CASING_WIDTH: 'pump_casing_width',
+  /** The axial suction bore and the tangential discharge bore. */
+  PUMP_SUCTION_BORE: 'pump_suction_bore',
+  PUMP_DISCHARGE_BORE: 'pump_discharge_bore',
   /** From the bottom of the ring to the underside of the base plate. */
   SUPPORT_HEIGHT: 'support_height',
   /** A post's width in the ring's plane; along the axis it is as wide as the ring. */

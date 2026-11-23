@@ -275,7 +275,11 @@ export class AssemblyBuilder {
       try {
         part = this.remember(this.runCache, key, () => builder(component, { kernel: this.kernel, ...context }));
       } catch (error) {
-        results.set(component.id, failed(component, error));
+        // A part that cannot be drawn honestly from what it states is not drawn, not failed.
+        results.set(
+          component.id,
+          error instanceof NotDrawnError ? { ...notDrawn(component), message: error.message, scope: error.scope } : failed(component, error)
+        );
         return;
       }
 
