@@ -113,9 +113,52 @@ test('§16.9: the section the engine checks is the bar drawn — A_R, h_G, R_R a
   const asEngine = partOf({ ...engineOnly, components: engineOnly.components.map((c) => (c.id === 'M' ? { ...c, dimensions: rest } : c)) }, 'M');
   assert.equal(asEngine.status, 'drawn', asEngine.message);
   assert.equal(asEngine.solids.length, 4);
-  const both = partOf(restated('ring_support.cradle', 'M', { ring_on_two_hinges: 0, support_ring_two_point: 1 }), 'M');
-  assert.equal(both.scope?.reason, 'mismatch');
-  assert.equal(partOf(restated('ring_support.cradle', 'M', { ring_on_two_hinges: 2 }), 'M').scope?.parameter, 'ring_on_two_hinges');
+  // CODAP's names for the same quantities are read too, and checked the same way.
+  assert.equal(partOf(restated('ring_support.cradle', 'M', { support_section_area: 2400, support_ring_neutral_axis: 60, support_ring_footprint: 20 }), 'M').status, 'drawn');
+  assert.equal(partOf(restated('ring_support.cradle', 'M', { support_ring_neutral_axis: 70 }), 'M').scope?.parameter, 'support_ring_neutral_axis');
+  const twice = partOf(restated('ring_support.cradle', 'M', { support_contact_angle: 100 }), 'M');
+  assert.equal(twice.scope?.reason, 'mismatch');
+  assert.equal(twice.scope?.parameter, 'support_contact_angle');
+});
+
+test('§16.9 / C9.A5: the engine reads its ring flags as switches, so a stated 0 is refused rather than drawn the other way', () => {
+  for (const symbol of ['ring_on_two_hinges', 'support_ring_two_point', 'support_ring_channel', 'support_ring_external']) {
+    const zero = partOf(restated('ring_support.cradle', 'M', { [symbol]: 0 }), 'M');
+    assert.equal(zero.status, 'failed', `${symbol} = 0 was drawn`);
+    assert.equal(zero.scope?.parameter, symbol);
+    assert.equal(zero.scope?.limit, '1, or not stated');
+  }
+  // Unstated, the side is drawn outside and said, because the engine reads it as inside.
+  const unsided = partOf(restated('ring_support.cradle', 'M', { support_ring_external: undefined as unknown as number }), 'M');
+  assert.equal(unsided.status, 'drawn');
+  assert.ok(unsided.notes.some((n) => n.symbol === 'support_ring_external' && n.scope?.reason === 'assumed'));
+});
+
+test('C9.A5.4 and C9.A5.5: a tee and a channel are revolved from their sections, with the engine\'s A_R and h_G', () => {
+  // Tee: h 160, web 16, flange 120 × 20. A_R = 140·16 + 120·20 = 4640; h_G = 160 − [(120 − 16)·20² + 16·160²]/(2·4640).
+  const tee = partOf(specimen('ring_support.tee'), 'M');
+  assert.equal(tee.status, 'drawn', tee.message);
+  const teeArea = 140 * 16 + 120 * 20;
+  const teeCentroid = 160 - ((120 - 16) * 400 + 16 * 160 * 160) / (2 * teeArea);
+  const R = 766;
+  // Pappus: the ring's volume is A_R times the circle its centroid runs round.
+  const close = (a: number, b: number, tol: number) => assert.ok(Math.abs(a - b) <= tol, `${a} is not ${b} ± ${tol}`);
+  close(kernel.volume(tee.solids[0]!), teeArea * 2 * Math.PI * (R + teeCentroid), 1e-6 * teeArea * 2 * Math.PI * R);
+  assert.equal(partOf(restated('ring_support.tee', 'M', { support_ring_area: teeArea, support_ring_centroid: teeCentroid }), 'M').status, 'drawn');
+  assert.equal(partOf(restated('ring_support.tee', 'M', { support_ring_centroid: 80 }), 'M').scope?.reason, 'mismatch');
+
+  // Channel: two webs 12 at the edges of a 120 × 16 flange. A_R = 2·144·12 + 120·16 = 5376.
+  const channel = partOf(specimen('ring_support.channel'), 'M');
+  assert.equal(channel.status, 'drawn', channel.message);
+  const chArea = 2 * 144 * 12 + 120 * 16;
+  const chCentroid = 160 - ((120 - 24) * 256 + 24 * 160 * 160) / (2 * chArea);
+  close(kernel.volume(channel.solids[0]!), chArea * 2 * Math.PI * (R + chCentroid), 1e-6 * chArea * 2 * Math.PI * R);
+  // Its footprint on the shell is the flange's width, as the engine defaults it.
+  assert.equal(partOf(restated('ring_support.channel', 'M', { support_ring_footprint: 120 }), 'M').status, 'drawn');
+  assert.equal(partOf(restated('ring_support.channel', 'M', { support_ring_footprint: 12 }), 'M').scope?.reason, 'mismatch');
+  // Half a flange, or a channel with none, is refused.
+  assert.equal(partOf(restated('ring_support.tee', 'M', { support_ring_flange_width: undefined as unknown as number }), 'M').scope?.parameter, 'support_ring_flange_width');
+  assert.equal(partOf(restated('ring_support.cradle', 'M', { support_ring_channel: 1 }), 'M').scope?.parameter, 'support_ring_flange_width');
 });
 
 test('C9.5: a leg on a head stands clear of it and reaches leg_length below where it meets it', () => {

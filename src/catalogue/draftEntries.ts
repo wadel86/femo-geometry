@@ -133,6 +133,8 @@ const PIPE_DIMENSIONS = { pipe_outside_diameter: 219.1, thickness: 8.18, course_
 const RING_SUPPORT_SECTION = [
   Sym.SUPPORT_RING_HEIGHT, Sym.SUPPORT_RING_WEB_THICKNESS, Sym.SUPPORT_OPENING_ANGLE, Sym.RING_ON_TWO_HINGES, Sym.SUPPORT_RING_TWO_POINT,
   Sym.SUPPORT_RING_AREA, Sym.SUPPORT_RING_CENTROID, Sym.SUPPORT_RING_RADIUS, Sym.SUPPORT_RING_CONTACT_WIDTH,
+  Sym.SUPPORT_RING_FLANGE_WIDTH, Sym.SUPPORT_RING_FLANGE_THICKNESS, Sym.SUPPORT_RING_CHANNEL, Sym.SUPPORT_RING_EXTERNAL,
+  Sym.SUPPORT_CONTACT_ANGLE, Sym.SUPPORT_SECTION_AREA, Sym.SUPPORT_RING_NEUTRAL_AXIS, Sym.SUPPORT_RING_FOOTPRINT,
 ];
 
 const CORRODED = [Detail.CORRODED_MODEL, Detail.CORROSION_ALLOWANCE, Detail.CORRODED_SURFACES];
@@ -723,7 +725,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     id: 'ring_support.cradle', article: 'EN 13445-3 §16.9', title: 'Support ring on a cradle', entry: 'component', status: 'captured',
     kinds: [Kind.RING_SUPPORT], focus: 'M',
     specimen: mountedOnCourse(Kind.RING_SUPPORT, {
-      support_ring_height: 120, support_ring_web_thickness: 20, support_opening_angle: 120, ring_on_two_hinges: 0, support_height: 600, support_post_width: 120,
+      support_ring_height: 120, support_ring_web_thickness: 20, support_opening_angle: 120, support_ring_external: 1, support_height: 600, support_post_width: 120,
       support_lug_base_plate_thickness: 20,
     }, side(1000, 0)),
     parameters: [RING_SUPPORT_SECTION, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS].flat(),
@@ -732,20 +734,52 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     constructionDetails: [],
     note:
       'The engine\'s RING_SUPPORT (§16.9, CODAP C9.3.3), on its symbols: a flat bar h1a high radially by e1a thick, and two posts at ±δ/2 from the bottom on one base (Figure C9.3.3.1.7-2). ' +
-      'A_R, h_G, R_R and t_ring are the bar drawn (t·h, h/2, R_o + h/2, t); stated, they must agree with it. A T or channel section is not drawn. Past δ = 180° the supports bear above the ring\'s middle and are refused as not built',
+      'A_R, h_G, R_R and t_ring are the bar drawn (t·h, h/2, R_o + h/2, t); stated under either code\'s name, they must agree with it. The tee and the channel are their own entries. ' +
+      'The engine reads its ring flags as SWITCHES — stated is yes, whatever the value — so ring_on_two_hinges, support_ring_two_point, support_ring_channel and support_ring_external are stated as 1 or not at all; ' +
+      'an unstated side is drawn outside and noted, the engine reading it as inside. Past δ = 180° the supports bear above the ring\'s middle and are refused as not built',
   },
   {
-    id: 'ring_support.two_links', article: 'EN 13445-3 §16.9', title: 'Support ring on two hinges', entry: 'component', status: 'captured',
+    id: 'ring_support.tee', article: 'CODAP C9.A5.4', title: 'Support ring, tee section', entry: 'component', status: 'captured',
     kinds: [Kind.RING_SUPPORT], focus: 'M',
     specimen: mountedOnCourse(Kind.RING_SUPPORT, {
-      support_ring_height: 120, support_ring_web_thickness: 20, support_opening_angle: 90, ring_on_two_hinges: 1, support_height: 800, support_post_width: 100,
-      support_lug_base_plate_thickness: 20,
+      support_ring_height: 160, support_ring_web_thickness: 16, support_ring_flange_width: 120, support_ring_flange_thickness: 20,
+      support_opening_angle: 120, support_ring_external: 1, support_height: 600, support_post_width: 140, support_lug_base_plate_thickness: 20,
     }, side(1000, 0)),
     parameters: [RING_SUPPORT_SECTION, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS].flat(),
     ports: ['attach'],
     joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
     constructionDetails: [],
-    note: 'Figure C9.3.3.1.7-3: the same ring on two hinges (§16.9) — held at two points, C9.3.3.6\'s case — each post on its own base. ring_on_two_hinges and support_ring_two_point are one fact; stated both, they must agree',
+    note:
+      'Figure C9.A5.4-1: a web e1a against the shell, a flange b2a × e2a at the far side, revolved. A_R = (h − e2a)·e1a + b2a·e2a and h_G from the shell by Eq. (C9.A5.4-1) read with e1a, the engine\'s reading; ' +
+      'a stated A_R or h_G must be the section drawn',
+  },
+  {
+    id: 'ring_support.channel', article: 'CODAP C9.A5.5', title: 'Support ring, channel section', entry: 'component', status: 'captured',
+    kinds: [Kind.RING_SUPPORT], focus: 'M',
+    specimen: mountedOnCourse(Kind.RING_SUPPORT, {
+      support_ring_height: 160, support_ring_web_thickness: 12, support_ring_flange_width: 120, support_ring_flange_thickness: 16, support_ring_channel: 1,
+      support_opening_angle: 120, support_ring_external: 1, support_height: 600, support_post_width: 140, support_lug_base_plate_thickness: 20,
+    }, side(1000, 0)),
+    parameters: [RING_SUPPORT_SECTION, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS].flat(),
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note:
+      'Figure C9.A5.5-1: two webs e1a at the flange\'s edges and the flange b2a × e2a away from the shell, a U opening onto it. Eq. (C9.A5.5-1) is read from the shell, as the engine reads it (its print is the far side); ' +
+      'the footprint on the shell is the flange\'s width',
+  },
+  {
+    id: 'ring_support.two_links', article: 'EN 13445-3 §16.9', title: 'Support ring on two hinges', entry: 'component', status: 'captured',
+    kinds: [Kind.RING_SUPPORT], focus: 'M',
+    specimen: mountedOnCourse(Kind.RING_SUPPORT, {
+      support_ring_height: 120, support_ring_web_thickness: 20, support_opening_angle: 90, ring_on_two_hinges: 1, support_ring_external: 1, support_height: 800,
+      support_post_width: 100, support_lug_base_plate_thickness: 20,
+    }, side(1000, 0)),
+    parameters: [RING_SUPPORT_SECTION, Sym.SUPPORT_HEIGHT, Sym.SUPPORT_POST_WIDTH, Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS].flat(),
+    ports: ['attach'],
+    joint: { kind: 'fillet_attachment', between: ['S', 'M'], ports: ['wall:M', 'attach'] },
+    constructionDetails: [],
+    note: 'Figure C9.3.3.1.7-3: the same ring on two hinges (§16.9) — held at two points, C9.3.3.6\'s case — each post on its own base. ring_on_two_hinges and support_ring_two_point are one fact, each a switch stated as 1',
   },
   {
     id: 'linear_support_member', article: 'RCC-M H3232', title: 'Linear support member', entry: 'component', status: 'captured',

@@ -270,10 +270,25 @@ export const Sym = {
   SUPPORT_RING_CENTROID: 'support_ring_centroid',
   /** R_R: the ring's neutral axis from the vessel axis. */
   SUPPORT_RING_RADIUS: 'support_ring_radius',
-  /** EN 13445-3 §16.9: 1 when the ring is carried on two hinges (two links), 0 on a cradle. */
+  /**
+   * EN 13445-3 §16.9: the ring is carried on two hinges (two links). A SWITCH, as the engine reads
+   * it: stated means yes, whatever the value — so it is stated as 1 or not at all.
+   */
   RING_ON_TWO_HINGES: 'ring_on_two_hinges',
-  /** CODAP C9.3.3.6's reading of the same thing: 1 when the ring is held at exactly two points. */
+  /** CODAP C9.3.3.6's reading of the same fact: the ring is held at exactly two points. A switch. */
   SUPPORT_RING_TWO_POINT: 'support_ring_two_point',
+  /** b_2a, e_2a: a tee's or channel's flange, at the side away from the shell (CODAP C9.A5.4/.5). */
+  SUPPORT_RING_FLANGE_WIDTH: 'support_ring_flange_width',
+  SUPPORT_RING_FLANGE_THICKNESS: 'support_ring_flange_thickness',
+  /** The flanged section is a channel — two webs at the flange's edges — rather than a tee. A switch. */
+  SUPPORT_RING_CHANNEL: 'support_ring_channel',
+  /** The ring is outside the shell. A switch; the engine reads its absence as a ring inside. */
+  SUPPORT_RING_EXTERNAL: 'support_ring_external',
+  /** CODAP's names for quantities §16.9 names above: δ_a, A_R, h_G and the footprint on the shell. */
+  SUPPORT_CONTACT_ANGLE: 'support_contact_angle',
+  SUPPORT_SECTION_AREA: 'support_section_area',
+  SUPPORT_RING_NEUTRAL_AXIS: 'support_ring_neutral_axis',
+  SUPPORT_RING_FOOTPRINT: 'support_ring_footprint',
   /** D_o: a pipe's outside diameter — what RCC-M C3641.1 sizes it on, the wall `t_n` inward. */
   PIPE_OUTSIDE_DIAMETER: 'pipe_outside_diameter',
   /** R: a pipe bend's radius to its centreline (C3642.1's K = R/r_i). */

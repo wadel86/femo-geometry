@@ -1054,24 +1054,68 @@ export const liftingLug: MountedBuilder = (component, context) => {
  * brackets above the ring's middle; a vertical post from there would pass through the vessel, so
  * past 180° the supports are not drawn.
  *
- * The engine checks the ring on A_R, h_G and R_R, which a flat bar fixes: t·h, h/2 and R_o + h/2.
- * They are not read to draw, but where the assembly states them they must be the bar drawn — two
- * sources for one number is how a drawing and its check come apart. Likewise t_ring, the contact
- * width, is the bar's thickness, and §16.9's two hinges and C9.3.3.6's two points are one fact.
+ * The section is one of CODAP Annexe C9.A5's three described ones — a flat bar, a tee (a flange
+ * b_2a × e_2a at the far side of the web) or a channel (two webs at the flange's edges) — revolved.
+ * The engine checks the ring on A_R, h_G and R_R, which the section fixes; where the assembly
+ * states them, under §16.9's names or CODAP's, they must be the section drawn — two sources for one
+ * number is how a drawing and its check come apart. A flat bar is also fixed BY A_R and h_G, so
+ * one stated only as the engine asks is drawn. The engine reads its four ring flags as switches,
+ * stated meaning yes, so they are stated as 1 or not at all.
  */
 export const ringSupport: MountedBuilder = (component, context) => {
   const { kernel, placement } = context;
   const course = cylinderOf(component, context, 'a support ring');
-  // The bar is h × t; what the engine requires — A_R and h_G — fixes it as well (h = 2·h_G, t = A_R/h),
-  // so a ring stated only as the engine asks is drawn, and one stated both ways must agree below.
-  const statedArea = optionalDimension(component, Sym.SUPPORT_RING_AREA);
-  const statedCentroid = optionalDimension(component, Sym.SUPPORT_RING_CENTROID);
-  const height = optionalDimension(component, Sym.SUPPORT_RING_HEIGHT) ?? (statedCentroid !== undefined ? 2 * statedCentroid : requireDimension(component, Sym.SUPPORT_RING_HEIGHT));
+  const notes: Note[] = [];
+  // One quantity, two codes' names (§16.9 and CODAP C9.3.3 / C9.A5): either is read, both must agree.
+  const either = (a: string, b: string, label: string): number | undefined => {
+    const x = optionalDimension(component, a);
+    const y = optionalDimension(component, b);
+    if (x !== undefined && y !== undefined && Math.abs(x - y) > 1e-6 * Math.max(1, Math.abs(x))) {
+      throw new BuildError(component, `states ${label} twice, ${x} and ${y}`, scope('mismatch', b, `${a} = ${x}`, `${y}`));
+    }
+    return x ?? y;
+  };
+  // The engine reads its ring flags as SWITCHES — stated is yes, whatever the value — so a stated 0
+  // would be drawn one way and checked the other. Stated as 1, or not at all.
+  const switchOn = (symbol: string, meaning: string): boolean => {
+    const value = signedDimension(component, symbol);
+    if (value === undefined) return false;
+    if (value !== 1) {
+      throw new BuildError(
+        component,
+        `states ${symbol} = ${value}; the engine reads any stated value as "${meaning}"`,
+        scope('out_of_scope', symbol, '1, or not stated', `${value}`)
+      );
+    }
+    return true;
+  };
+  const flangeWidth = optionalDimension(component, Sym.SUPPORT_RING_FLANGE_WIDTH);
+  const flangeThickness = optionalDimension(component, Sym.SUPPORT_RING_FLANGE_THICKNESS);
+  if ((flangeWidth === undefined) !== (flangeThickness === undefined)) {
+    const missing = flangeWidth === undefined ? Sym.SUPPORT_RING_FLANGE_WIDTH : Sym.SUPPORT_RING_FLANGE_THICKNESS;
+    throw new BuildError(component, 'states half a flange', scope('out_of_scope', missing, 'both b_2a and e_2a, or neither', 'one'));
+  }
+  const flanged = flangeWidth !== undefined && flangeThickness !== undefined;
+  const channel = switchOn(Sym.SUPPORT_RING_CHANNEL, 'a channel');
+  if (channel && !flanged) {
+    throw new BuildError(component, 'is a channel with no flange', scope('out_of_scope', Sym.SUPPORT_RING_FLANGE_WIDTH, 'b_2a and e_2a for a channel', 'not stated'));
+  }
+  if (!switchOn(Sym.SUPPORT_RING_EXTERNAL, 'outside the shell')) {
+    notes.push(assumedNote('Ring side not stated — drawn outside the shell, where the engine reads an unstated side as inside', Sym.SUPPORT_RING_EXTERNAL, 'outside'));
+  }
+  const statedArea = either(Sym.SUPPORT_RING_AREA, Sym.SUPPORT_SECTION_AREA, 'the ring\'s area');
+  const statedCentroid = either(Sym.SUPPORT_RING_CENTROID, Sym.SUPPORT_RING_NEUTRAL_AXIS, 'the ring\'s centroid');
+  // A flat bar h × t is fixed by A_R and h_G too (h = 2·h_G, t = A_R/h), so a bar stated only as the
+  // engine asks is drawn; a flanged section is not fixed by them and must state its parts.
+  const height =
+    optionalDimension(component, Sym.SUPPORT_RING_HEIGHT) ??
+    (!flanged && statedCentroid !== undefined ? 2 * statedCentroid : requireDimension(component, Sym.SUPPORT_RING_HEIGHT));
   const thickness =
     optionalDimension(component, Sym.SUPPORT_RING_WEB_THICKNESS) ??
-    (statedArea !== undefined ? statedArea / height : requireDimension(component, Sym.SUPPORT_RING_WEB_THICKNESS));
-  const opening = requireDimension(component, Sym.SUPPORT_OPENING_ANGLE);
-  const notes: Note[] = [];
+    (!flanged && statedArea !== undefined ? statedArea / height : requireDimension(component, Sym.SUPPORT_RING_WEB_THICKNESS));
+  const opening = either(Sym.SUPPORT_OPENING_ANGLE, Sym.SUPPORT_CONTACT_ANGLE, 'the supports\' angle') ?? requireDimension(component, Sym.SUPPORT_OPENING_ANGLE);
+  const section = ringSection(height, thickness, flanged ? { width: flangeWidth!, thickness: flangeThickness!, channel } : null);
+  if (section.problem) throw new BuildError(component, section.problem.message, scope('out_of_scope', section.problem.symbol, section.problem.limit, section.problem.value));
   const stated = (symbol: string, label: string, assumed: number): number => {
     const value = optionalDimension(component, symbol);
     if (value !== undefined) return value;
@@ -1088,44 +1132,38 @@ export const ringSupport: MountedBuilder = (component, context) => {
       scope('not_built', Sym.SUPPORT_OPENING_ANGLE, '< 180°, posts down to the ground', `${opening}°`)
     );
   }
-  // Two hinges (§16.9) or two points (C9.3.3.6): one fact, a flag each code reads under its own name.
-  const flag = (symbol: string): boolean | undefined => {
-    const value = signedDimension(component, symbol);
-    if (value === undefined) return undefined;
-    if (value !== 0 && value !== 1) throw new BuildError(component, `states ${symbol} = ${value}`, scope('out_of_scope', symbol, '0 (a cradle) or 1 (two hinges)', `${value}`));
-    return value === 1;
-  };
-  const hinges = flag(Sym.RING_ON_TWO_HINGES);
-  const points = flag(Sym.SUPPORT_RING_TWO_POINT);
-  if (hinges !== undefined && points !== undefined && hinges !== points) {
-    throw new BuildError(
-      component,
-      `states ${hinges ? '' : 'no '}two hinges and ${points ? '' : 'no '}two points, which are one fact`,
-      scope('mismatch', Sym.SUPPORT_RING_TWO_POINT, `${Sym.RING_ON_TWO_HINGES} = ${hinges ? 1 : 0}`, `${points ? 1 : 0}`)
-    );
-  }
-  const twoLinks = hinges ?? points;
-  if (twoLinks === undefined) notes.push(assumedNote('Support not stated — drawn as a cradle, both posts on one base', Sym.RING_ON_TWO_HINGES, '0'));
-  requireWithinHost(component, context, thickness / 2);
+  // Two hinges (§16.9) or two points (C9.3.3.6): one fact, a switch each code reads under its own
+  // name. Either says it; absent, a cradle.
+  // Both read, so a bad value under either name is refused whichever the other says.
+  const hinges = switchOn(Sym.RING_ON_TWO_HINGES, 'carried on two hinges');
+  const points = switchOn(Sym.SUPPORT_RING_TWO_POINT, 'held at two points');
+  const twoLinks = hinges || points;
+  if (!twoLinks) notes.push(assumedNote('Support not stated — drawn as a cradle, both posts on one base', Sym.RING_ON_TWO_HINGES, 'a cradle'));
+  // How far the section reaches along the axis: the bar or the web, or a flange wider than it.
+  const axial = section.axialExtent;
+  requireWithinHost(component, context, axial / 2);
 
   const z = placement.axialOffset;
   const outside = course.outsideRadiusAt(z);
   const ring = outside + height;
-  // The section the engine checks, which the bar drawn fixes: each stated value must be it.
-  const agrees = (symbol: string, label: string, drawn: number, tolerance: number, unit: string) => {
-    const value = optionalDimension(component, symbol);
-    if (value !== undefined && Math.abs(value - drawn) > tolerance) {
-      throw new BuildError(
-        component,
-        `states ${label} ${value.toFixed(1)} ${unit} where the ${mm(height)} × ${mm(thickness)} bar drawn has ${drawn.toFixed(1)}`,
-        scope('mismatch', symbol, `${drawn.toFixed(1)} ${unit}, the flat bar drawn`, `${value} ${unit}`)
-      );
+  // The section the engine checks, which the one drawn fixes: each stated value, under either
+  // name, must be it.
+  const agrees = (symbols: readonly string[], label: string, drawn: number, tolerance: number, unit: string) => {
+    for (const symbol of symbols) {
+      const value = optionalDimension(component, symbol);
+      if (value !== undefined && Math.abs(value - drawn) > tolerance) {
+        throw new BuildError(
+          component,
+          `states ${label} ${value.toFixed(1)} ${unit} where the ${section.name} drawn has ${drawn.toFixed(1)}`,
+          scope('mismatch', symbol, `${drawn.toFixed(1)} ${unit}, the ${section.name} drawn`, `${value} ${unit}`)
+        );
+      }
     }
   };
-  agrees(Sym.SUPPORT_RING_AREA, 'A_R', height * thickness, 5e-3 * height * thickness, 'mm²');
-  agrees(Sym.SUPPORT_RING_CENTROID, 'h_G', height / 2, 0.5, 'mm');
-  agrees(Sym.SUPPORT_RING_RADIUS, 'R_R', outside + height / 2, 0.5, 'mm');
-  agrees(Sym.SUPPORT_RING_CONTACT_WIDTH, 't_ring', thickness, 0.5, 'mm');
+  agrees([Sym.SUPPORT_RING_AREA, Sym.SUPPORT_SECTION_AREA], 'A_R', section.area, 5e-3 * section.area, 'mm²');
+  agrees([Sym.SUPPORT_RING_CENTROID, Sym.SUPPORT_RING_NEUTRAL_AXIS], 'h_G', section.centroid, 0.5, 'mm');
+  agrees([Sym.SUPPORT_RING_RADIUS], 'R_R', outside + section.centroid, 0.5, 'mm');
+  agrees([Sym.SUPPORT_RING_CONTACT_WIDTH, Sym.SUPPORT_RING_FOOTPRINT], 't_ring', section.footprint, 0.5, 'mm');
   const drop = stated(Sym.SUPPORT_HEIGHT, 'Support height', Math.max(150, 0.25 * outside));
   const width = stated(Sym.SUPPORT_POST_WIDTH, 'Post width', Math.max(80, 4 * thickness));
   const basePlate = stated(Sym.SUPPORT_LUG_BASE_PLATE_THICKNESS, 'Base plate thickness', 16);
@@ -1142,31 +1180,28 @@ export const ringSupport: MountedBuilder = (component, context) => {
     );
   }
 
+  const outline = section.outline;
   const solids: Solid[] = [
     kernel.revolve({
-      start: [outside, z - thickness / 2],
-      steps: [
-        { kind: 'line', to: [ring, z - thickness / 2] },
-        { kind: 'line', to: [ring, z + thickness / 2] },
-        { kind: 'line', to: [outside, z + thickness / 2] },
-      ],
+      start: [outside + outline[0]![0], z + outline[0]![1]],
+      steps: outline.slice(1).map(([r, y]) => ({ kind: 'line' as const, to: [outside + r, z + y] as Point2 })),
     }),
   ];
   // Each post starts inside the ring's circle and is cut back to it, so it sits on the ring.
   const ringDisc = kernel.revolve({
-    start: [0, z - thickness],
+    start: [0, z - axial],
     steps: [
-      { kind: 'line', to: [ring, z - thickness] },
-      { kind: 'line', to: [ring, z + thickness] },
-      { kind: 'line', to: [0, z + thickness] },
+      { kind: 'line', to: [ring, z - axial] },
+      { kind: 'line', to: [ring, z + axial] },
+      { kind: 'line', to: [0, z + axial] },
     ],
   });
   for (const y of [-py, py]) {
     const reachIn = Math.sqrt(Math.max(0, ring * ring - (Math.abs(y) + width / 2) ** 2)) - 1;
-    const post = kernel.extrude(rectangle(Math.min(reachIn, px - 1), baseTop, y - width / 2, y + width / 2), z - thickness / 2, z + thickness / 2);
+    const post = kernel.extrude(rectangle(Math.min(reachIn, px - 1), baseTop, y - width / 2, y + width / 2), z - axial / 2, z + axial / 2);
     solids.push(kernel.cut(post, [ringDisc]));
   }
-  const foot = Math.max(width, 2 * thickness);
+  const foot = Math.max(width, 2 * axial);
   if (!twoLinks) {
     solids.push(kernel.extrude(rectangle(baseTop, base, -py - foot / 2, py + foot / 2), z - foot / 2, z + foot / 2));
   } else {
@@ -1175,11 +1210,73 @@ export const ringSupport: MountedBuilder = (component, context) => {
 
   return {
     solids: solids.map((solid) => kernel.rotateZ(solid, placement.azimuth)),
-    footprint: thickness / 2,
-    attachment: { axial: thickness, circumferentialDeg: 360, thickness },
+    footprint: axial / 2,
+    attachment: { axial: section.footprint, circumferentialDeg: 360, thickness },
     notes,
   };
 };
+
+interface RingSection {
+  readonly name: string;
+  /** Closed outline in (radial from the shell's outside, axial from the ring's middle), mm. */
+  readonly outline: readonly (readonly [number, number])[];
+  readonly area: number;
+  /** h_G: the centroid from the shell's outside surface. */
+  readonly centroid: number;
+  /** t_ring: the width it sits on the shell over — the web, or a channel's two webs and the gap between. */
+  readonly footprint: number;
+  readonly axialExtent: number;
+  readonly problem?: { message: string; symbol: string; limit: string; value: string };
+}
+
+/**
+ * CODAP Annexe C9.A5's three described sections, as the engine forms them: a flat bar h × e_1a
+ * (C9.A5.3); a tee, its web e_1a against the shell and a flange b_2a × e_2a at the far side
+ * (C9.A5.4); a channel, two webs at the flange's edges (C9.A5.5). Area and centroid are the
+ * engine's own Eqs. (C9.A5.4-1/-2), with (C9.A5.5-1) read from the shell, as the engine reads it.
+ */
+function ringSection(h: number, e1: number, flange: { width: number; thickness: number; channel: boolean } | null): RingSection {
+  if (!flange) {
+    return {
+      name: `${mm(h)} × ${mm(e1)} bar`,
+      outline: [[0, -e1 / 2], [h, -e1 / 2], [h, e1 / 2], [0, e1 / 2]],
+      area: h * e1,
+      centroid: h / 2,
+      footprint: e1,
+      axialExtent: e1,
+    };
+  }
+  const { width: b2, thickness: e2, channel } = flange;
+  const webs = channel ? 2 : 1;
+  const area = webs * (h - e2) * e1 + b2 * e2;
+  // Eq. (C9.A5.4-1)'s numerator over 2·A_R: the centroid from the FAR side; h_G is h minus it.
+  const fromFar = ((b2 - webs * e1) * e2 * e2 + webs * e1 * h * h) / (2 * area);
+  const base = { area, centroid: h - fromFar, axialExtent: Math.max(b2, e1) };
+  const problem =
+    e2 >= h
+      ? { message: `has a ${mm(e2)} flange on a ${mm(h)} section`, symbol: Sym.SUPPORT_RING_FLANGE_THICKNESS, limit: `< ${mm(h)}, h_1a`, value: mm(e2) }
+      : b2 < webs * e1
+        ? { message: `has a ${mm(b2)} flange over ${webs} web(s) of ${mm(e1)}`, symbol: Sym.SUPPORT_RING_FLANGE_WIDTH, limit: `≥ ${mm(webs * e1)}`, value: mm(b2) }
+        : undefined;
+  const web = h - e2;
+  if (channel) {
+    return {
+      ...base,
+      name: `${mm(h)} channel, ${mm(b2)} × ${mm(e2)} flange`,
+      // A U opening towards the shell: two webs at the flange's edges.
+      outline: [[0, -b2 / 2], [h, -b2 / 2], [h, b2 / 2], [0, b2 / 2], [0, b2 / 2 - e1], [web, b2 / 2 - e1], [web, -b2 / 2 + e1], [0, -b2 / 2 + e1]],
+      footprint: b2,
+      ...(problem ? { problem } : {}),
+    };
+  }
+  return {
+    ...base,
+    name: `${mm(h)} tee, ${mm(b2)} × ${mm(e2)} flange`,
+    outline: [[0, -e1 / 2], [web, -e1 / 2], [web, -b2 / 2], [h, -b2 / 2], [h, b2 / 2], [web, b2 / 2], [web, e1 / 2], [0, e1 / 2]],
+    footprint: e1,
+    ...(problem ? { problem } : {}),
+  };
+}
 
 /**
  * A support ring on a vertical vessel — EN 13445-3 §16.13, Figures 16.13-1 and 16.13-2, the engine's
