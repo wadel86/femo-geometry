@@ -20,6 +20,7 @@ import {
   optionalDimension,
   requireDimension,
   scope,
+  sharpUnlessStated,
   type Note,
 } from '../definition.ts';
 import type { Point2, ProfileStep } from '../kernel/GeometryKernel.ts';
@@ -95,12 +96,9 @@ export const headPoleBoss: MountedBuilder = (component, context) => {
   const zIn = (r: number) => zCentre + Math.sqrt(inner * inner - r * r);
 
   const root = stated(Sym.BOSS_ROOT_RADIUS, 'Root fillet radius', t / 2, `${mm(t / 2)}, half the head's wall`);
-  const breakRadius = optionalDimension(component, Sym.BOSS_BREAK_RADIUS) ?? 0;
-  const neckRadius = optionalDimension(component, Sym.BOSS_NECK_RADIUS) ?? 0;
-  if (breakRadius === 0) notes.push(assumedNote('Cylinder-to-cone break radius not stated — drawn sharp', Sym.BOSS_BREAK_RADIUS, 'sharp'));
-  if (neckRadius === 0) notes.push(assumedNote('Cone-to-spigot fillet radius not stated — drawn sharp', Sym.BOSS_NECK_RADIUS, 'sharp'));
-  const boreEdge = optionalDimension(component, Sym.BOSS_BORE_EDGE_RADIUS) ?? 0;
-  if (boreEdge === 0) notes.push(assumedNote("Bore edge radius on the head's inner surface not stated — drawn sharp", Sym.BOSS_BORE_EDGE_RADIUS, 'sharp'));
+  const breakRadius = sharpUnlessStated(component, notes, Sym.BOSS_BREAK_RADIUS, 'Cylinder-to-cone break radius');
+  const neckRadius = sharpUnlessStated(component, notes, Sym.BOSS_NECK_RADIUS, 'Cone-to-spigot fillet radius');
+  const boreEdge = sharpUnlessStated(component, notes, Sym.BOSS_BORE_EDGE_RADIUS, "Bore edge radius on the head's inner surface");
 
   if (!(ri < rp && rp < rb && rb < rd)) {
     throw new BuildError(

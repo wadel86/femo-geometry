@@ -122,6 +122,15 @@ test('what is not stated is drawn and said: the cone angle, the root, the break,
   assert.deepEqual(said, ['boss_bore_edge_radius', 'boss_break_radius', 'boss_cone_angle', 'boss_neck_radius', 'boss_root_radius']);
 });
 
+test('a sharp edge can be stated: 0 mm carries no assumed-value note, a negative radius is refused', () => {
+  const { model, geometry } = build(vessel({ ...BOSS, boss_break_radius: 0, boss_neck_radius: 0, boss_bore_edge_radius: 0 }));
+  assert.equal(model.parts.find((p) => p.componentId === 'B')!.status, 'drawn');
+  assert.deepEqual(geometry.refusals.filter((r) => r.componentId === 'B').map((r) => r.parameter), []);
+  const negative = build(vessel({ ...BOSS, boss_neck_radius: -5 })).model.parts.find((p) => p.componentId === 'B')!;
+  assert.equal(negative.status, 'failed');
+  assert.equal(negative.scope?.parameter, 'boss_neck_radius');
+});
+
 test('a boss off the pole, past the crown, or with no room for its spigot is refused', () => {
   const cases: [Record<string, number>, Placement, string][] = [
     [BOSS, { ...pole, axialOffset: 300 }, 'placement'],

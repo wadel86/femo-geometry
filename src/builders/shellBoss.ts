@@ -19,7 +19,7 @@
 // revolved about the nozzle axis, but a cylinder's outer surface is not one of its curves, so the
 // root fillet and the bore's edge are rounded on the solid, where the boss meets the disc, rather
 // than drawn into the profile.
-import { BuildError, Sym, assumedNote, optionalDimension, requireDimension, scope, type Note } from '../definition.ts';
+import { BuildError, Sym, assumedNote, optionalDimension, requireDimension, scope, sharpUnlessStated, signedDimension, type Note } from '../definition.ts';
 import type { Point2, ProfileStep, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { mm, requireWithinHost } from './placing.ts';
 import type { MountedBuilder } from './types.ts';
@@ -67,8 +67,10 @@ export const shellBoss: MountedBuilder = (component, context) => {
     return assumed;
   };
   const alpha = stated(Sym.BOSS_CONE_ANGLE, 'Cone half-angle', 45, '45°') * DEG;
-  const lean = (optionalDimension(component, Sym.BOSS_JOINT_ANGLE) ?? 0) * DEG;
-  if (lean === 0) notes.push(assumedNote('Joint face lean not stated — drawn square, a cylinder about the nozzle axis', Sym.BOSS_JOINT_ANGLE, '0°'));
+  // A square face is a real answer, so a stated 0° is stated: only absence is assumed.
+  const statedLean = signedDimension(component, Sym.BOSS_JOINT_ANGLE);
+  const lean = (statedLean ?? 0) * DEG;
+  if (statedLean === undefined) notes.push(assumedNote('Joint face lean not stated — drawn square, a cylinder about the nozzle axis', Sym.BOSS_JOINT_ANGLE, '0°'));
   // §4.5.7's θ, the angle of the boss's axis to the vessel's, as an angled nozzle states it: 90°
   // radial, less leaning towards increasing offset, more towards decreasing.
   const theta = stated(Sym.NOZZLE_ANGLE, 'Axis angle to the vessel axis', 90, '90°, radial') * DEG;
@@ -81,12 +83,9 @@ export const shellBoss: MountedBuilder = (component, context) => {
   const inner = course.insideRadiusAt(z);
   const t = outer - inner;
   const root = stated(Sym.BOSS_ROOT_RADIUS, 'Root fillet radius', t / 2, `${mm(t / 2)}, half the shell's wall`);
-  const breakRadius = optionalDimension(component, Sym.BOSS_BREAK_RADIUS) ?? 0;
-  const neckRadius = optionalDimension(component, Sym.BOSS_NECK_RADIUS) ?? 0;
-  const boreEdge = optionalDimension(component, Sym.BOSS_BORE_EDGE_RADIUS) ?? 0;
-  if (breakRadius === 0) notes.push(assumedNote('Boss-to-cone break radius not stated — drawn sharp', Sym.BOSS_BREAK_RADIUS, 'sharp'));
-  if (neckRadius === 0) notes.push(assumedNote('Cone-to-neck fillet radius not stated — drawn sharp', Sym.BOSS_NECK_RADIUS, 'sharp'));
-  if (boreEdge === 0) notes.push(assumedNote("Bore edge radius on the shell's inner surface not stated — drawn sharp", Sym.BOSS_BORE_EDGE_RADIUS, 'sharp'));
+  const breakRadius = sharpUnlessStated(component, notes, Sym.BOSS_BREAK_RADIUS, 'Boss-to-cone break radius');
+  const neckRadius = sharpUnlessStated(component, notes, Sym.BOSS_NECK_RADIUS, 'Cone-to-neck fillet radius');
+  const boreEdge = sharpUnlessStated(component, notes, Sym.BOSS_BORE_EDGE_RADIUS, "Bore edge radius on the shell's inner surface");
 
   if (!(ri < rp && rp < rb && rb < rd)) {
     throw new BuildError(

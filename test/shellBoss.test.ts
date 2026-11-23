@@ -80,6 +80,14 @@ test('what is not stated is drawn and said: cone angle, root, break, neck fillet
   assert.deepEqual(said, ['boss_bore_edge_radius', 'boss_break_radius', 'boss_cone_angle', 'boss_joint_angle', 'boss_neck_radius', 'boss_root_radius', 'nozzle_angle']);
 });
 
+test('a square joint face can be stated: 0° is an answer and carries no assumed-value note, a negative lean is refused', () => {
+  const { model, geometry } = build(vessel({ ...BOSS, boss_joint_angle: 0, nozzle_angle: 90, boss_break_radius: 0, boss_neck_radius: 0, boss_bore_edge_radius: 0 }));
+  assert.equal(model.parts.find((p) => p.componentId === 'B')!.status, 'drawn');
+  const said = geometry.refusals.filter((r) => r.componentId === 'B').map((r) => r.parameter);
+  assert.deepEqual(said, [], `stated values still noted: ${said.join(', ')}`);
+  assert.equal(bossOf(vessel({ ...BOSS, boss_joint_angle: -2 })).scope?.parameter, 'boss_joint_angle');
+});
+
 test('leant to θ in the plane of the vessel axis, it turns about where its axis leaves the shell, the datum unmoved', () => {
   for (const theta of [85, 95]) {
     const { model, geometry } = build(vessel({ ...BOSS, nozzle_angle: theta }));

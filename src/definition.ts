@@ -635,6 +635,20 @@ export function signedDimension(component: ComponentDefinition, symbol: string):
   return value !== undefined && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * An edge radius that is sharp unless stated. A stated 0 is a sharp edge declared, not a question
+ * unasked, so only absence earns the assumed-value note; a negative radius is refused.
+ */
+export function sharpUnlessStated(component: ComponentDefinition, notes: Note[], symbol: string, what: string): number {
+  const value = signedDimension(component, symbol);
+  if (value === undefined) {
+    notes.push(assumedNote(`${what} not stated — drawn sharp`, symbol, 'sharp'));
+    return 0;
+  }
+  if (value < 0) throw new BuildError(component, `has a ${what.toLowerCase()} of ${value} mm`, scope('out_of_scope', symbol, '≥ 0 mm, 0 for sharp', `${value} mm`));
+  return value;
+}
+
 export function optionalDimension(
   component: ComponentDefinition,
   symbol: string
