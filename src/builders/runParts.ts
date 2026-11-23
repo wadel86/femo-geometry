@@ -1456,7 +1456,88 @@ export const flange: RunBuilder = (component, context) => {
 };
 
 /** The run builders, by `ComponentType` wire value. A kind absent here is not drawn yet. */
+/** A pipe's bore from what its code states — D_o and t_n — refused where the wall leaves none. */
+function pipeBore(component: ComponentDefinition): { outsideDiameter: number; thickness: number; insideDiameter: number } {
+  const outsideDiameter = requireDimension(component, Sym.PIPE_OUTSIDE_DIAMETER);
+  const thickness = requireDimension(component, Sym.THICKNESS);
+  if (!(2 * thickness < outsideDiameter)) {
+    throw new BuildError(
+      component,
+      `has a ${mm(thickness)} wall on a ${mm(outsideDiameter)} pipe, which leaves no bore`,
+      scope('out_of_scope', Sym.THICKNESS, `< ${mm(outsideDiameter / 2)}, half of D_o`, mm(thickness))
+    );
+  }
+  return { outsideDiameter, thickness, insideDiameter: outsideDiameter - 2 * thickness };
+}
+
+/**
+ * A straight pipe — RCC-M C3641: a course stated on its OUTSIDE diameter, because C3641.1's
+ * t_m = P·D_o/(2(S + y·P)) + A reads D_o; the wall `t_n` lies inward from it. Drawn as the
+ * cylindrical course with that bore, so everything a course offers — a host for a branch, a
+ * junction to a neighbour — a pipe offers too.
+ */
+export const pipeSegment: RunBuilder = (component, context) => {
+  const { insideDiameter } = pipeBore(component);
+  return cylindricalShell({ ...component, dimensions: { ...component.dimensions, [Sym.INSIDE_DIAMETER]: insideDiameter } }, context);
+};
+
+/**
+ * A pipe bend — RCC-M C3642: the tube D_o by t_n swept through α on the radius R to its
+ * centreline. Its lower end sits on the run's axis like any course's, the bore square to Z, and
+ * it turns towards +X (azimuth 0) in the XZ plane. A run is laid along one axis, so nothing can
+ * follow a bend yet: the assembly ends the run there. R must clear the tube's own outside radius
+ * — below it the intrados folds through itself, which is a torus no bend can be.
+ */
+export const pipeBend: RunBuilder = (component, context) => {
+  const { kernel } = context;
+  const { outsideDiameter, thickness, insideDiameter } = pipeBore(component);
+  const R = requireDimension(component, Sym.PIPE_BEND_RADIUS);
+  const angle = requireDimension(component, Sym.PIPE_BEND_ANGLE);
+  const ro = outsideDiameter / 2;
+  const ri = insideDiameter / 2;
+  if (!(R > ro)) {
+    throw new BuildError(component, `bends on R = ${mm(R)}, inside its own ${mm(ro)} outside radius`, scope('out_of_scope', Sym.PIPE_BEND_RADIUS, `> ${mm(ro)}, D_o/2`, mm(R)));
+  }
+  if (!(angle > 0 && angle <= 180)) {
+    throw new BuildError(component, `turns through ${angle}°`, scope('out_of_scope', Sym.PIPE_BEND_ANGLE, '0° < α ≤ 180°', `${angle}°`));
+  }
+
+  // The tube about Z: a circle of radius r centred at (R, 0) in the meridian half-plane, revolved.
+  const torus = (r: number) =>
+    kernel.revolve({ start: [R, -r], steps: [arc([R, r], [R + r, 0]), arc([R, -r], [R - r, 0])] });
+  const tube = kernel.cut(torus(ro), [torus(ri)]);
+  // The wedge it is cut to: from azimuth 0 to α, in steps no wider than 45° so each chord clears the tube.
+  const reach = (R + ro) / Math.cos((22.5 * Math.PI) / 180) + 10;
+  const steps = Math.max(1, Math.ceil(angle / 45));
+  const fan: ProfileStep[] = [];
+  for (let k = 0; k <= steps; k++) {
+    const theta = (angle * k * DEG) / steps;
+    fan.push({ kind: 'line', to: [reach * Math.cos(theta), reach * Math.sin(theta)] });
+  }
+  const wedge = kernel.extrude({ start: [0, 0], steps: fan }, -ro - 10, ro + 10);
+  // In the torus frame the bend starts at (R, 0, 0) heading +Y with its centre at the origin. Moved
+  // so the start is the run's origin heading +Z, with the centre of the bend at (+R, 0, 0).
+  const bend = kernel.rotateZ(kernel.rotate(kernel.translate(kernel.intersect(tube, wedge), [-R, 0, 0]), 90, [1, 0, 0]), 180);
+
+  const rad = angle * DEG;
+  const height = rad <= Math.PI / 2 ? R * Math.sin(rad) : R;
+  const surface = cylinderSurface(ri + thickness / 2);
+  return {
+    solid: bend,
+    height,
+    lower: { insideDiameter, outsideDiameter, wall: { surface, thickness, meridian: DOWN } },
+    // The outlet is square to the bend's own axis, not to the run's: no neighbour can meet it yet.
+    upper: null,
+    landmarks: junctionLandmarks('lower', 0, insideDiameter, outsideDiameter, 'Bend end'),
+    // Not a body of revolution about the run's axis: only its lower circle lies on the run's meridian.
+    meridian: [[ri + thickness / 2, 0]],
+    notes: [],
+  };
+};
+
 export const RUN_BUILDERS: Readonly<Record<string, RunBuilder>> = {
+  pipe_segment: pipeSegment,
+  pipe_bend: pipeBend,
   cylindrical_shell: cylindricalShell,
   conical_shell: conicalShell,
   spherical_shell: sphericalShell,

@@ -98,3 +98,16 @@ export {
   type ResolvedPart,
 } from './assembly/resolve.ts';
 export { shortHash, stableStringify } from './hash.ts';
+// The fluid domain of a chamber, so the modeller's worker can draw it from the model it already
+// holds, as the sidecar's POST /fluid-domain does.
+export {
+  FluidDomainError,
+  fluidDomain,
+  fluidManifest,
+  fluidStep,
+  type FluidBoundary,
+  type FluidDomain,
+  type FluidDomainOptions,
+  type FluidFace,
+  type FluidZone,
+} from './fluid/fluidDomain.ts';

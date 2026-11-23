@@ -181,6 +181,8 @@ export class AssemblyBuilder {
       { part: RunPart; key: string; transform: PartTransform; thicken?: (extra: number) => Solid }
     >();
     let cursor = 0;
+    // A run is laid along one axis, and a pipe bend turns it: nothing after one has an axis to stand on.
+    let turnedBy: ComponentDefinition | undefined;
 
     run.forEach((component, index) => {
       const below = run[index - 1];
@@ -192,6 +194,15 @@ export class AssemblyBuilder {
         results.set(component.id, notDrawn(component));
         return;
       }
+      if (turnedBy) {
+        results.set(component.id, {
+          ...notDrawn(component),
+          message: `${component.name} follows ${turnedBy.name}, a pipe bend: the run cannot turn yet, so a bend ends it`,
+          scope: scope('not_built', 'position', `before ${turnedBy.name}, or a run of its own`, `after ${turnedBy.name}`),
+        });
+        return;
+      }
+      if (component.kind === Kind.PIPE_BEND) turnedBy = component;
 
       const neighbour = closesBottom ? above : below;
       const sphere = component.kind === Kind.SPHERICAL_SHELL;
@@ -249,6 +260,8 @@ export class AssemblyBuilder {
               for (const own of [Sym.KNUCKLE_THICKNESS, Sym.FLARE_THICKNESS]) {
                 if (dimensions[own] !== undefined) dimensions[own] += extra;
               }
+              // A pipe is stated outside-in, so thicker OUTWARD is a larger outside diameter too.
+              if (dimensions[Sym.PIPE_OUTSIDE_DIAMETER] !== undefined) dimensions[Sym.PIPE_OUTSIDE_DIAMETER] += 2 * extra;
               const thicker = { ...component, dimensions };
               const thickKey = stableStringify({ kind: component.kind, dimensions: thicker.dimensions, context });
               return this.remember(this.runCache, thickKey, () => builder(thicker, { kernel: this.kernel, ...context })).solid;
@@ -908,6 +921,10 @@ function buildUp(
 
 function insideDiameterOf(component: ComponentDefinition | undefined): number | undefined {
   if (!component) return undefined;
+  const pipe = component.dimensions[Sym.PIPE_OUTSIDE_DIAMETER];
+  const wall = component.dimensions[Sym.THICKNESS];
+  // A pipe is stated on its outside diameter, the dimension its code reads.
+  if (pipe !== undefined && wall !== undefined) return pipe - 2 * wall;
   return component.dimensions[Sym.INSIDE_DIAMETER] ?? component.dimensions[Sym.FLANGE_BORE];
 }
 
@@ -931,6 +948,8 @@ function torisphereOf(component: ComponentDefinition | undefined): TorisphereSha
 
 function outsideRadiusOf(component: ComponentDefinition | undefined): number | undefined {
   if (!component) return undefined;
+  const pipe = component.dimensions[Sym.PIPE_OUTSIDE_DIAMETER];
+  if (pipe !== undefined) return pipe / 2;
   const diameter = component.dimensions[Sym.INSIDE_DIAMETER];
   const thickness = component.dimensions[Sym.THICKNESS];
   return diameter !== undefined && thickness !== undefined ? diameter / 2 + thickness : undefined;

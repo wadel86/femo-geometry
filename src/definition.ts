@@ -83,6 +83,11 @@ export const Kind = {
   // A shell-and-tube exchanger's single-segmental baffles, the whole set as one part. No ASME
   // VIII-2 clause sizes a baffle; whether it becomes a `ComponentType` is TRESCA DBR's call.
   SEGMENTAL_BAFFLES: 'segmental_baffles',
+  // RCC-M B/C/D 3600 piping, on TRESCA DBR's names (feat/rccm-c3600-piping): a straight run and
+  // a bend, both stated on their OUTSIDE diameter, which C3641.1's t_m reads. Drafts until that
+  // branch reaches develop.
+  PIPE_SEGMENT: 'pipe_segment',
+  PIPE_BEND: 'pipe_bend',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -94,6 +99,8 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.LIFTING_LUG,
   Kind.SHELL_BOSS,
   Kind.SEGMENTAL_BAFFLES,
+  Kind.PIPE_SEGMENT,
+  Kind.PIPE_BEND,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -265,6 +272,12 @@ export const Sym = {
   RING_ON_TWO_HINGES: 'ring_on_two_hinges',
   /** CODAP C9.3.3.6's reading of the same thing: 1 when the ring is held at exactly two points. */
   SUPPORT_RING_TWO_POINT: 'support_ring_two_point',
+  /** D_o: a pipe's outside diameter — what RCC-M C3641.1 sizes it on, the wall `t_n` inward. */
+  PIPE_OUTSIDE_DIAMETER: 'pipe_outside_diameter',
+  /** R: a pipe bend's radius to its centreline (C3642.1's K = R/r_i). */
+  PIPE_BEND_RADIUS: 'pipe_bend_radius',
+  /** α: the angle a pipe bend turns through, in degrees. */
+  PIPE_BEND_ANGLE: 'pipe_bend_angle',
   /** From the bottom of the ring to the underside of the base plate. */
   SUPPORT_HEIGHT: 'support_height',
   /** A post's width in the ring's plane; along the axis it is as wide as the ring. */

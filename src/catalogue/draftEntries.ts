@@ -126,6 +126,9 @@ const BAFFLE_PARAMETERS = [
   Sym.SHELL_BAFFLE_CLEARANCE, Sym.TUBE_BAFFLE_CLEARANCE,
 ];
 
+/** A generic DN 200 schedule-40-like pipe, 1 m long: D_o 219.1, t_n 8.18. */
+const PIPE_DIMENSIONS = { pipe_outside_diameter: 219.1, thickness: 8.18, course_length: 1000 };
+
 /** §16.9's ring on the engine's symbols: the bar drawn, the section it fixes, and how it is carried. */
 const RING_SUPPORT_SECTION = [
   Sym.SUPPORT_RING_HEIGHT, Sym.SUPPORT_RING_WEB_THICKNESS, Sym.SUPPORT_OPENING_ANGLE, Sym.RING_ON_TWO_HINGES, Sym.SUPPORT_RING_TWO_POINT,
@@ -253,6 +256,30 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'Every section is a circle, lofted rather than revolved, and the part states its circles\' centres beside its meridian: layer 1 describes it with no special case (centre moves, radius changes, axisymmetric false). ' +
       'Three things below layer 1 do assume one axis, and say so in KERNEL_AXISYMMETRY: s is no generatrix\'s length off the axis; the run is stacked by height alone, so a course above the small end is not shifted and its joint is refused as "centres apart"; and a host surface for nozzles is not offered. ' +
       'Wall drawn t wide in every section (t·cos α normal to it on the steep side); knuckle and flare refused as not built',
+  },
+  {
+    id: 'pipe_segment', article: 'RCC-M C3641', title: 'Straight pipe', entry: 'component', status: 'captured',
+    kinds: [Kind.PIPE_SEGMENT], focus: 'P',
+    specimen: vessel([run('P', Kind.PIPE_SEGMENT, 0, PIPE_DIMENSIONS)]),
+    parameters: [Sym.PIPE_OUTSIDE_DIAMETER, Sym.THICKNESS, Sym.COURSE_LENGTH],
+    ports: ['lower', 'upper'],
+    note:
+      'Draft kind until TRESCA DBR\'s PIPE_SEGMENT reaches develop. Stated on its OUTSIDE diameter, the dimension C3641.1\'s t_m reads, the wall t_n lying inward; ' +
+      'drawn as a cylindrical course of bore D_o − 2·t_n, so it hosts a branch and meets a neighbour as a course does',
+  },
+  {
+    id: 'pipe_bend', article: 'RCC-M C3642', title: 'Pipe bend', entry: 'component', status: 'captured',
+    kinds: [Kind.PIPE_BEND, Kind.PIPE_SEGMENT], focus: 'B',
+    specimen: vessel([
+      run('P', Kind.PIPE_SEGMENT, 0, PIPE_DIMENSIONS),
+      run('B', Kind.PIPE_BEND, 1, { pipe_outside_diameter: 219.1, thickness: 8.18, pipe_bend_radius: 328.65, pipe_bend_angle: 90 }),
+    ]),
+    parameters: [Sym.PIPE_OUTSIDE_DIAMETER, Sym.THICKNESS, Sym.PIPE_BEND_RADIUS, Sym.PIPE_BEND_ANGLE],
+    ports: ['lower'],
+    joint: { kind: 'butt_weld', between: ['P', 'B'], ports: ['upper', 'lower'] },
+    note:
+      'Draft kind until TRESCA DBR\'s PIPE_BEND reaches develop. The tube D_o × t_n swept through α on R to its centreline (C3642.1\'s K = R/r_i), turning towards azimuth 0. ' +
+      'A run is laid along one axis, so a bend ENDS its run: a course after it is refused as not built until the run frame can turn. Its outlet carries no port for the same reason',
   },
   {
     id: 'spherical_shell', article: '§4.3.5', title: 'Spherical shell', entry: 'component', status: 'captured',
