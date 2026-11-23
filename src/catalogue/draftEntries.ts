@@ -291,7 +291,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     specimen: vessel([
       run('P', Kind.PIPE_SEGMENT, 0, { pipe_outside_diameter: 219.1, thickness: 8.18, course_length: 600 }),
       run('U', Kind.PUMP_CASING, 1, {
-        thickness: 20, pump_volute_a1: 150, pump_volute_a2: 120, pump_base_circle_diameter: 400, pump_casing_width: 180,
+        thickness: 20, pump_volute_a1: 330, pump_volute_a2: 420, pump_base_circle_diameter: 400, pump_casing_width: 120,
         pump_suction_bore: 202.74, pump_discharge_bore: 100,
       }),
     ]),
@@ -301,10 +301,10 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['lower'],
     joint: { kind: 'butt_weld', between: ['P', 'U'], ports: ['upper', 'lower'] },
     note:
-      'Draft kind until TRESCA DBR\'s PUMP_CASING reaches develop. The engine judges the wall on A1, A2 and K; the base circle, casing width, suction and discharge bores are read by no check, ' +
-      'and without them the casing is not drawn rather than invented. With them: a suction neck on the axis (its junction to the pipe below), a drum whose cavity reaches the base circle plus A1, ' +
-      'and a discharge branch leaving tangentially at the throat, azimuth 0, mid-width. The scroll\'s growth from the tongue is not drawn — the volute is held at its throat section, the one C3431 sizes. ' +
-      'pump_type and pump_shape_factor are the engine\'s',
+      'Draft kind until TRESCA DBR\'s PUMP_CASING reaches develop. Figure C3431.1.3 dimensions A1 and A2 in PLAN: A1 from the centre to the outer wall at the tongue, A2 the larger reach across the far side; ' +
+      'the axial width is B, pump_casing_width. The base circle, B and the two bores are read by no check, and without them the casing is not drawn rather than invented. ' +
+      'With them: a suction neck on the axis (its junction to the pipe below), an outer wall on the circle through A1 at azimuth 0 and A2 at 180°, B wide inside, and a discharge branch leaving tangentially ' +
+      'at the throat, between the base circle and A1. The spiral between the two dimensioned stations is not drawn. pump_type and pump_shape_factor are the engine\'s',
   },
   {
     id: 'pipe_bend', article: 'RCC-M C3642', title: 'Pipe bend', entry: 'component', status: 'captured',

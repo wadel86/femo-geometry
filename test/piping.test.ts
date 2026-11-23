@@ -72,21 +72,23 @@ test('a bend sweeps the tube through α on R: its volume is the annulus times R�
 });
 
 test('a pump casing is drawn from its four drawing dimensions, or not drawn without them', () => {
+  // Figure C3431.1.3: A1 and A2 in plan, from the centre — 330 at the tongue, 420 across the far
+  // side — and B = 120 the axial width inside.
   const PUMP = {
-    thickness: 20, pump_type: 1, pump_volute_a1: 150, pump_volute_a2: 120, pump_shape_factor: 1.2,
-    pump_base_circle_diameter: 400, pump_casing_width: 180, pump_suction_bore: 202.74, pump_discharge_bore: 100,
+    thickness: 20, pump_type: 1, pump_volute_a1: 330, pump_volute_a2: 420, pump_shape_factor: 1.2,
+    pump_base_circle_diameter: 400, pump_casing_width: 120, pump_suction_bore: 202.74, pump_discharge_bore: 100,
   };
   const definition = line(part('P', 'pipe_segment', { ...PIPE, course_length: 600 }, 0), part('U', 'pump_casing', PUMP, 1));
   const model = build(definition);
   const u = model.parts.find((p) => p.componentId === 'U')!;
   assert.equal(u.status, 'drawn', u.message);
   assert.ok(kernel.isValid(u.solids[0]!));
-  // A drum to the base circle + A1 + t = 370, a neck of 3·t = 60 under 180 of casing, the branch
-  // reaching 2·(discharge bore / 2) past the drum towards +Y.
+  // The outer wall passes A1 + t at azimuth 0 and A2 + t at 180°; a neck of 3·t = 60 under
+  // B + 2·t = 160 of casing.
   const box = kernel.bounds(solidToAssembly(kernel, u.solids[0]!, u.transform));
-  close(box.max[0]!, 370, 1e-6);
-  close(box.max[1]!, 370 + 100, 1e-6);
-  close(box.max[2]! - box.min[2]!, 60 + 180, 1e-6);
+  close(box.max[0]!, 330 + 20, 1e-6);
+  close(box.min[0]!, -(420 + 20), 1e-6);
+  close(box.max[2]! - box.min[2]!, 60 + 120 + 40, 1e-6);
   const joint = resolveGeometry(definition, model, kernel).joints.find((j) => j.id === 'P:upper~U:lower');
   assert.deepEqual(joint?.issues, []);
 
@@ -95,9 +97,10 @@ test('a pump casing is drawn from its four drawing dimensions, or not drawn with
   const bare = partOf(line(part('U', 'pump_casing', asEngine, 0)), 'U');
   assert.equal(bare.status, 'not_drawn');
   assert.equal(bare.scope?.parameter, 'pump_base_circle_diameter');
-  // A discharge wider than the volute, or a casing narrower than it, is refused.
+  // A discharge wider than the throat, A2 short of A1, or A1 inside the base circle, is refused.
   assert.equal(partOf(line(part('U', 'pump_casing', { ...PUMP, pump_discharge_bore: 200 }, 0)), 'U').scope?.parameter, 'pump_discharge_bore');
-  assert.equal(partOf(line(part('U', 'pump_casing', { ...PUMP, pump_casing_width: 120 }, 0)), 'U').scope?.parameter, 'pump_casing_width');
+  assert.equal(partOf(line(part('U', 'pump_casing', { ...PUMP, pump_volute_a2: 300 }, 0)), 'U').scope?.parameter, 'pump_volute_a2');
+  assert.equal(partOf(line(part('U', 'pump_casing', { ...PUMP, pump_volute_a1: 150 }, 0)), 'U').scope?.parameter, 'pump_volute_a1');
 });
 
 test('a bend ends its run: a course after it is not drawn, and a bend tighter than its own tube is refused', () => {

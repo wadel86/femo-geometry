@@ -1546,16 +1546,19 @@ export const pipeBend: RunBuilder = (component, context) => {
 export const valveBody: RunBuilder = (component, context) => cylindricalShell(component, context);
 
 /**
- * A radially split volute pump casing — RCC-M C3431 to C3434. The engine judges its wall on the
- * volute section's spans A1 and A2 and a shape factor K; where the scroll IS — its base circle,
- * the casing's width, the suction and discharge bores — the engine reads nothing of, and without
- * those four there is nothing honest to draw, so the part is not drawn and says which is missing.
+ * A radially split volute pump casing — RCC-M C3431 to C3434, Figure C3431.1.3. Both spans lie in
+ * the PLAN view: A1 from the centre to the volute's outer wall at the tongue section, A2 the larger
+ * reach across the far side, at about 180°; the axial width is B, `pump_casing_width`, the B of
+ * K = f(B/h) (TRESCA DBR, from the figure). The engine reads A1, A2 and K as spans of t2 and t3
+ * and nothing of where the scroll is; the base circle, B and the two bores, which no check reads,
+ * place it, and without them the part is not drawn and says which is missing.
  *
  * With them: a suction neck of the suction bore on the axis (its lower end is the junction to the
- * pipe below), a drum `pump_casing_width` wide whose cavity reaches the base circle plus A1, and a
- * discharge branch of the discharge bore leaving tangentially at the throat, at azimuth 0, mid-width.
- * The scroll's growth from the tongue to the throat is not drawn: the volute is held at its throat
- * section all round, which is the section C3431 sizes the wall on.
+ * pipe below); a casing whose outer wall is the circle through A1 at the tongue (azimuth 0) and
+ * A2 at 180° — the simplest closed curve through the figure's two dimensioned stations, centred
+ * (A2 − A1)/2 towards the far side — B wide inside; and a discharge branch leaving tangentially at
+ * the throat, between the base circle and A1, mid-width. A true scroll's spiral between the two
+ * stations is not drawn: the figure dimensions it at two places only.
  */
 export const pumpCasing: RunBuilder = (component, context) => {
   const { kernel } = context;
@@ -1574,44 +1577,46 @@ export const pumpCasing: RunBuilder = (component, context) => {
     return value;
   };
   const baseCircle = drawing(Sym.PUMP_BASE_CIRCLE_DIAMETER, 'base circle diameter') / 2;
+  const width = drawing(Sym.PUMP_CASING_WIDTH, 'casing width B');
   const suction = drawing(Sym.PUMP_SUCTION_BORE, 'suction bore') / 2;
   const discharge = drawing(Sym.PUMP_DISCHARGE_BORE, 'discharge bore') / 2;
   const notes: Note[] = [];
-  const statedWidth = optionalDimension(component, Sym.PUMP_CASING_WIDTH);
-  const width = statedWidth ?? a2 + 2 * t;
-  if (statedWidth === undefined) notes.push(assumedNote(`Casing width not stated — drawn ${mm(width)}, A2 and two walls`, Sym.PUMP_CASING_WIDTH, mm(width)));
   const refuse = (symbol: string, message: string, limit: string, value: number): never => {
     throw new BuildError(component, message, scope('out_of_scope', symbol, limit, mm(value)));
   };
-  if (width - 2 * t < a2) refuse(Sym.PUMP_CASING_WIDTH, `is ${mm(width)} wide for a volute ${mm(a2)} across`, `≥ ${mm(a2 + 2 * t)}, A2 and two walls`, width);
+  if (!(a1 > baseCircle)) refuse(Sym.PUMP_VOLUTE_A1, `reaches ${mm(a1)} at the tongue, inside its ${mm(2 * baseCircle)} base circle`, `> ${mm(baseCircle)}, the base circle's radius`, a1);
+  if (!(a2 >= a1)) refuse(Sym.PUMP_VOLUTE_A2, `reaches ${mm(a2)} across the far side, less than A1 = ${mm(a1)} at the tongue`, `≥ ${mm(a1)}, A1`, a2);
   if (suction >= baseCircle) refuse(Sym.PUMP_SUCTION_BORE, `has a ${mm(2 * suction)} suction inside a ${mm(2 * baseCircle)} base circle`, `< ${mm(2 * baseCircle)}`, 2 * suction);
-  if (2 * discharge > Math.min(a1, width - 2 * t)) {
-    refuse(Sym.PUMP_DISCHARGE_BORE, `has a ${mm(2 * discharge)} discharge from a volute ${mm(a1)} by ${mm(width - 2 * t)}`, `≤ ${mm(Math.min(a1, width - 2 * t))}`, 2 * discharge);
+  // The throat lies between the tongue, on the base circle, and the outer wall at A1.
+  const throatSpan = a1 - baseCircle;
+  if (2 * discharge > Math.min(throatSpan, width)) {
+    refuse(Sym.PUMP_DISCHARGE_BORE, `has a ${mm(2 * discharge)} discharge from a throat ${mm(throatSpan)} by ${mm(width)}`, `≤ ${mm(Math.min(throatSpan, width))}`, 2 * discharge);
   }
 
-  const cavity = baseCircle + a1;
-  const outside = cavity + t;
+  // The outer wall: the circle through A1 at azimuth 0 and A2 at 180°.
+  const offset = (a2 - a1) / 2;
+  const wall = (a1 + a2) / 2;
   const neck = Math.max(suction / 2, 3 * t);
   const bottom = neck;
-  const top = neck + width;
+  const top = neck + width + 2 * t;
   const middle = (bottom + top) / 2;
-  // The throat: the middle of the volute section, at azimuth 0, the branch leaving towards +Y.
-  const throat = baseCircle + a1 / 2;
+  const throat = (baseCircle + a1) / 2;
   const along = { origin: [throat, 0, middle] as [number, number, number], axis: [0, 1, 0] as [number, number, number] };
-  const reach = outside + 2 * discharge;
-  const axis = (from: number, to: number, r: number) => kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, 0, r, from, to);
+  const reach = Math.sqrt(Math.max(0, (wall + t) ** 2 - (throat + offset) ** 2)) + 2 * discharge;
+  const eccentric = (from: number, to: number, r: number) => kernel.tube({ origin: [-offset, 0, 0], axis: [0, 0, 1] }, 0, r, from, to);
+  const onAxis = (from: number, to: number, r: number) => kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, 0, r, from, to);
   const metal = [
-    axis(bottom, top, outside),
+    eccentric(bottom, top, wall + t),
     kernel.tube({ origin: [0, 0, 0], axis: [0, 0, 1] }, suction, suction + t, 0, bottom + t),
     kernel.tube(along, 0, discharge + t, 0, reach),
   ].reduce((a, b) => kernel.fuse(a, b));
-  const solid = kernel.cut(metal, [axis(bottom + t, top - t, cavity), axis(-1, bottom + t + 1, suction), kernel.tube(along, 0, discharge, 0, reach + 1)]);
+  const solid = kernel.cut(metal, [eccentric(bottom + t, top - t, wall), onAxis(-1, bottom + t + 1, suction), kernel.tube(along, 0, discharge, 0, reach + 1)]);
   notes.push(
     representedNote(
-      'The volute is drawn at its throat section all round: the scroll\'s growth from the tongue to the throat is not drawn',
+      'The volute\'s outer wall is drawn as the circle through A1 at the tongue and A2 across the far side: the spiral between those two dimensioned stations is not drawn',
       'volute scroll',
-      'a section growing from the tongue to A1 × A2 at the throat',
-      `${mm(a1)} × ${mm(a2)} all round`,
+      'a spiral from A1 at the tongue to A2 at about 180° and on to the throat',
+      `a circle of radius ${mm(wall)} centred ${mm(offset)} towards the far side`,
       true
     )
   );

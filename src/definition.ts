@@ -318,7 +318,10 @@ export const Sym = {
   MEMBER_INCLINATION: 'member_inclination',
   // RCC-M C3431–C3434's volute casing, on TRESCA DBR's names. The engine reads A1, A2 and K and the
   // wall; the four drawing dimensions below are read by no check, so a drawing can move no verdict.
-  /** A1, A2: the volute section's two spans — drawn as its radial and its axial extent. */
+  /**
+   * A1, A2: Figure C3431.1.3's two spans, both in PLAN and from the centre — A1 to the outer wall at
+   * the tongue, A2 the larger reach across the far side (about 180°). Neither is axial.
+   */
   PUMP_VOLUTE_A1: 'pump_volute_a1',
   PUMP_VOLUTE_A2: 'pump_volute_a2',
   /** The volute's base circle diameter: where the scroll begins, outside the impeller. */
