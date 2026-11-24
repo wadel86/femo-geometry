@@ -235,6 +235,31 @@ function headCrownHost(
       const rho = Math.hypot(point[0], point[1]);
       return Math.abs(point[2] - zOutside(rho)) < Math.abs(point[2] - zInside(rho)) ? 'outside' : 'inside';
     },
+    normalFrameAt(rho: number, azimuth: number) {
+      // The inside surface's slope at rho, by a central difference kept on the head. Every head is
+      // drawn as a true offset of its inside, so the normal there runs t to the outside surface
+      // and the wall crossed is exactly t.
+      const h = Math.max(1e-6, 1e-5 * insideRadius);
+      const low = Math.max(0, rho - h);
+      const high = Math.min(insideRadius, rho + h);
+      const slope = high > low ? (zInside(high) - zInside(low)) / (high - low) : 0;
+      const length = Math.hypot(1, slope);
+      // Outward and up: (−slope, 1) normalised. On the knuckle near its tangent line the slope is
+      // large and negative, and the normal turns towards horizontal.
+      const [nr, nz] = Number.isFinite(slope) ? [-slope / length, 1 / length] : [1, 0];
+      const inside: Point2 = [rho, zInside(rho)];
+      const out: Point2 = [rho + thickness * nr, inside[1] + thickness * nz];
+      const phi = azimuth * DEG;
+      return {
+        frame: {
+          origin: [out[0] * Math.cos(phi), out[0] * Math.sin(phi), out[1]] as Vec3,
+          axis: [nr * Math.cos(phi), nr * Math.sin(phi), nz] as Vec3,
+          wall: thickness,
+        },
+        inside,
+        tangent: [nz, -nr] as Point2,
+      };
+    },
     wallAt(rho: number): WallAt {
       // The slope of the mid-surface, by a central difference kept inside the crown. Every head
       // is drawn as a true offset of its inside, so the wall is t thick normal to it everywhere.
@@ -724,6 +749,21 @@ function sphereHost(
     wallAt(rho: number): WallAt {
       const up = Math.sqrt(Math.max(0, outside * outside - rho * rho));
       return { surface: sphereSurface(mean), thickness: outside - inside, meridian: [up / outside, -rho / outside] };
+    },
+    normalFrameAt(rho: number, azimuth: number) {
+      // On a sphere every normal is a radius: through the inside surface at rho, out to the outside.
+      const up = Math.sqrt(Math.max(0, inside * inside - rho * rho));
+      const [nr, nz] = [rho / inside, up / inside];
+      const phi = azimuth * DEG;
+      return {
+        frame: {
+          origin: [outside * nr * Math.cos(phi), outside * nr * Math.sin(phi), centre + outside * nz] as Vec3,
+          axis: [nr * Math.cos(phi), nr * Math.sin(phi), nz] as Vec3,
+          wall: outside - inside,
+        },
+        inside: [rho, centre + up] as Point2,
+        tangent: [nz, -nr] as Point2,
+      };
     },
   };
 }

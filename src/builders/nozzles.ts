@@ -18,7 +18,7 @@ import {
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
-import type { Vec3 } from '../kernel/GeometryKernel.ts';
+import type { Point2, Vec3 } from '../kernel/GeometryKernel.ts';
 import { mm, requireWithinHost } from './placing.ts';
 import type { CourseShape, HostFrame, MountedBuilder, MountedContext, MountedPart, Neck } from './types.ts';
 
@@ -411,6 +411,7 @@ function roundCorners(
 
 /** §4.5.5 and §4.5.10 — normal to the wall, whatever the host. */
 const radial: Aimer = (component, context, outside) => {
+  if (context.placement.anchor === 'head_normal') return normalToHead(component, context, outside);
   requireWithinHost(component, context, outside);
   return {
     frame: context.hostSurface.frameAt(context.placement.axialOffset, context.placement.azimuth),
@@ -418,6 +419,47 @@ const radial: Aimer = (component, context, outside) => {
     padAllowed: true,
   };
 };
+
+/**
+ * A radial nozzle on a formed head, off its pole and radial to the HEAD — normal to its surface
+ * at the station, the `head_normal` anchor — where `head_crown` stands it parallel to the vessel
+ * axis. The station is the radius at which the neck's axis crosses the head's inside surface,
+ * anywhere on the crown or a torisphere's knuckle: the normal turns with the surface, towards
+ * horizontal near the tangent line. The opening may not reach past the head's lower end, which
+ * is its neighbour's; on the knuckle that is the limit that binds, the radius barely moving there.
+ */
+function normalToHead(component: ComponentDefinition, context: MountedContext, outside: number): Aim {
+  const { hostSurface, host, placement } = context;
+  if (hostSurface.anchor !== 'head_crown' || !hostSurface.normalFrameAt) {
+    throw new AnchorError(
+      component,
+      `anchored normal to a head, but ${host.name} is not a formed head`,
+      scope('mismatch', 'anchor', 'head_normal on a hemispherical, ellipsoidal or torispherical head, or a spherical shell', `head_normal on ${host.kind}`)
+    );
+  }
+  const [low, high] = hostSurface.offsetRange;
+  const rho = placement.axialOffset;
+  if (!(rho >= low - 1e-6 && rho <= high + 1e-6)) {
+    throw new AnchorError(
+      component,
+      `at ${mm(rho)} from the axis it does not cross ${host.name}, whose inside radius is ${mm(high)}`,
+      scope('out_of_scope', 'distance from the axis to where the neck crosses the inside surface', `${mm(low)} to ${mm(high)}`, mm(rho))
+    );
+  }
+  const { frame, inside, tangent } = hostSurface.normalFrameAt(rho, placement.azimuth);
+  // The opening's far edge along the meridian, on the inside surface: it must stay on the head.
+  const edge: Point2 = [inside[0] + outside * tangent[0], inside[1] + outside * tangent[1]];
+  if (edge[0] > high + 1e-6 || edge[1] < -1e-6) {
+    throw new AnchorError(
+      component,
+      `a ${mm(2 * outside)} neck normal to ${host.name} at ${mm(rho)} from the axis runs past the head's lower end, onto its neighbour`,
+      scope('out_of_scope', 'the opening\'s far edge along the head', `on ${host.name}: within ${mm(high)} of the axis, above its lower end`, `${mm(edge[0])} from the axis, ${mm(edge[1])} above the lower end`)
+    );
+  }
+  // How far the opening reaches along the offset, the radius from the axis: what the head's
+  // other parts are kept clear of. Never less than the neck, so the cut runs deep enough.
+  return { frame, footprint: outside, padAllowed: true };
+}
 
 /**
  * §4.5.6 — parallel to a radius of a cylinder but offset from the vessel axis by `D_X`, so it

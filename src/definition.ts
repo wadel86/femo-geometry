@@ -619,8 +619,13 @@ export interface ComponentDefinition {
  *   course's lower end.
  * - `head_crown` — a head or flat end. `axialOffset` is the radial distance from the vessel axis,
  *   and the part stands parallel to that axis.
+ * - `head_normal` — a formed head, for a nozzle radial to the head itself: the part stands NORMAL
+ *   to the head's surface. `axialOffset` is the radial distance from the vessel axis at which the
+ *   part's axis crosses the head's INSIDE surface — the station a head's drawing dimensions —
+ *   anywhere on the crown or a torisphere's knuckle. A host offers it where it offers `head_crown`
+ *   and can say what is normal to it; only a radial nozzle stands on it.
  */
-export type PlacementAnchor = 'shell_side' | 'head_crown';
+export type PlacementAnchor = 'shell_side' | 'head_crown' | 'head_normal';
 
 /**
  * Where a mounted part sits on its host, stated in the host's own parameters.

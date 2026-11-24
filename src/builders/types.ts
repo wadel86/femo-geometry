@@ -83,6 +83,13 @@ export interface HostSurface {
   sideOf(point: readonly [number, number, number]): 'inside' | 'outside';
   /** The wall at an offset, its meridian pointing towards increasing offset. */
   wallAt(axialOffset: number): WallAt;
+  /**
+   * Set on a formed head: the frame of a part standing NORMAL to it, its axis crossing the inside
+   * surface at radius `rho` from the vessel axis — the `head_normal` anchor. `inside` is that
+   * crossing and `tangent` the unit meridian there, away from the axis, both as (r, z) in the
+   * part's frame: what tells how far an opening of a given radius reaches along the head.
+   */
+  normalFrameAt?(rho: number, azimuth: number): { readonly frame: HostFrame; readonly inside: Point2; readonly tangent: Point2 };
   /** Set on a straight cylindrical course, the only host a reinforcing pad is drawn on today. */
   readonly outsideRadius?: number;
   /** Set on a course — a cylinder or a cone — for what is shaped by its section. */

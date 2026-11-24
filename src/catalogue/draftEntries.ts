@@ -456,7 +456,21 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     specimen: vessel([course('S', 0), run('H', Kind.ELLIPSOIDAL_HEAD, 1, ELLIPSOIDAL), on('M', Kind.RADIAL_NOZZLE, 'H', NECK)], { M: crown(400, 90) }),
     parameters: [Sym.NOZZLE_INSIDE_DIAMETER, Sym.NOZZLE_THICKNESS, Sym.NOZZLE_OUTWARD_PROJECTION, Sym.NOZZLE_INWARD_PROJECTION, Sym.PAD_WIDTH, Sym.PAD_THICKNESS],
     ports: ['neck:host-end', 'neck:outer-end'],
-    note: 'The neck stands parallel to the vessel axis, not normal to the head: analysis says so (represented)',
+    note: 'The neck stands parallel to the vessel axis, not normal to the head: analysis says so (represented). For a neck radial to the head, see nozzle_on_head.normal',
+  },
+  {
+    id: 'nozzle_on_head.normal', article: '§4.5.10, RCC-M B3683.8', title: 'Nozzle on a head, normal to it', entry: 'component', status: 'captured',
+    kinds: [Kind.RADIAL_NOZZLE], focus: 'M',
+    specimen: vessel(
+      [course('S', 0), run('H', Kind.ELLIPSOIDAL_HEAD, 1, ELLIPSOIDAL), on('M', Kind.RADIAL_NOZZLE, 'H', { nozzle_inside_diameter: 50, nozzle_thickness: 12, nozzle_outward_projection: 150, branch_connected_thickness: 5.5, branch_reinforcement_height: 60 })],
+      { M: { anchor: 'head_normal', axialOffset: 450, azimuth: 90 } }
+    ),
+    parameters: [Sym.NOZZLE_INSIDE_DIAMETER, Sym.NOZZLE_THICKNESS, Sym.NOZZLE_OUTWARD_PROJECTION, Sym.BRANCH_CONNECTED_THICKNESS, Sym.BRANCH_REINFORCEMENT_HEIGHT],
+    ports: ['neck:host-end', 'neck:outer-end'],
+    note:
+      'The head_normal anchor: a radial nozzle radial to the HEAD, its neck normal to the surface at its station, where head_crown stands it parallel to the vessel axis. ' +
+      'The station is the radius from the vessel axis at which the neck\'s axis crosses the head\'s INSIDE surface, and the azimuth; hemispherical, ellipsoidal and torispherical heads, ' +
+      'crown or knuckle, and a spherical shell. An opening that would run past the head\'s lower end onto its neighbour is refused. The neck may be reinforced (B3683.8: T_b over L_1, then T\'_b)',
   },
   {
     id: 'reinforcing_pad', article: '§4.5.5', title: 'Reinforcing pad', entry: 'component', status: 'captured',
