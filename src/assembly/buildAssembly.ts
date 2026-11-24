@@ -127,6 +127,13 @@ export interface BuiltPart {
    * assembly — the junction at its origin, square to its Z. The next part of the run stands on it.
    */
   readonly outlet?: PartTransform;
+  /**
+   * For a revolved wall turned about its own axis to move its seam clear of its openings: the
+   * degrees it was turned by, its seam now at that azimuth. Absent, the seam is at 0. A solid
+   * built against the wall's bore in the host's frame — a bundle's bypass region — turns with it,
+   * or it brings its own seam at 0 back onto the wall.
+   */
+  readonly seamAzimuth?: number;
   /** For a part of the run: its mid-surface meridian, in its own frame. */
   readonly meridian?: readonly Point2[];
   /** Parallel to `meridian`, where it states them: the centres of its circles, in its own frame. */
@@ -583,6 +590,7 @@ export class AssemblyBuilder {
       let status: PartStatus = 'drawn';
       let message: string | undefined;
       let failure: Scope | undefined;
+      let seam = 0;
 
       if (openings.length > 0) {
         const key = stableStringify({ host: entry.key, openings: openings.map((o) => o.key) });
@@ -592,7 +600,7 @@ export class AssemblyBuilder {
           // baffle's plane in a fluid domain — which no swept mesh can take. Turned about its own
           // axis, a body of revolution is the same solid with its seam elsewhere: in the middle
           // of the widest gap between its openings.
-          const seam = REVOLVED.has(component.kind) ? seamAzimuth(openings.map((o) => ({ origin: o.opening.frame.origin, radius: o.opening.radius }))) : 0;
+          seam = REVOLVED.has(component.kind) ? seamAzimuth(openings.map((o) => ({ origin: o.opening.frame.origin, radius: o.opening.radius }))) : 0;
           const wall = Math.abs(seam) > 1e-9 ? this.kernel.rotateZ(entry.part.solid, seam) : entry.part.solid;
           solid = this.remember(this.piercedCache, key, () => this.kernel.cut(wall, openings.map((o) => o.tool)));
         } catch (error) {
@@ -625,6 +633,7 @@ export class AssemblyBuilder {
         hostAnchor: entry.part.host?.anchor,
         hostSurface: entry.part.host,
         junctions: { lower: entry.part.lower, upper: entry.part.upper },
+        ...(Math.abs(seam) > 1e-9 ? { seamAzimuth: seam } : {}),
         ...(entry.part.outlet
           ? { outlet: { flipped: false, dz: 0, turn: outletFrame(entry.part, entry.transform)! } }
           : {}),

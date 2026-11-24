@@ -221,7 +221,10 @@ export function fluidDomain(definition: AssemblyDefinition, model: AssemblyModel
     zones.push(zone(kernel, zoneName(role.name, part.componentId), 'porous', axis, part.componentId, core));
     const cutters = [envelope];
     if (role.bypass) {
-      const region = world(part, role.bypass.solid);
+      // The bypass is bounded by the host's bore, face on face: turned with the host's seam, or
+      // the intersection keeps the region's own seam at 0 on the wall as a second line.
+      const turned = model.parts.find((p) => p.componentId === part.hostId)?.seamAzimuth;
+      const region = world(part, turned ? kernel.rotateZ(role.bypass.solid, turned) : role.bypass.solid);
       const raw = safeIntersect(kernel, cavity, region);
       const bypass = raw ? kernel.cut(raw, [envelope]) : null;
       if (bypass && kernel.volume(bypass) > 0) zones.push(zone(kernel, zoneName(role.bypass.name, part.componentId), 'fluid', null, part.componentId, bypass));

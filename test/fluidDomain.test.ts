@@ -121,6 +121,19 @@ test('its manifest carries every group by name, and its STEP every zone, baffle 
   close(seams[0]!.bounds.min[2]!, 340, 1e-6);
   close(seams[0]!.bounds.max[2]!, 340 + SHELL, 1e-6);
   close(Math.abs(Math.atan2(seams[0]!.bounds.min[1]!, seams[0]!.bounds.min[0]!) * 180 / Math.PI), 90, 1e-6);
+  // And in every zone the STEP carries, not only the cavity: the bypass is bounded by the bore face
+  // on face, and built at 0 it brought a second seam back onto the wall, under N2 (TRESCA MESH,
+  // 2026-11-25). Any axial line on the bore, of any length, is the one at 90°.
+  for (const zone of e101.zones) {
+    for (const solid of zone.solids) {
+      for (const e of kernel.topology(solid).edges) {
+        const b = e.bounds;
+        const onBore = Math.abs(Math.hypot(b.min[0]!, b.min[1]!) - 193.5) < 0.5;
+        const axial = b.max[2]! - b.min[2]! > 50 && b.max[0]! - b.min[0]! < 1e-3 && b.max[1]! - b.min[1]! < 1e-3;
+        if (onBore && axial) close(Math.abs(Math.atan2(b.min[1]!, b.min[0]!) * 180 / Math.PI), 90, 1e-6);
+      }
+    }
+  }
   const step = fluidStep(e101, kernel);
   for (const name of ['zone:bundle', 'zone:bypass', 'zone:lane:1', 'zone:fluid', 'baffle:1', 'baffle:14', 'opening:N1', 'opening:N2']) {
     assert.ok(step.includes(`PRODUCT('${name}'`), `${name} is a product of the STEP`);
