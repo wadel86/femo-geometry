@@ -178,6 +178,14 @@ export interface GeometryKernel {
   helicalTube(radius: number, pitch: number, from: number, height: number, tubeRadius: number): Solid;
 
   /**
+   * A hollow pipe of annular section, `innerRadius` to `outerRadius`, open at both ends: what
+   * `helicalTube(outer)` less `helicalTube(inner)` is, on the same helix, with the same seams —
+   * built without that boolean, which between two long swept surfaces that never meet still
+   * costs seconds.
+   */
+  helicalPipe(radius: number, pitch: number, from: number, height: number, innerRadius: number, outerRadius: number): Solid;
+
+  /**
    * A solid through circles square to Z, joined by ruled faces from each to the next: every
    * section is a circle, but the centres need not lie on one axis — an eccentric cone. The point
    * at angle θ of one circle is ruled to the point at θ of the next. Optional: a kernel without

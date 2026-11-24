@@ -7,6 +7,11 @@ import {
   circle,
   compound,
   helix,
+  addHoles,
+  flipFaceOrientation,
+  outerWire,
+  sewShells,
+  solid,
   sweep,
   wire,
   curveLength,
@@ -140,6 +145,37 @@ class BrepjsKernel implements GeometryKernel {
     if (Math.abs(turn) > 1e-9) section = rotate(section, turn, { at: centre, axis: tangent });
     // Frenet's frame is well defined all along a helix, and a circle does not care how it turns.
     return asSolid(unwrap(sweep(section as never, spine, { frenet: true })) as Shape);
+  }
+
+  helicalPipe(radius: number, pitch: number, from: number, height: number, innerRadius: number, outerRadius: number): Solid {
+    // Two tubes swept on the same helix, then their side faces and two annular ends sewn into one
+    // solid: what cutting one from the other gives, without the boolean — which, between two
+    // long swept surfaces that never meet, still costs seconds proving that they do not.
+    const outer = this.helicalTube(radius, pitch, from, height, outerRadius) as unknown as Shape;
+    const inner = this.helicalTube(radius, pitch, from, height, innerRadius) as unknown as Shape;
+    const planar = (f: Shape) => {
+      const type = getSurfaceType(f as never);
+      return type.ok && type.value === 'PLANE';
+    };
+    const sides = [outer, inner].flatMap((s) => getFaces(s as never).filter((f) => !planar(f as Shape)));
+    const holes = getFaces(inner as never).filter((f) => planar(f as Shape));
+    const ends = getFaces(outer as never)
+      .filter((f) => planar(f as Shape))
+      .map((disc) => {
+        const c = faceCenter(disc as never) as unknown as Vec3;
+        const hole = holes.find((h) => {
+          const d = faceCenter(h as never) as unknown as Vec3;
+          return Math.hypot(d[0] - c[0], d[1] - c[1], d[2] - c[2]) < 1e-6 * Math.max(1, radius);
+        });
+        if (!hole) throw new Error('helicalPipe: an end of the inner tube is not where the outer tube ends');
+        return addHoles(disc as never, [outerWire(hole as never) as never]);
+      });
+    const shell = unwrap(sewShells([...sides, ...ends] as never));
+    let pipe = unwrap(solid([shell] as never)) as unknown as Shape;
+    // Sewn, the shell may come out turned inside out: a solid of negative volume.
+    const volume = measureVolume(pipe as never);
+    if (volume.ok && volume.value < 0) pipe = unwrap(solid([unwrap(sewShells([...sides, ...ends].map((f) => flipFaceOrientation(f as never)) as never))] as never)) as unknown as Shape;
+    return asSolid(pipe);
   }
 
   loft(sections: readonly CircleSection[]): Solid {

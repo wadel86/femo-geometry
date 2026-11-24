@@ -1487,8 +1487,10 @@ export const halfPipeJacket: MountedBuilder = (component, context) => {
   // Started half a turn from azimuth 0, where every surface of revolution has its seam — the
   // shell's and the cutter's alike. Started on it, each end face's foot crossed that seam and
   // left a patch of footprint a millimetre wide.
-  const tube = (tubeRadius: number) => kernel.rotateZ(kernel.helicalTube(outside, pitch, z, rise, tubeRadius), 180);
-  const coil = kernel.cut(tube(reach), [tube(radius), shellOutside]);
+  // The hollow pipe is built whole rather than as one tube less the other: the same solid, and
+  // half the time, that boolean having been most of Demo F's ten seconds (2026-11-25).
+  const pipe = kernel.rotateZ(kernel.helicalPipe(outside, pitch, z, rise, radius, reach), 180);
+  const coil = kernel.cut(pipe, [shellOutside]);
   return {
     solids: [coil],
     footprint: 0,
