@@ -335,7 +335,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['lower', 'upper'],
     joint: { kind: 'butt_weld', between: ['P', 'T'], ports: ['upper', 'lower'] },
     note:
-      'Draft kind until TRESCA DBR\'s PIPE_TEE reaches develop. One forged fitting in the run: D_o × t over course_length (2·D_o when unstated), and the outlet D_o,b × T\'_b normal to it at mid-length, ' +
+      'The engine\'s PIPE_TEE, on its symbols. One forged fitting in the run: D_o × t over course_length (2·D_o when unstated), and the outlet D_o,b × T\'_b normal to it at mid-length, ' +
       'towards +Y, its face D_o/2 + D_o,b/2 from the run\'s axis. The crotch is sharp: a forging\'s blend is not dimensioned and B3683.9 reads the run\'s R_m/T_r alone. ' +
       'Its run ends weld to neighbours as a pipe\'s do; the outlet has no port, a run being one line, so a fluid domain through a tee is open there. weld_flush and test_pressure are the engine\'s',
   },
