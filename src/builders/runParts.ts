@@ -1558,6 +1558,173 @@ export const pipeBend: RunBuilder = (component, context) => {
 export const valveBody: RunBuilder = (component, context) => cylindricalShell(component, context);
 
 /**
+ * A concentric butt-welding reducer — RCC-M B3683.6 b): the large end D_1 × t_1 (the pipe's D_o
+ * and thickness) at the bottom, a cylinder over L_1, the knuckle r turning to the cone at α to the
+ * axis, the flare r_f turning back, and the small end D_2 × t_2 over L_2. Every radius is the
+ * mid-surface's; the wall is t_1 through the knuckle, t_2 through the flare, and tapers along the
+ * cone between them, its two faces drawn straight. A knuckle or flare not stated is a sharp corner
+ * on the mid-surface — its outer face then rounds at t/2, its inner face meets in a corner.
+ *
+ * L_1 and L_2 are B3683.6's own lengths. Where they are not stated, a stated course_length is
+ * shared out between them, and failing that they are drawn zero and say so. weld_offset (δ) and
+ * test_pressure are the engine's.
+ */
+export const pipeReducer: RunBuilder = (component, context) => {
+  const { outsideDiameter: d1, thickness: t1 } = pipeBore(component);
+  const d2 = requireDimension(component, Sym.REDUCER_SMALL_OUTSIDE_DIAMETER);
+  const t2 = requireDimension(component, Sym.REDUCER_SMALL_THICKNESS);
+  const degrees = requireDimension(component, Sym.HALF_APEX_ANGLE);
+  if (!(d2 < d1)) {
+    throw new BuildError(component, `reduces from ${mm(d1)} to ${mm(d2)}`, scope('out_of_scope', Sym.REDUCER_SMALL_OUTSIDE_DIAMETER, `< ${mm(d1)}, the large end's D_o`, mm(d2)));
+  }
+  if (!(2 * t2 < d2)) {
+    throw new BuildError(component, `has a ${mm(t2)} small-end wall on a ${mm(d2)} end, which leaves no bore`, scope('out_of_scope', Sym.REDUCER_SMALL_THICKNESS, `< ${mm(d2 / 2)}`, mm(t2)));
+  }
+  if (!(degrees > 0 && degrees < 60)) {
+    throw new BuildError(component, `has a cone at ${degrees}°`, scope('out_of_scope', Sym.HALF_APEX_ANGLE, '0° < α < 60°, B3683.6', `${degrees}°`));
+  }
+  const notes: Note[] = [];
+  const corner = (symbol: string, what: string): number => {
+    const value = optionalDimension(component, symbol);
+    if (value !== undefined) return value;
+    notes.push(assumedNote(`${what} not stated — drawn sharp on the mid-surface`, symbol, '0'));
+    return 0;
+  };
+  const r = corner(Sym.KNUCKLE_RADIUS, 'Knuckle radius');
+  const rf = corner(Sym.FLARE_RADIUS, 'Flare radius');
+
+  const a = degrees * DEG;
+  const [s, c] = [Math.sin(a), Math.cos(a)];
+  const rm1 = (d1 - t1) / 2;
+  const rm2 = (d2 - t2) / 2;
+  // The mid-surface, from the top of L_1: the knuckle ends at k, the flare starts at f.
+  const k: Point2 = [rm1 - r + r * c, r * s];
+  const fr = rm2 + rf - rf * c;
+  const cone = (k[0] - fr) / s;
+  if (!(cone >= 0)) {
+    throw new BuildError(
+      component,
+      `leaves no cone between its ${mm(r)} knuckle and ${mm(rf)} flare: they overlap by ${mm(-cone)}`,
+      scope('out_of_scope', Sym.KNUCKLE_RADIUS, 'a knuckle and a flare that leave a cone between them', `${mm(r)} and ${mm(rf)}`)
+    );
+  }
+  const f: Point2 = [fr, k[1] + cone * c];
+  const transition = f[1] + rf * s;
+
+  let l1 = optionalDimension(component, Sym.REDUCER_LARGE_END_LENGTH);
+  let l2 = optionalDimension(component, Sym.REDUCER_SMALL_END_LENGTH);
+  const overall = optionalDimension(component, Sym.COURSE_LENGTH);
+  if (overall !== undefined && (l1 === undefined || l2 === undefined)) {
+    const left = overall - transition - (l1 ?? 0) - (l2 ?? 0);
+    if (!(left >= -1e-9)) {
+      throw new BuildError(
+        component,
+        `is ${mm(overall)} long, shorter than its ${mm(transition)} transition and stated ends`,
+        scope('out_of_scope', Sym.COURSE_LENGTH, `≥ ${mm(overall - left)}`, mm(overall))
+      );
+    }
+    const share = Math.max(0, left) / (l1 === undefined && l2 === undefined ? 2 : 1);
+    l1 ??= share;
+    l2 ??= share;
+  }
+  if (l1 === undefined || l2 === undefined) {
+    for (const [value, symbol, end] of [[l1, Sym.REDUCER_LARGE_END_LENGTH, 'large'], [l2, Sym.REDUCER_SMALL_END_LENGTH, 'small']] as const) {
+      if (value === undefined) notes.push(assumedNote(`No cylindrical length stated at the ${end} end — drawn with none`, symbol, '0'));
+    }
+    l1 ??= 0;
+    l2 ??= 0;
+  }
+  const height = l1 + transition + l2;
+  if (overall !== undefined && Math.abs(overall - height) > 1e-6) {
+    notes.push(
+      note(
+        `course_length ${mm(overall)} disagrees with L_1 + transition + L_2 = ${mm(height)}: drawn on L_1 and L_2`,
+        Sym.COURSE_LENGTH,
+        scope('mismatch', Sym.COURSE_LENGTH, mm(height), mm(overall))
+      )
+    );
+  }
+
+  // Both faces, in the part's frame: z from the bottom of L_1.
+  const up = (p: Point2): Point2 => [p[0], p[1] + l1!];
+  const n: Point2 = [c, s]; // the cone's outward normal
+  const along = (p: Point2, u: number): Point2 => [p[0] - u * s, p[1] + u * c];
+  const C1 = up([rm1 - r, 0]);
+  const C2 = up([f[0] + rf * c, f[1] + rf * s]);
+  const at = (centre: Point2, radius: number, angle: number): Point2 => [centre[0] + radius * Math.cos(angle), centre[1] + radius * Math.sin(angle)];
+  const top = height;
+  const zf = C2[1];
+  // Outside face.
+  const o2 = at(C1, r + t1 / 2, a);
+  const o3: Point2 = [up(f)[0] + (t2 / 2) * n[0], up(f)[1] + (t2 / 2) * n[1]];
+  const flareOuter = rf - t2 / 2;
+  // Inside face.
+  const i3: Point2 = [up(f)[0] - (t2 / 2) * n[0], up(f)[1] - (t2 / 2) * n[1]];
+  const knuckleInner = r - t1 / 2;
+
+  const steps: ProfileStep[] = [];
+  let last: Point2 = [rm1 - t1 / 2, 0];
+  const start = last;
+  const to = (p: Point2) => {
+    if (Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-9) steps.push(line(p[0], p[1]));
+    last = p;
+  };
+  const round = (p: Point2, through: Point2) => {
+    if (Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-9) steps.push(arc(p, through));
+    last = p;
+  };
+  to([rm1 + t1 / 2, 0]);
+  to([rm1 + t1 / 2, l1]);
+  round(o2, at(C1, r + t1 / 2, a / 2));
+  if (flareOuter > 1e-9) {
+    to(o3);
+    round([rm2 + t2 / 2, zf], at(C2, flareOuter, Math.PI + a / 2));
+  } else {
+    // A flare tighter than half the wall: the outside face meets the small end in a corner.
+    const u = (o2[0] - (rm2 + t2 / 2)) / s;
+    to(along(o2, u));
+  }
+  to([rm2 + t2 / 2, top]);
+  to([rm2 - t2 / 2, top]);
+  to([rm2 - t2 / 2, zf]);
+  round(i3, at(C2, rf + t2 / 2, Math.PI + a / 2));
+  if (knuckleInner > 1e-9) {
+    to(at(C1, knuckleInner, a));
+    round([rm1 - t1 / 2, l1], at(C1, knuckleInner, a / 2));
+  } else {
+    // A knuckle tighter than half the wall: the inside face meets the large end in a corner.
+    const u = (i3[0] - (rm1 - t1 / 2)) / s;
+    to(along(i3, u));
+  }
+  // The profile closes from here back down the inside of L_1 to its start.
+
+  const meridian: Point2[] = [];
+  const add = (p: Point2) => {
+    const prior = meridian[meridian.length - 1];
+    if (!prior || Math.hypot(p[0] - prior[0], p[1] - prior[1]) > 1e-9) meridian.push(p);
+  };
+  add([rm1, 0]);
+  add([rm1, l1]);
+  if (r > 0) arcPoints(C1, r, 0, a, 8).forEach(add);
+  add(up(f));
+  if (rf > 0) arcPoints(C2, rf, Math.PI + a, Math.PI, 8).forEach(add);
+  add([rm2, top]);
+
+  return {
+    solid: context.kernel.revolve({ start, steps }),
+    height,
+    lower: { insideDiameter: d1 - 2 * t1, outsideDiameter: d1, straightLength: l1, wall: { surface: cylinderSurface(rm1), thickness: t1, meridian: DOWN } },
+    upper: { insideDiameter: d2 - 2 * t2, outsideDiameter: d2, straightLength: l2, wall: { surface: cylinderSurface(rm2), thickness: t2, meridian: UP } },
+    landmarks: [
+      ...junctionLandmarks('lower', 0, d1 - 2 * t1, d1, 'Reducer large end'),
+      ...junctionLandmarks('upper', top, d2 - 2 * t2, d2, 'Reducer small end'),
+    ],
+    meridian,
+    notes,
+  };
+};
+
+/**
  * A butt-welding tee — RCC-M B3683.9: one forged fitting in the run, D_o × t over its length,
  * with a branch outlet of its own D_o,b × T'_b. B3683.9's indices read the run's R_m/T_r and
  * nothing of the shape, so it is drawn plainly: the run as the pipe it continues (its length
@@ -1715,6 +1882,7 @@ export const RUN_BUILDERS: Readonly<Record<string, RunBuilder>> = {
   pipe_bend: pipeBend,
   valve_body: valveBody,
   pipe_tee: pipeTee,
+  pipe_reducer: pipeReducer,
   cylindrical_shell: cylindricalShell,
   conical_shell: conicalShell,
   spherical_shell: sphericalShell,

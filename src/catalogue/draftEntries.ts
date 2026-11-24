@@ -324,6 +324,28 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'A step in wall thickness at a bend is reported, not tapered: a torus has no straight length to cut',
   },
   {
+    id: 'pipe_reducer', article: 'RCC-M B3683.6', title: 'Concentric reducer', entry: 'component', status: 'captured',
+    kinds: [Kind.PIPE_REDUCER, Kind.PIPE_SEGMENT], focus: 'R',
+    specimen: vessel([
+      run('P', Kind.PIPE_SEGMENT, 0, { pipe_outside_diameter: 273, thickness: 9.27, course_length: 600 }),
+      run('R', Kind.PIPE_REDUCER, 1, {
+        pipe_outside_diameter: 273, thickness: 9.27, reducer_small_outside_diameter: 168.3, reducer_small_thickness: 7.11,
+        half_apex_angle: 20, knuckle_radius: 40, flare_radius: 30, reducer_large_end_length: 50, reducer_small_end_length: 40,
+      }),
+      run('Q', Kind.PIPE_SEGMENT, 2, { pipe_outside_diameter: 168.3, thickness: 7.11, course_length: 600 }),
+    ]),
+    parameters: [
+      Sym.PIPE_OUTSIDE_DIAMETER, Sym.THICKNESS, Sym.REDUCER_SMALL_OUTSIDE_DIAMETER, Sym.REDUCER_SMALL_THICKNESS, Sym.HALF_APEX_ANGLE,
+      Sym.KNUCKLE_RADIUS, Sym.FLARE_RADIUS, Sym.REDUCER_LARGE_END_LENGTH, Sym.REDUCER_SMALL_END_LENGTH,
+    ],
+    ports: ['lower', 'upper'],
+    joint: { kind: 'butt_weld', between: ['P', 'R'], ports: ['upper', 'lower'] },
+    note:
+      'Draft kind until TRESCA DBR\'s PIPE_REDUCER reaches develop. B3683.6 b)\'s figure on the mid-surface: the large end D_1 × t_1 over L_1 at the bottom, the knuckle r, the cone at α, the flare r_f, ' +
+      'the small end D_2 × t_2 over L_2, coaxial; the wall t_1 through the knuckle, t_2 through the flare, tapering along the cone. An unstated knuckle or flare is sharp on the mid-surface; ' +
+      'unstated L_1/L_2 share a stated course_length, or are drawn zero, noted. Reversed, it reduces downward. weld_offset and test_pressure are the engine\'s',
+  },
+  {
     id: 'pipe_tee', article: 'RCC-M B3683.9', title: 'Butt-welding tee', entry: 'component', status: 'captured',
     kinds: [Kind.PIPE_TEE, Kind.PIPE_SEGMENT], focus: 'T',
     specimen: vessel([

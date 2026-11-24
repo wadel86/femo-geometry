@@ -101,6 +101,9 @@ export const Kind = {
   // RCC-M B3683.9: a butt-welding tee in the run. Catalogued on develop (TRESCA DBR 9da807f,
   // merged in e59258b).
   PIPE_TEE: 'pipe_tee',
+  // RCC-M B3683.6: a concentric butt-welding reducer in the run (TRESCA DBR,
+  // feat/rccm-b3683-reducers fd8c01b). A draft until that reaches develop.
+  PIPE_REDUCER: 'pipe_reducer',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -111,6 +114,7 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
   Kind.SEGMENTAL_BAFFLES,
+  Kind.PIPE_REDUCER,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -310,6 +314,14 @@ export const Sym = {
   BRANCH_CONNECTED_THICKNESS: 'branch_connected_thickness',
   /** L_1: the height of a nozzle's reinforced neck, Figure B3643.3.a sketches (a) and (b). */
   BRANCH_REINFORCEMENT_HEIGHT: 'branch_reinforcement_height',
+  // RCC-M B3683.6's concentric reducer: the large end is the pipe's D_o and thickness.
+  /** D_2: the reducer's small end outside diameter. */
+  REDUCER_SMALL_OUTSIDE_DIAMETER: 'reducer_small_outside_diameter',
+  /** t_2: the reducer's small end wall. */
+  REDUCER_SMALL_THICKNESS: 'reducer_small_thickness',
+  /** L_1, L_2: the cylindrical lengths at the large and small ends, B3683.6 b). */
+  REDUCER_LARGE_END_LENGTH: 'reducer_large_end_length',
+  REDUCER_SMALL_END_LENGTH: 'reducer_small_end_length',
   // RCC-M H3232 / Annexe ZVI's linear support member, on TRESCA DBR's names: the engine reads the
   // section's PROPERTIES, so the kernel draws what A and l fix and nothing it would have to invent.
   /** A: the member's cross-sectional area, mm². */

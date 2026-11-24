@@ -241,6 +241,60 @@ test('a tee is the run with an outlet fused on at mid-length: its volume, its ou
   assert.equal(wide.scope?.parameter, 'branch_outside_diameter');
 });
 
+test('a reducer is L_1, knuckle, cone, flare, L_2 on its mid-surface: its ends weld to both pipes, its volume is the wall swept round', () => {
+  // DN 250 → DN 150, generic: 273.0 × 9.27 down to 168.3 × 7.11, at 20° with a 40 knuckle and a 30 flare.
+  const RED = {
+    pipe_outside_diameter: 273, thickness: 9.27, reducer_small_outside_diameter: 168.3, reducer_small_thickness: 7.11,
+    half_apex_angle: 20, knuckle_radius: 40, flare_radius: 30, reducer_large_end_length: 50, reducer_small_end_length: 40,
+  };
+  const big = (id: string, position: number) => part(id, 'pipe_segment', { pipe_outside_diameter: 273, thickness: 9.27, course_length: 300 }, position);
+  const small = (id: string, position: number) => part(id, 'pipe_segment', { pipe_outside_diameter: 168.3, thickness: 7.11, course_length: 300 }, position);
+  const definition = line(big('P', 0), part('R', 'pipe_reducer', RED, 1), small('Q', 2));
+  const model = build(definition);
+  const red = model.parts.find((p) => p.componentId === 'R')!;
+  assert.equal(red.status, 'drawn', red.message);
+  assert.ok(kernel.isValid(red.solids[0]!));
+  assert.deepEqual(red.notes, []);
+  // The transition: r·sin α + cone·cos α + r_f·sin α, the cone running between the two arcs' ends.
+  const a = (20 * Math.PI) / 180;
+  const [rm1, rm2] = [(273 - 9.27) / 2, (168.3 - 7.11) / 2];
+  const cone = (rm1 - 40 + 40 * Math.cos(a) - (rm2 + 30 - 30 * Math.cos(a))) / Math.sin(a);
+  const height = 50 + 40 * Math.sin(a) + cone * Math.cos(a) + 30 * Math.sin(a) + 40;
+  const box = kernel.bounds(red.solids[0]!);
+  close(box.max[2]! - box.min[2]!, height, 1e-6);
+  close(box.max[0]!, 273 / 2, 1e-6);
+  const joints = resolveGeometry(definition, model, kernel).joints.filter((j) => j.kind === 'butt_weld');
+  assert.deepEqual(joints.map((j) => j.id).sort(), ['P:upper~R:lower', 'R:upper~Q:lower']);
+  for (const j of joints) assert.deepEqual(j.issues, [], j.id);
+
+  // One wall all through, so the volume is 2π·∫r·t·ds over the mid-surface, to the arcs' curvature.
+  const even = { ...RED, reducer_small_thickness: 9.27 };
+  const uniform = partOf(line(part('R', 'pipe_reducer', even, 0)), 'R');
+  const m = uniform.meridian!;
+  let swept = 0;
+  for (let i = 1; i < m.length; i++) swept += Math.PI * (m[i]![0] + m[i - 1]![0]) * Math.hypot(m[i]![0] - m[i - 1]![0], m[i]![1] - m[i - 1]![1]) * 9.27;
+  // 9 ppm apart here: the arcs' 8-point chords and their inner/outer centroid shift.
+  close(kernel.volume(uniform.solids[0]!), swept, 1e-4 * swept);
+});
+
+test('a reducer shares a stated length between its ends, draws an unstated knuckle sharp, and refuses what does not reduce', () => {
+  const RED = { pipe_outside_diameter: 273, thickness: 9.27, reducer_small_outside_diameter: 168.3, reducer_small_thickness: 7.11, half_apex_angle: 30 };
+  const shared = partOf(line(part('R', 'pipe_reducer', { ...RED, course_length: 300 }, 0)), 'R');
+  assert.equal(shared.status, 'drawn', shared.message);
+  assert.ok(kernel.isValid(shared.solids[0]!));
+  const box = kernel.bounds(shared.solids[0]!);
+  close(box.max[2]! - box.min[2]!, 300, 1e-6);
+  // Sharp on the mid-surface, said twice; the lengths came from course_length, so nothing about them.
+  assert.deepEqual(shared.notes.map((n) => n.symbol).sort(), ['flare_radius', 'knuckle_radius']);
+  assert.equal(shared.junctions!.lower!.straightLength, shared.junctions!.upper!.straightLength);
+
+  const refused = (dimensions: Record<string, number>) => partOf(line(part('R', 'pipe_reducer', { ...RED, ...dimensions }, 0)), 'R').scope?.parameter;
+  assert.equal(refused({ reducer_small_outside_diameter: 273 }), 'reducer_small_outside_diameter');
+  assert.equal(refused({ half_apex_angle: 60 }), 'half_apex_angle');
+  assert.equal(refused({ knuckle_radius: 400, flare_radius: 400 }), 'knuckle_radius');
+  assert.equal(refused({ course_length: 50 }), 'course_length');
+});
+
 test('a reinforced neck is t_n over L_1, then the connected pipe T\'_b on the same bore, and its end port says so', () => {
   const NECK = { nozzle_inside_diameter: 80, nozzle_thickness: 11, nozzle_outward_projection: 200 };
   const branchOn = (dimensions: Record<string, number>): AssemblyDefinition => ({
