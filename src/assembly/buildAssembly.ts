@@ -218,6 +218,19 @@ function seamAzimuth(openings: readonly { readonly origin: Vec3; readonly radius
 
 const IDENTITY: PartTransform = { flipped: false, dz: 0 };
 
+export interface BuildOptions {
+  /**
+   * Where a revolved wall's seam lies. `at_zero`, the default: where its profile was swept
+   * from, azimuth 0, on every wall — what the structural mesher re-seats for itself (TRESCA
+   * MESH's D37), and what every part cut against a host's own solid or bore also has. Turning
+   * the walls alone left them disagreeing with their heads, supports and pads (2026-11-25).
+   * `clear_of_openings`: every revolved wall along one axis turned together, its seam mid-way
+   * across the widest gap between their openings — for a fluid domain, whose swept mesh cannot
+   * take a seam ending on a baffle's circle under a nozzle (E-101).
+   */
+  readonly seams?: 'at_zero' | 'clear_of_openings';
+}
+
 /** Parts whose kind has a builder, and a sensible default place on each kind of host. */
 export class AssemblyBuilder {
   private readonly kernel: GeometryKernel;
@@ -231,7 +244,7 @@ export class AssemblyBuilder {
     this.cacheLimit = cacheLimit;
   }
 
-  build(definition: AssemblyDefinition): AssemblyModel {
+  build(definition: AssemblyDefinition, options: BuildOptions = {}): AssemblyModel {
     const byId = new Map(definition.components.map((c) => [c.id, c]));
     const reversed = new Set(definition.reversed);
     const results = new Map<string, BuiltPart>();
@@ -579,6 +592,41 @@ export class AssemblyBuilder {
       });
     }
 
+    // ---------------------------------------------------------------- one seam per run
+    // A revolved wall's seam is where its profile was swept from, azimuth 0. An opening there
+    // straddles it and leaves a stub of seam ending on whatever crosses the wall next — a baffle's
+    // plane in a fluid domain — which no swept mesh can take. Turned about its own axis, a body of
+    // revolution is the same solid with its seam elsewhere. But a run's walls share cylinders — a
+    // head's straight flange is the course's surface carried on — and a mesher that fuses them
+    // needs ONE seam all round (TRESCA MESH, 2026-11-25: a course turned to 135° beside heads
+    // left at 0 failed the whole-vessel partition). So every revolved wall along one axis takes
+    // one azimuth, mid-way across the widest gap between ALL their openings. A part turned over
+    // sees the run's azimuths mirrored, so it is turned the other way. After a pipe bend the
+    // axis changes, and the parts standing on that outlet are a run of their own.
+    // Only where asked for: see `BuildOptions.seams`.
+    const runSeam = new Map<string, number>();
+    if (options.seams === 'clear_of_openings') {
+      const groups = new Map<RunFrame | null, string[]>();
+      for (const component of run) {
+        const entry = runParts.get(component.id);
+        if (!entry || !REVOLVED.has(component.kind)) continue;
+        const group = entry.transform.turn ?? null;
+        groups.set(group, [...(groups.get(group) ?? []), component.id]);
+      }
+      for (const ids of groups.values()) {
+        const openings = ids.flatMap((id) => {
+          const flipped = runParts.get(id)!.transform.flipped;
+          return (openingsByHost.get(id) ?? []).map(({ opening }) => {
+            const [x, y, z] = opening.frame.origin;
+            return { origin: (flipped ? [x, -y, z] : [x, y, z]) as Vec3, radius: opening.radius };
+          });
+        });
+        const seam = seamAzimuth(openings);
+        if (Math.abs(seam) <= 1e-9) continue;
+        for (const id of ids) runSeam.set(id, runParts.get(id)!.transform.flipped ? (360 - seam) % 360 : seam);
+      }
+    }
+
     // ---------------------------------------------------------------- hosts, pierced
     run.forEach((component, index) => {
       const entry = runParts.get(component.id);
@@ -590,18 +638,18 @@ export class AssemblyBuilder {
       let status: PartStatus = 'drawn';
       let message: string | undefined;
       let failure: Scope | undefined;
-      let seam = 0;
+      // The run's seam, above: on every revolved wall along this axis, pierced or not.
+      const seam = runSeam.get(component.id) ?? 0;
+      const turned = (): Solid =>
+        seam === 0 ? entry.part.solid : this.remember(this.piercedCache, `${entry.key}|seam:${seam}`, () => this.kernel.rotateZ(entry.part.solid, seam));
+      if (openings.length === 0) solid = turned();
 
       if (openings.length > 0) {
-        const key = stableStringify({ host: entry.key, openings: openings.map((o) => o.key) });
+        // The seam is in the key: it is the run's, so the same host and openings can be turned
+        // differently in another vessel.
+        const key = stableStringify({ host: entry.key, openings: openings.map((o) => o.key), ...(seam === 0 ? {} : { seam }) });
         try {
-          // A revolved wall's seam is where its profile was swept from, azimuth 0. An opening there
-          // straddles it and leaves a stub of seam ending on whatever crosses the wall next — a
-          // baffle's plane in a fluid domain — which no swept mesh can take. Turned about its own
-          // axis, a body of revolution is the same solid with its seam elsewhere: in the middle
-          // of the widest gap between its openings.
-          seam = REVOLVED.has(component.kind) ? seamAzimuth(openings.map((o) => ({ origin: o.opening.frame.origin, radius: o.opening.radius }))) : 0;
-          const wall = Math.abs(seam) > 1e-9 ? this.kernel.rotateZ(entry.part.solid, seam) : entry.part.solid;
+          const wall = turned();
           solid = this.remember(this.piercedCache, key, () => this.kernel.cut(wall, openings.map((o) => o.tool)));
         } catch (error) {
           status = 'failed';

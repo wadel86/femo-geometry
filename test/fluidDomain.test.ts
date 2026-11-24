@@ -14,7 +14,7 @@ const close = (actual: number, expected: number, relative = 1e-6) =>
 
 const E101: AssemblyDefinition = JSON.parse(readFileSync(new URL('./fixtures/e101-assembly.json', import.meta.url), 'utf8'));
 const domainOf = (definition: AssemblyDefinition, chamber: string, extension?: number) =>
-  fluidDomain(definition, new AssemblyBuilder(kernel).build(definition), kernel, { chamber, ...(extension !== undefined ? { extension } : {}) });
+  fluidDomain(definition, new AssemblyBuilder(kernel).build(definition, { seams: 'clear_of_openings' }), kernel, { chamber, ...(extension !== undefined ? { extension } : {}) });
 
 /** E-101 with the book's own end spaces, 154.8 mm, and N1 centred over the first: the nozzle does not fit. */
 function asPrinted(): AssemblyDefinition {

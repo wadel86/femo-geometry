@@ -23,6 +23,7 @@ export {
   toAssemblyVector,
   type AssemblyModel,
   type BuiltPart,
+  type BuildOptions,
   type Mat3,
   type Opening,
   type PartStatus,

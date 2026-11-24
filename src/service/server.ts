@@ -118,7 +118,8 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     if (format !== 'manifest' && format !== 'step') throw new BadRequest(`Unknown format "${String(format)}": manifest or step`);
     const startedAt = performance.now();
     const { definition, details } = applyConstructionDetails(declared);
-    const model = withDetailNotes(builder.build(definition), details);
+    // A fluid domain's walls are turned so their seam clears the nozzles; the structural export's are not.
+    const model = withDetailNotes(builder.build(definition, { seams: 'clear_of_openings' }), details);
     const domain = fluidDomain(definition, model, kernel, { chamber, ...(extension !== undefined ? { extension } : {}) });
     if (format === 'manifest') {
       json(response, 200, { revision, ...fluidManifest(domain, kernel) });
