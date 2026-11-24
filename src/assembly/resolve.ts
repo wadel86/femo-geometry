@@ -32,6 +32,7 @@ import {
   type AssemblyModel,
   type BuiltPart,
   type PartStatus,
+  type RunFrame,
 } from './buildAssembly.ts';
 
 export type GeometryMode = 'display' | 'analysis';
@@ -70,10 +71,13 @@ export interface ResolvedPart {
   readonly message?: string;
   /**
    * The frame the part was built in — its own for a part of the run, its host's for a mounted
-   * one: turned over when `flipped` (a half turn about X), then raised to `z0`.
+   * one: turned over when `flipped` (a half turn about X), then raised to `z0` — and, past a pipe
+   * bend, carried into the bend's outlet frame: `p = turn.origin + turn.matrix·p` (rows). Absent,
+   * the run's axis is the assembly's Z. A consumer that places parts by `z0` alone must read it.
    */
   readonly z0: number;
   readonly flipped: boolean;
+  readonly turn?: RunFrame;
   /** For a mounted part: where it stands, and the direction it leaves its host in. */
   readonly frame?: Frame;
   readonly placement?: Placement;
@@ -285,6 +289,7 @@ export function resolveGeometry(
       ...(part.message ? { message: part.message } : {}),
       z0: part.transform.dz,
       flipped: part.transform.flipped,
+      ...(part.transform.turn ? { turn: part.transform.turn } : {}),
       ...(part.mount
         ? {
             frame: {

@@ -67,7 +67,7 @@ export const KERNEL_AXISYMMETRY: readonly AxisymmetryDeclaration[] = [
     rule: 'the run, stacked',
     owner: 'femo-geometry',
     assumesAxisymmetry: true,
-    why: 'a part of the run is placed by a height and a turn-over alone (`PartTransform`): its lower end is centred on the axis',
+    why: 'a part of the run is placed by a height and a turn-over (`PartTransform`): its lower end is centred on the axis — the assembly\'s Z, or after a pipe bend the bend\'s outlet axis (`turn`), where layer 1 and the zones stop',
     whenBroken: 'a part above an eccentric cone has to move sideways by the cone\'s shift; until the transform carries that, its joint to the cone is refused as a mismatch of centres',
   },
   {
@@ -87,6 +87,9 @@ export function runSection(definition: AssemblyDefinition, model: AssemblyModel)
   for (const component of runOrder(definition.components)) {
     const part = parts.get(component.id);
     if (!part || part.status !== 'drawn' || !part.meridian || part.meridian.length < 2) continue;
+    // One meridian describes a run along one axis: past a pipe bend there is no such axis, so the
+    // section stops at the first part placed in a bend's outlet.
+    if (part.transform.turn) break;
     // A part turned over runs its meridian downwards: read from its lower end in the assembly.
     // Turning over is a half turn about X, so a centre's y changes sign with it.
     const flipped = part.transform.flipped;

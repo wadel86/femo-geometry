@@ -1485,8 +1485,9 @@ export const pipeSegment: RunBuilder = (component, context) => {
 /**
  * A pipe bend — RCC-M C3642: the tube D_o by t_n swept through α on the radius R to its
  * centreline. Its lower end sits on the run's axis like any course's, the bore square to Z, and
- * it turns towards +X (azimuth 0) in the XZ plane. A run is laid along one axis, so nothing can
- * follow a bend yet: the assembly ends the run there. R must clear the tube's own outside radius
+ * it turns towards +X (azimuth 0) in the XZ plane. Its outlet is a frame of its own (`outlet`):
+ * the run carries on along it, so a pipe after the bend is welded to the outlet and a second bend
+ * turns again, in the same plane. R must clear the tube's own outside radius
  * — below it the intrados folds through itself, which is a torus no bend can be.
  */
 export const pipeBend: RunBuilder = (component, context) => {
@@ -1523,12 +1524,23 @@ export const pipeBend: RunBuilder = (component, context) => {
   const rad = angle * DEG;
   const height = rad <= Math.PI / 2 ? R * Math.sin(rad) : R;
   const surface = cylinderSurface(ri + thickness / 2);
+  const [c, s] = [Math.cos(rad), Math.sin(rad)];
   return {
     solid: bend,
     height,
     lower: { insideDiameter, outsideDiameter, wall: { surface, thickness, meridian: DOWN } },
-    // The outlet is square to the bend's own axis, not to the run's: no neighbour can meet it yet.
-    upper: null,
+    // The outlet, in the frame the run carries on in: where the centreline ends, R(1 − cos α) across
+    // and R·sin α up, heading (sin α, 0, cos α) — a turn of α about Y. The next part stands on it.
+    upper: { insideDiameter, outsideDiameter, wall: { surface, thickness, meridian: UP } },
+    outlet: {
+      origin: [R * (1 - c), 0, R * s],
+      matrix: [
+        [c, 0, s],
+        [0, 1, 0],
+        [-s, 0, c],
+      ],
+    },
+    // Only the inlet's circles are on the run's axis; the outlet's are named in its own frame by the port.
     landmarks: junctionLandmarks('lower', 0, insideDiameter, outsideDiameter, 'Bend end'),
     // Not a body of revolution about the run's axis: only its lower circle lies on the run's meridian.
     meridian: [[ri + thickness / 2, 0]],

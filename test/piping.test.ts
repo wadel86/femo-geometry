@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import { AssemblyBuilder, solidToAssembly } from '../src/assembly/buildAssembly.ts';
 import { resolveGeometry } from '../src/assembly/resolve.ts';
 import type { AssemblyDefinition, ComponentDefinition } from '../src/definition.ts';
+import { fluidDomain } from '../src/fluid/fluidDomain.ts';
 import { kernel, part } from './fixtures.ts';
 
 const close = (actual: number, expected: number, tolerance = 1e-6) =>
@@ -103,12 +104,115 @@ test('a pump casing is drawn from its four drawing dimensions, or not drawn with
   assert.equal(partOf(line(part('U', 'pump_casing', { ...PUMP, pump_volute_a1: 150 }, 0)), 'U').scope?.parameter, 'pump_volute_a1');
 });
 
-test('a bend ends its run: a course after it is not drawn, and a bend tighter than its own tube is refused', () => {
+const bend = (id: string, position: number, angle = 90) =>
+  part(id, 'pipe_bend', { ...PIPE, pipe_bend_radius: R, pipe_bend_angle: angle }, position);
+const pipe = (id: string, position: number, length: number) => part(id, 'pipe_segment', { ...PIPE, course_length: length }, position);
+const worldBox = (model: ReturnType<typeof build>, id: string) => {
+  const p = model.parts.find((q) => q.componentId === id)!;
+  assert.equal(p.status, 'drawn', `${id}: ${p.message ?? ''}`);
+  return kernel.bounds(solidToAssembly(kernel, p.solids[0]!, p.transform));
+};
+const near = (actual: readonly number[], expected: readonly number[], tolerance = 1e-6) =>
+  actual.forEach((v, i) => close(v, expected[i]!, tolerance));
+
+test('a run turns at a bend: the next pipe stands on its outlet, welded to it, and a second bend turns it again', () => {
+  // Up 500, a 90° bend towards +X, 300 across, a second 90° bend, 500 back down: a U.
+  const definition = line(pipe('P', 0, 500), bend('B1', 1), pipe('Q', 2, 300), bend('B2', 3), pipe('W', 4, 500));
+  const model = build(definition);
+  // Q runs along +X from the first outlet, x = R to R + 300, at the height the bend climbed to.
+  const q = worldBox(model, 'Q');
+  near(q.min, [R, -ro, 500 + R - ro]);
+  near(q.max, [R + 300, ro, 500 + R + ro]);
+  // The second bend turns towards its own +X, which the first turned to −Z: W comes back down,
+  // 2R + 300 across, from z = 500 to the floor the run started on.
+  const w = worldBox(model, 'W');
+  near(w.min, [2 * R + 300 - ro, -ro, 0]);
+  near(w.max, [2 * R + 300 + ro, ro, 500]);
+  // Every part keeps its volume: Pappus on the bends, the annulus times the length on the pipes.
+  const annulus = Math.PI * (ro * ro - ri * ri);
+  const total = ['P', 'B1', 'Q', 'B2', 'W']
+    .map((id) => model.parts.find((p) => p.componentId === id)!)
+    .reduce((sum, p) => sum + kernel.volume(solidToAssembly(kernel, p.solids[0]!, p.transform)), 0);
+  close(total, annulus * (1300 + 2 * R * (Math.PI / 2)), 1e-5 * total);
+
+  // Four butt welds, each closed: centres coincide and the walls agree across the turn.
+  const resolved = resolveGeometry(definition, model, kernel);
+  const welds = resolved.joints.filter((j) => j.kind === 'butt_weld');
+  assert.deepEqual(welds.map((j) => j.id).sort(), ['B1:upper~Q:lower', 'B2:upper~W:lower', 'P:upper~B1:lower', 'Q:upper~B2:lower']);
+  for (const j of welds) assert.deepEqual(j.issues, [], j.id);
+  // The outlet's port faces along the turned run, +X, and stands where the centreline ends.
+  const outlet = resolved.parts.find((p) => p.componentId === 'B1')!.ports.find((p) => p.key === 'upper')!;
+  near(outlet.location, [R, 0, 500 + R]);
+  near(outlet.axis, [1, 0, 0]);
+  // What a consumer places parts by: z0 is measured in the turn, and the turn is published.
+  const placed = resolved.parts.find((p) => p.componentId === 'W')!;
+  assert.equal(placed.z0, 0);
+  near(placed.turn!.origin, [2 * R + 300, 0, 500]);
+  // Two quarter turns about Y: the run's axis, the matrix's Z column, now points down.
+  const m = placed.turn!.matrix;
+  near([m[0][2], m[1][2], m[2][2]], [0, 0, -1]);
+  assert.equal(resolved.parts.find((p) => p.componentId === 'P')!.turn, undefined);
+  // Layer 1 is one meridian along one axis: it stops at the first bend, and says nothing past it.
+  assert.ok(resolved.section.stations.every((s) => s.componentId === 'P'));
+});
+
+test('a branch on the pipe after a bend follows the turn, and is set in like any other', () => {
+  const definition: AssemblyDefinition = {
+    components: [
+      pipe('P', 0, 500),
+      bend('B', 1),
+      pipe('Q', 2, 400),
+      part('N', 'radial_nozzle', { nozzle_inside_diameter: 80, nozzle_thickness: 5.5, nozzle_outward_projection: 150 }, 0, 'Q'),
+    ],
+    placements: { N: { anchor: 'shell_side', axialOffset: 200, azimuth: 90 } },
+    reversed: [],
+  };
+  const model = build(definition);
+  const resolved = resolveGeometry(definition, model, kernel);
+  const n = resolved.parts.find((p) => p.componentId === 'N')!;
+  assert.equal(n.status, 'drawn', n.message);
+  // 200 along Q is x = R + 200 at the bend's height; azimuth 90 is still +Y, square to the bend's plane.
+  close(n.frame!.origin[0], R + 200, 1e-6);
+  close(n.frame!.origin[2], 500 + R, 1e-6);
+  near(n.frame!.axis, [0, 1, 0]);
+  const joint = resolved.joints.find((j) => j.id === 'Q:opening:N~N:neck:host-end');
+  assert.equal(joint?.kind, 'set_in_nozzle');
+  assert.deepEqual(joint?.issues, []);
+  // The neck stands out of the pipe along +Y, over the length it projects.
+  const box = worldBox(model, 'N');
+  assert.ok(box.max[1] > ro + 150 - 1 && box.min[0] > R + 200 - 60 && box.max[0] < R + 200 + 60, JSON.stringify(box));
+});
+
+test('a closed line through a bend holds the same fluid as the straight one Pappus says it unrolls to', () => {
+  const head = { inside_diameter: 2 * ri, thickness: 8.18, straight_flange_length: 0 };
+  const nozzle = { nozzle_inside_diameter: 50, nozzle_thickness: 5, nozzle_outward_projection: 120 };
+  const vessel = (middle: ComponentDefinition): AssemblyDefinition => ({
+    components: [
+      part('H1', 'hemispherical_head', head, 0),
+      pipe('P', 1, 400),
+      middle,
+      pipe('Q', 3, 400),
+      part('H2', 'hemispherical_head', head, 4),
+      part('N1', 'radial_nozzle', nozzle, 100, 'P'),
+      part('N2', 'radial_nozzle', nozzle, 100, 'Q'),
+    ],
+    // Square to the bend's plane, so the two openings meet the same wall whether it turns or not.
+    placements: { N1: { anchor: 'shell_side', axialOffset: 200, azimuth: 90 }, N2: { anchor: 'shell_side', axialOffset: 200, azimuth: 90 } },
+    reversed: [],
+  });
+  const domainOf = (definition: AssemblyDefinition) => fluidDomain(definition, build(definition), kernel, { chamber: 'N1' });
+  const bent = domainOf(vessel(bend('B', 2)));
+  const straight = domainOf(vessel(pipe('B', 2, R * (Math.PI / 2))));
+  close(bent.volume, straight.volume, 1e-5 * straight.volume);
+  assert.deepEqual(bent.boundaries.filter((b) => b.type === 'opening').map((b) => b.name).sort(), ['opening:N1', 'opening:N2']);
+});
+
+test('a bend that is not drawn leaves no direction: what follows it is not drawn, and a bend tighter than its own tube is refused', () => {
   const after = build(
     line(
-      part('P', 'pipe_segment', { ...PIPE, course_length: 500 }, 0),
-      part('B', 'pipe_bend', { ...PIPE, pipe_bend_radius: R, pipe_bend_angle: 90 }, 1),
-      part('Q', 'pipe_segment', { ...PIPE, course_length: 300 }, 2)
+      pipe('P', 0, 500),
+      part('B', 'pipe_bend', { ...PIPE, pipe_bend_radius: 100, pipe_bend_angle: 90 }, 1),
+      pipe('Q', 2, 300)
     )
   ).parts.find((p) => p.componentId === 'Q')!;
   assert.equal(after.status, 'not_drawn');

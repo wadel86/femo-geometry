@@ -130,6 +130,15 @@ export interface CourseShape {
   outsideRadiusAt(axialOffset: number): number;
 }
 
+/** A rotation, by rows: `M·v` is `[row₀·v, row₁·v, row₂·v]`. */
+export type Mat3 = readonly [Vec3, Vec3, Vec3];
+
+/** A frame: where its origin is and how it is turned, `p_outer = origin + matrix·p_inner`. */
+export interface RunFrame {
+  readonly origin: Vec3;
+  readonly matrix: Mat3;
+}
+
 export interface RunPart {
   /** The body: what openings are cut into. */
   readonly solid: Solid;
@@ -142,6 +151,12 @@ export interface RunPart {
   /** Null where the part is closed: the crown of a head, the pole of a sphere. */
   readonly lower: Junction | null;
   readonly upper: Junction | null;
+  /**
+   * For a part that turns the run — a pipe bend: the frame its `upper` junction stands in, in the
+   * part's own frame. The junction is at that frame's origin, square to its Z, and the run carries
+   * on along that Z. Absent, `upper` is at `height` on the part's own axis.
+   */
+  readonly outlet?: RunFrame;
   readonly landmarks: readonly Landmark[];
   readonly host?: HostSurface;
   /**

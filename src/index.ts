@@ -23,9 +23,11 @@ export {
   toAssemblyVector,
   type AssemblyModel,
   type BuiltPart,
+  type Mat3,
   type Opening,
   type PartStatus,
   type PartTransform,
+  type RunFrame,
 } from './assembly/buildAssembly.ts';
 export {
   tessellateModel,

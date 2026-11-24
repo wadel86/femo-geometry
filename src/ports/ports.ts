@@ -168,9 +168,14 @@ export function derivePorts(definition: AssemblyDefinition, model: AssemblyModel
     const below = run[i];
     const above = run[i + 1];
     if (!below || !above) continue;
-    const up = runPorts.get(below.componentId)?.find((p) => p.axis[2] > 0.5);
-    const down = runPorts.get(above.componentId)?.find((p) => p.axis[2] < -0.5);
-    if (!up || !down || Math.abs(up.location[2] - down.location[2]) > 1e-6) continue;
+    // The end each presents the other: the one facing along the run, which a turn-over swaps.
+    // After a bend the run's axis is no longer Z, so they are found by name and met in 3D.
+    const up = runPorts.get(below.componentId)?.find((p) => p.key === (below.transform.flipped ? 'lower' : 'upper'));
+    const down = runPorts.get(above.componentId)?.find((p) => p.key === (above.transform.flipped ? 'upper' : 'lower'));
+    if (!up || !down) continue;
+    const gap: Vec3 = [down.location[0] - up.location[0], down.location[1] - up.location[1], down.location[2] - up.location[2]];
+    const facingEachOther = up.axis[0] * down.axis[0] + up.axis[1] * down.axis[1] + up.axis[2] * down.axis[2] < -0.5;
+    if (!facingEachOther || Math.abs(gap[0] * up.axis[0] + gap[1] * up.axis[1] + gap[2] * up.axis[2]) > 1e-6) continue;
     joints.push({
       id: jointId(up, down),
       kind: up.kind === 'flange_face' && down.kind === 'flange_face' ? 'bolted' : 'butt_weld',
@@ -490,14 +495,17 @@ function jointId(a: Port, b: Port): string {
 
 /** A run part's end, in the assembly's frame. */
 function junctionPort(part: BuiltPart, side: 'lower' | 'upper', junction: Junction): Port {
-  const landmarks = part.landmarks.filter((l) => l.junction === side);
+  // A bend's outlet stands in a frame of its own, at its origin: no landmark of the run's axis names it.
+  const outlet = side === 'upper' ? part.outlet : undefined;
+  const transform = outlet ?? part.transform;
+  const landmarks = outlet ? [] : part.landmarks.filter((l) => l.junction === side);
   const z = landmarks[0]?.z ?? 0;
   const wall: WallAt = junction.wall;
   const [cx, cy] = junction.centre ?? [0, 0];
   return port(part.componentId, side, junction.face ? 'flange_face' : 'axial_edge', {
-    location: toAssembly([cx, cy, z], part.transform),
-    axis: toAssemblyVector([0, 0, side === 'lower' ? -1 : 1], part.transform),
-    meridian: toAssemblyVector([wall.meridian[0], 0, wall.meridian[1]], part.transform),
+    location: toAssembly([cx, cy, z], transform),
+    axis: toAssemblyVector([0, 0, side === 'lower' ? -1 : 1], transform),
+    meridian: toAssemblyVector([wall.meridian[0], 0, wall.meridian[1]], transform),
     surface: wall.surface,
     thickness: wall.thickness,
     meanRadius: (junction.insideDiameter + junction.outsideDiameter) / 4,
@@ -534,7 +542,10 @@ function mismatches(a: Port, b: Port, datum: AlignmentDatum): { issues: string[]
   const tolerance = Math.max(1e-3 * Math.max(ra, rb), 1e-6);
   // Two circles of one radius on different centres do not meet: what an eccentric cone's small
   // end presents to a course that the run, stacked on one axis, still places on it.
-  const apart = Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]);
+  // Measured square to the joint's axis, which after a pipe bend is not Z.
+  const d: Vec3 = [b.location[0] - a.location[0], b.location[1] - a.location[1], b.location[2] - a.location[2]];
+  const along = d[0] * a.axis[0] + d[1] * a.axis[1] + d[2] * a.axis[2];
+  const apart = Math.hypot(d[0] - along * a.axis[0], d[1] - along * a.axis[1], d[2] - along * a.axis[2]);
   if (apart > tolerance) {
     issues.push(`Centres are ${mm(apart)} apart`);
     findings.push(scope('mismatch', 'centre of the joint circle, across the axis', `coincident within ${mm(tolerance)}`, `${mm(apart)} apart`));

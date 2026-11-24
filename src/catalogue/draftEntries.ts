@@ -312,13 +312,16 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     specimen: vessel([
       run('P', Kind.PIPE_SEGMENT, 0, PIPE_DIMENSIONS),
       run('B', Kind.PIPE_BEND, 1, { pipe_outside_diameter: 219.1, thickness: 8.18, pipe_bend_radius: 328.65, pipe_bend_angle: 90 }),
+      run('Q', Kind.PIPE_SEGMENT, 2, PIPE_DIMENSIONS),
     ]),
     parameters: [Sym.PIPE_OUTSIDE_DIAMETER, Sym.THICKNESS, Sym.PIPE_BEND_RADIUS, Sym.PIPE_BEND_ANGLE],
-    ports: ['lower'],
+    ports: ['lower', 'upper'],
     joint: { kind: 'butt_weld', between: ['P', 'B'], ports: ['upper', 'lower'] },
     note:
       'The engine\'s PIPE_BEND, on its symbols. The tube D_o × t_n swept through α on R to its centreline (C3642.1\'s K = R/r_i), turning towards azimuth 0. ' +
-      'A run is laid along one axis, so a bend ENDS its run: a course after it is refused as not built until the run frame can turn. Its outlet carries no port for the same reason',
+      'The run TURNS at it: its outlet is a frame of its own, the next part stands on it and is butt welded to it, and a second bend turns again in the same plane. ' +
+      'Consumers place a part past a bend by `turn` as well as z0 and flipped. Layer 1 and the √(R·t) zones are one meridian along one axis and stop at the first bend. ' +
+      'A step in wall thickness at a bend is reported, not tapered: a torus has no straight length to cut',
   },
   {
     id: 'spherical_shell', article: '§4.3.5', title: 'Spherical shell', entry: 'component', status: 'captured',

@@ -49,7 +49,10 @@ class RunProfile {
     const drawn: BuiltPart[] = [];
     for (const component of runOrder(definition.components)) {
       const part = parts.get(component.id);
-      if (part && part.status === 'drawn' && part.meridian && part.meridian.length >= 2) drawn.push(part);
+      if (!part || part.status !== 'drawn' || !part.meridian || part.meridian.length < 2) continue;
+      // One meridian, one axis: the outlines stop where a pipe bend turns the run.
+      if (part.transform.turn) break;
+      drawn.push(part);
     }
     const largest = Math.max(1, ...drawn.flatMap((p) => p.meridian!.map(([r]) => r)));
     const proud = Math.max(1.5, 0.002 * largest);

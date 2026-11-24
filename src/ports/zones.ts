@@ -213,6 +213,8 @@ class MeridianPath {
     for (const component of runOrder(definition.components)) {
       const part = parts.get(component.id);
       if (!part || part.status !== 'drawn' || !part.meridian || part.meridian.length < 2) continue;
+      // Past a pipe bend the run has no one meridian: distances along it stop at the bend.
+      if (part.transform.turn) break;
       const cumulative = lengths(part.meridian);
       const length = cumulative[cumulative.length - 1];
       this.spans.set(part.componentId, { start: cursor, end: cursor + length, part, cumulative });
@@ -591,16 +593,17 @@ export function deriveZones(
   // saddle on an exchanger's shell is measured to it, never across it to the channel's bonnet,
   // which is what the saddle's own drawing reads too.
   const tangentLines = model.parts
-    .filter((p) => p.status === 'drawn' && FORMED_HEADS.has(p.kind))
+    .filter((p) => p.status === 'drawn' && FORMED_HEADS.has(p.kind) && !p.transform.turn)
     .map((p) => toAssembly([0, 0, p.tangentLine ?? 0], p.transform)[2]);
   for (const p of model.parts) {
-    if (p.status !== 'drawn' || !STIFFENING_PLATES.has(p.kind)) continue;
+    // Along the vessel axis: a plate past a pipe bend is not on it.
+    if (p.status !== 'drawn' || !STIFFENING_PLATES.has(p.kind) || p.transform.turn) continue;
     for (const l of p.landmarks) {
       if (l.junction) tangentLines.push(toAssembly([0, 0, l.z], p.transform)[2]);
     }
   }
   for (const part of model.parts) {
-    if (part.kind !== Kind.SADDLE_SUPPORT || part.status !== 'drawn' || !part.mount || tangentLines.length === 0) continue;
+    if (part.kind !== Kind.SADDLE_SUPPORT || part.status !== 'drawn' || !part.mount || tangentLines.length === 0 || part.transform.turn) continue;
     const z = toAssembly(part.mount.origin, part.transform)[2];
     const value = Math.min(...tangentLines.map((t) => Math.abs(z - t)));
     record(

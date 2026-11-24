@@ -39,9 +39,11 @@ import type {
   Idealisation,
   Junction,
   Landmark,
+  Mat3,
   MountedPart,
   Neck,
   TubeBundle,
+  RunFrame,
   RunPart,
   Seat,
   TorisphereShape,
@@ -49,13 +51,22 @@ import type {
 import type { Bounds, GeometryKernel, Point2, Solid, Vec3 } from '../kernel/GeometryKernel.ts';
 import { stableStringify } from '../hash.ts';
 
+export type { Mat3, RunFrame } from '../builders/types.ts';
+
 /**
  * Where a part's own frame sits in the assembly: optionally turned over (a half turn about X,
- * so z → −z and y → −y), then raised by `dz` along the axis.
+ * so z → −z and y → −y), then raised by `dz` along the axis — and, after a pipe bend, carried
+ * into the frame the run turned into: `p = turn.origin + turn.matrix·(flip(p) + dz·Z)`.
  */
 export interface PartTransform {
   readonly flipped: boolean;
   readonly dz: number;
+  /**
+   * The outlet frame of the last pipe bend before the part, in the assembly's frame; `dz` is then
+   * measured along that frame's Z from its origin. Absent — every part before the first bend, and
+   * every vessel — the run's axis is the assembly's Z, as it always was.
+   */
+  readonly turn?: RunFrame;
 }
 
 /** `analysis` is a component that is an analysis rather than a part: nothing to draw, nothing missing. */
@@ -109,8 +120,13 @@ export interface BuiltPart {
   readonly hostAnchor?: PlacementAnchor;
   /** For a part that can carry mounted ones: the surface itself, in the part's frame. */
   readonly hostSurface?: HostSurface;
-  /** For a part of the run: where it meets its neighbours, in its own frame. */
+  /** For a part of the run: where it meets its neighbours, in its own frame — `upper` in `outlet`'s, where it has one. */
   readonly junctions?: { readonly lower: Junction | null; readonly upper: Junction | null };
+  /**
+   * For a part that turns the run, a pipe bend: where its `upper` junction's frame is in the
+   * assembly — the junction at its origin, square to its Z. The next part of the run stands on it.
+   */
+  readonly outlet?: PartTransform;
   /** For a part of the run: its mid-surface meridian, in its own frame. */
   readonly meridian?: readonly Point2[];
   /** Parallel to `meridian`, where it states them: the centres of its circles, in its own frame. */
@@ -223,8 +239,10 @@ export class AssemblyBuilder {
       { part: RunPart; key: string; transform: PartTransform; thicken?: (extra: number) => Solid }
     >();
     let cursor = 0;
-    // A run is laid along one axis, and a pipe bend turns it: nothing after one has an axis to stand on.
-    let turnedBy: ComponentDefinition | undefined;
+    // A run is laid along one axis until a pipe bend turns it; after one, along the bend's outlet,
+    // with the cursor measured from it. Absent, the assembly's own Z.
+    let frame: RunFrame | undefined;
+    let lostAt: ComponentDefinition | undefined;
 
     run.forEach((component, index) => {
       const below = run[index - 1];
@@ -236,16 +254,14 @@ export class AssemblyBuilder {
         results.set(component.id, notDrawn(component));
         return;
       }
-      if (turnedBy) {
+      if (lostAt) {
         results.set(component.id, {
           ...notDrawn(component),
-          message: `${component.name} follows ${turnedBy.name}, a pipe bend: the run cannot turn yet, so a bend ends it`,
-          scope: scope('not_built', 'position', `before ${turnedBy.name}, or a run of its own`, `after ${turnedBy.name}`),
+          message: `${component.name} follows ${lostAt.name}, a pipe bend that is not drawn: where the run goes after it is not known`,
+          scope: scope('not_built', 'position', `${lostAt.name} drawn`, `after ${lostAt.name}, not drawn`),
         });
         return;
       }
-      if (component.kind === Kind.PIPE_BEND) turnedBy = component;
-
       const neighbour = closesBottom ? above : below;
       const sphere = component.kind === Kind.SPHERICAL_SHELL;
       const annular = component.kind === Kind.FLAT_HEAD && component.dimensions[Sym.ANNULUS_INSIDE_DIAMETER] !== undefined;
@@ -280,18 +296,28 @@ export class AssemblyBuilder {
           component.id,
           error instanceof NotDrawnError ? { ...notDrawn(component), message: error.message, scope: error.scope } : failed(component, error)
         );
+        // A course left out leaves the axis where it was; a bend left out leaves no direction at all.
+        if (component.kind === Kind.PIPE_BEND) lostAt = component;
         return;
       }
 
       let transform: PartTransform;
+      const turn = frame ? { turn: frame } : {};
       if (closesBottom) {
-        transform = { flipped: true, dz: cursor };
-      } else if (reversed.has(component.id) && !CLOSURE_OR_FLAT.has(component.kind)) {
-        transform = { flipped: true, dz: cursor + part.height };
+        transform = { flipped: true, dz: cursor, ...turn };
+      } else if (reversed.has(component.id) && !CLOSURE_OR_FLAT.has(component.kind) && !part.outlet) {
+        // A bend is not turned over: its inlet is where the run arrives, whichever way it is listed.
+        transform = { flipped: true, dz: cursor + part.height, ...turn };
         cursor += part.height;
       } else {
-        transform = { flipped: false, dz: cursor };
+        transform = { flipped: false, dz: cursor, ...turn };
         cursor += part.height;
+      }
+      // A bend turns the run: what follows stands on its outlet, from its origin.
+      const outlet = outletFrame(part, transform);
+      if (outlet) {
+        frame = outlet;
+        cursor = 0;
       }
 
       // The same part, its wall thicker outward: what a pad laid on it is cut from.
@@ -320,6 +346,9 @@ export class AssemblyBuilder {
       const lower = runParts.get(run[index].id);
       const upper = runParts.get(run[index + 1].id);
       if (!lower || !upper) continue;
+      // A bend's ends are not cut: its wall is a torus from end to end, with no straight length to
+      // taper. A step in thickness at a bend stays a step, and its joint reports it.
+      if (lower.part.outlet || upper.part.outlet) continue;
       const below = facing(lower.part, lower.transform, 'up');
       const above = facing(upper.part, upper.transform, 'down');
       if (!below || !above) continue;
@@ -596,6 +625,9 @@ export class AssemblyBuilder {
         hostAnchor: entry.part.host?.anchor,
         hostSurface: entry.part.host,
         junctions: { lower: entry.part.lower, upper: entry.part.upper },
+        ...(entry.part.outlet
+          ? { outlet: { flipped: false, dz: 0, turn: outletFrame(entry.part, entry.transform)! } }
+          : {}),
         meridian: entry.part.meridian,
         ...(entry.part.centres ? { centres: entry.part.centres } : {}),
         tangentLine: entry.part.tangentLine,
@@ -1056,20 +1088,79 @@ function errorMessage(error: unknown): string {
 
 /** A point of a part's frame, in the assembly's. */
 export function toAssembly(point: Vec3, transform: PartTransform): Vec3 {
-  return transform.flipped
+  const local: Vec3 = transform.flipped
     ? [point[0], -point[1], transform.dz - point[2]]
     : [point[0], point[1], transform.dz + point[2]];
+  return transform.turn ? plus(transform.turn.origin, times(transform.turn.matrix, local)) : local;
 }
 
 /** A direction of a part's frame, in the assembly's. */
 export function toAssemblyVector(vector: Vec3, transform: PartTransform): Vec3 {
-  return transform.flipped ? [vector[0], -vector[1], -vector[2]] : [vector[0], vector[1], vector[2]];
+  const local: Vec3 = transform.flipped ? [vector[0], -vector[1], -vector[2]] : [vector[0], vector[1], vector[2]];
+  return transform.turn ? times(transform.turn.matrix, local) : local;
 }
 
 /** A solid of a part's frame, moved into the assembly's. */
 export function solidToAssembly(kernel: GeometryKernel, solid: Solid, transform: PartTransform): Solid {
   const turned = transform.flipped ? kernel.flip(solid) : solid;
-  return transform.dz === 0 ? turned : kernel.translate(turned, [0, 0, transform.dz]);
+  const raised = transform.dz === 0 ? turned : kernel.translate(turned, [0, 0, transform.dz]);
+  if (!transform.turn) return raised;
+  const { axis, degrees } = axisAngle(transform.turn.matrix);
+  const rotated = degrees === 0 ? raised : kernel.rotate(raised, degrees, axis);
+  const [x, y, z] = transform.turn.origin;
+  return x === 0 && y === 0 && z === 0 ? rotated : kernel.translate(rotated, transform.turn.origin);
+}
+
+/**
+ * The frame a run part's `upper` end stands in, in the assembly's: for a part that turns the run,
+ * its outlet carried by the part's own transform; for any other, null — its upper end is on the
+ * axis it stands on. What follows the part is placed in this frame, at `dz` from its origin.
+ */
+export function outletFrame(part: Pick<RunPart, 'outlet'>, transform: PartTransform): RunFrame | null {
+  if (!part.outlet) return null;
+  const flip: Mat3 = transform.flipped
+    ? [
+        [1, 0, 0],
+        [0, -1, 0],
+        [0, 0, -1],
+      ]
+    : IDENTITY_MATRIX;
+  const placed = transform.turn ? product(transform.turn.matrix, flip) : flip;
+  return { origin: toAssembly(part.outlet.origin, transform), matrix: product(placed, part.outlet.matrix) };
+}
+
+const IDENTITY_MATRIX: Mat3 = [
+  [1, 0, 0],
+  [0, 1, 0],
+  [0, 0, 1],
+];
+
+const plus = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const times = (m: Mat3, v: Vec3): Vec3 => [
+  m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2],
+  m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2],
+  m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2],
+];
+function product(a: Mat3, b: Mat3): Mat3 {
+  const row = (i: number): Vec3 => [0, 1, 2].map((j) => a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j]) as unknown as Vec3;
+  return [row(0), row(1), row(2)];
+}
+
+/** A rotation matrix as the axis and angle the kernel turns a solid by (right-handed, degrees). */
+function axisAngle(m: Mat3): { axis: Vec3; degrees: number } {
+  const cos = Math.min(1, Math.max(-1, (m[0][0] + m[1][1] + m[2][2] - 1) / 2));
+  const angle = Math.acos(cos);
+  if (angle < 1e-12) return { axis: [0, 0, 1], degrees: 0 };
+  if (Math.PI - angle > 1e-6) {
+    const axis: Vec3 = [m[2][1] - m[1][2], m[0][2] - m[2][0], m[1][0] - m[0][1]];
+    const n = Math.hypot(...axis);
+    return { axis: [axis[0] / n, axis[1] / n, axis[2] / n], degrees: (angle * 180) / Math.PI };
+  }
+  // A half turn: M = 2·n·nᵀ − I, so the axis is the largest column of (M + I)/2.
+  const k = [0, 1, 2].reduce((best, i) => (m[i][i] > m[best][best] ? i : best), 0);
+  const column: Vec3 = [(m[0][k] + (k === 0 ? 1 : 0)) / 2, (m[1][k] + (k === 1 ? 1 : 0)) / 2, (m[2][k] + (k === 2 ? 1 : 0)) / 2];
+  const n = Math.hypot(...column);
+  return { axis: [column[0] / n, column[1] / n, column[2] / n], degrees: 180 };
 }
 
 /** The box around every drawn solid, in the assembly's frame. */
