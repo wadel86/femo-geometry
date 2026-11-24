@@ -79,10 +79,16 @@ function nozzle(aimer: Aimer): MountedBuilder {
     // Deep enough to cross the wall all round the neck, where a curved or sloping host falls
     // away from the axis.
     const through = frame.wall + 2 * footprint + 1;
-    const neck =
+    let neck =
       inward > 0
         ? kernel.tube(frame, inside, outside, -(frame.wall + inward), outward)
         : kernel.cut(kernel.tube(frame, inside, outside, -through, outward), [hostSurface.cavity()]);
+    const reinforced = reinforcedNeck(component, inside, outside, outward, notes);
+    if (reinforced) {
+      // RCC-M B3683.8, Figure B3643.3.a (a)/(b): t_n over the reinforced height L_1, then the
+      // connected pipe's T'_b on the same bore — the outside stepped in beyond L_1.
+      neck = kernel.cut(neck, [kernel.tube(frame, inside + reinforced.wall, outside + 1, reinforced.height, outward + 1)]);
+    }
     const solids = [neck];
 
     const padWidth = optionalDimension(component, Sym.PAD_WIDTH);
@@ -185,11 +191,73 @@ function nozzle(aimer: Aimer): MountedBuilder {
         depth: through,
       },
       footprint,
-      neck: { insideRadius: inside, outsideRadius: outside, outward, inward, pad },
+      neck: {
+        insideRadius: inside,
+        outsideRadius: outside,
+        outward,
+        inward,
+        pad,
+        // Its outer end is the connected pipe's, which is what is welded on there.
+        ...(reinforced ? { end: { insideRadius: inside, outsideRadius: inside + reinforced.wall } } : {}),
+      },
       notes,
     };
     return part;
   };
+}
+
+/**
+ * A neck reinforced over its first L_1 — RCC-M B3683.8 g), Figure B3643.3.a (a)/(b): `nozzle_thickness`
+ * is the reinforced neck's T_b, and beyond L_1 the connected pipe's T'_b carries on, on the same
+ * bore. Both must be stated to draw it; T'_b alone has no height to step at, and L_1 alone means
+ * T'_b = T_b, a plain neck. The step is drawn square: the figure's transition is not dimensioned.
+ */
+function reinforcedNeck(
+  component: ComponentDefinition,
+  inside: number,
+  outside: number,
+  outward: number,
+  notes: Note[]
+): { wall: number; height: number } | null {
+  const wall = optionalDimension(component, Sym.BRANCH_CONNECTED_THICKNESS);
+  const height = optionalDimension(component, Sym.BRANCH_REINFORCEMENT_HEIGHT);
+  if (wall === undefined) return null;
+  const neckWall = outside - inside;
+  if (Math.abs(wall - neckWall) <= 1e-9) return null;
+  if (wall > neckWall) {
+    notes.push(
+      notBuiltNote(
+        `The connected pipe's ${mm(wall)} wall is thicker than the ${mm(neckWall)} neck: a reinforced neck is the thicker of the two, so the neck is drawn uniform`,
+        Sym.BRANCH_CONNECTED_THICKNESS,
+        mm(wall),
+        `≤ ${mm(neckWall)}, the neck's T_b`
+      )
+    );
+    return null;
+  }
+  if (height === undefined) {
+    notes.push(
+      notBuiltNote(
+        `A connected pipe of ${mm(wall)} is stated with no reinforced height L_1: the neck is drawn uniform at ${mm(neckWall)}`,
+        Sym.BRANCH_REINFORCEMENT_HEIGHT,
+        'unstated',
+        'L_1, to step the neck at'
+      )
+    );
+    return null;
+  }
+  if (!(height < outward)) {
+    notes.push(
+      notBuiltNote(
+        `The reinforced height ${mm(height)} reaches the neck's ${mm(outward)} end: the connected pipe beyond it is not drawn`,
+        Sym.BRANCH_REINFORCEMENT_HEIGHT,
+        mm(height),
+        `< ${mm(outward)}, the outward projection`
+      )
+    );
+    return null;
+  }
+  return { wall, height };
 }
 
 /**

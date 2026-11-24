@@ -281,7 +281,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['lower', 'upper'],
     joint: { kind: 'butt_weld', between: ['P', 'V'], ports: ['upper', 'lower'] },
     note:
-      'Draft kind until TRESCA DBR\'s VALVE_BODY reaches develop. C3540 judges a valve body on its pressure series and bore, never on a shape, so it is drawn as the short thick course ' +
+      'The engine\'s VALVE_BODY, on its symbols. C3540 judges a valve body on its pressure series and bore, never on a shape, so it is drawn as the short thick course ' +
       'the bore d_m and the minimum body wall fix, between two pipes of the same bore; its welds to them taper the thicker body down to each pipe, as any two walls of unequal thickness do. ' +
       'course_length is its face-to-face, drawn one bore long and noted where not stated; valve_rating_table and valve_local_bore are the engine\'s',
   },
@@ -301,7 +301,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['lower'],
     joint: { kind: 'butt_weld', between: ['P', 'U'], ports: ['upper', 'lower'] },
     note:
-      'Draft kind until TRESCA DBR\'s PUMP_CASING reaches develop. Figure C3431.1.3 dimensions A1 and A2 in PLAN: A1 from the centre to the outer wall at the tongue, A2 the larger reach across the far side; ' +
+      'The engine\'s PUMP_CASING, on its symbols. Figure C3431.1.3 dimensions A1 and A2 in PLAN: A1 from the centre to the outer wall at the tongue, A2 the larger reach across the far side; ' +
       'the axial width is B, pump_casing_width. The base circle, B and the two bores are read by no check, and without them the casing is not drawn rather than invented. ' +
       'With them: a suction neck on the axis (its junction to the pipe below), an outer wall on the circle through A1 at azimuth 0 and A2 at 180°, B wide inside, and a discharge branch leaving tangentially ' +
       'at the throat, between the base circle and A1. The spiral between the two dimensioned stations is not drawn. pump_type and pump_shape_factor are the engine\'s',
@@ -322,6 +322,22 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
       'The run TURNS at it: its outlet is a frame of its own, the next part stands on it and is butt welded to it, and a second bend turns again in the same plane. ' +
       'Consumers place a part past a bend by `turn` as well as z0 and flipped. Layer 1 and the √(R·t) zones are one meridian along one axis and stop at the first bend. ' +
       'A step in wall thickness at a bend is reported, not tapered: a torus has no straight length to cut',
+  },
+  {
+    id: 'pipe_tee', article: 'RCC-M B3683.9', title: 'Butt-welding tee', entry: 'component', status: 'captured',
+    kinds: [Kind.PIPE_TEE, Kind.PIPE_SEGMENT], focus: 'T',
+    specimen: vessel([
+      run('P', Kind.PIPE_SEGMENT, 0, PIPE_DIMENSIONS),
+      run('T', Kind.PIPE_TEE, 1, { pipe_outside_diameter: 219.1, thickness: 8.18, branch_outside_diameter: 168.3, branch_connected_thickness: 7.11, course_length: 400 }),
+      run('Q', Kind.PIPE_SEGMENT, 2, PIPE_DIMENSIONS),
+    ]),
+    parameters: [Sym.PIPE_OUTSIDE_DIAMETER, Sym.THICKNESS, Sym.BRANCH_OUTSIDE_DIAMETER, Sym.BRANCH_CONNECTED_THICKNESS, Sym.COURSE_LENGTH],
+    ports: ['lower', 'upper'],
+    joint: { kind: 'butt_weld', between: ['P', 'T'], ports: ['upper', 'lower'] },
+    note:
+      'Draft kind until TRESCA DBR\'s PIPE_TEE reaches develop. One forged fitting in the run: D_o × t over course_length (2·D_o when unstated), and the outlet D_o,b × T\'_b normal to it at mid-length, ' +
+      'towards +Y, its face D_o/2 + D_o,b/2 from the run\'s axis. The crotch is sharp: a forging\'s blend is not dimensioned and B3683.9 reads the run\'s R_m/T_r alone. ' +
+      'Its run ends weld to neighbours as a pipe\'s do; the outlet has no port, a run being one line, so a fluid domain through a tee is open there. weld_flush and test_pressure are the engine\'s',
   },
   {
     id: 'spherical_shell', article: '§4.3.5', title: 'Spherical shell', entry: 'component', status: 'captured',
@@ -381,6 +397,17 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     kinds: [Kind.RADIAL_NOZZLE], focus: 'M', meshing: 'radial_nozzle', specimen: mountedOnCourse(Kind.RADIAL_NOZZLE, NECK),
     parameters: [Sym.NOZZLE_INSIDE_DIAMETER, Sym.NOZZLE_THICKNESS, Sym.NOZZLE_OUTWARD_PROJECTION, Sym.NOZZLE_INWARD_PROJECTION, Sym.PAD_WIDTH, Sym.PAD_THICKNESS],
     ports: ['neck:host-end', 'neck:outer-end'],
+  },
+  {
+    id: 'radial_nozzle.reinforced_neck', article: 'RCC-M B3683.8', title: 'Radial nozzle, reinforced neck', entry: 'component', status: 'captured',
+    kinds: [Kind.RADIAL_NOZZLE], focus: 'M',
+    specimen: mountedOnCourse(Kind.RADIAL_NOZZLE, { ...NECK, branch_connected_thickness: 6, branch_reinforcement_height: 100 }),
+    parameters: [Sym.NOZZLE_INSIDE_DIAMETER, Sym.NOZZLE_THICKNESS, Sym.NOZZLE_OUTWARD_PROJECTION, Sym.BRANCH_CONNECTED_THICKNESS, Sym.BRANCH_REINFORCEMENT_HEIGHT],
+    ports: ['neck:host-end', 'neck:outer-end'],
+    note:
+      'Figure B3643.3.a sketches (a)/(b), on TRESCA DBR\'s names: nozzle_thickness is the reinforced neck\'s T_b over L_1 (branch_reinforcement_height) from the host\'s outside surface, ' +
+      'then the connected pipe\'s T\'_b (branch_connected_thickness) on the same bore to the end, whose port carries T\'_b. The step is square: the figure does not dimension the transition. ' +
+      'T\'_b alone, T\'_b thicker than T_b, or L_1 reaching the end leave the neck uniform, with a note',
   },
   {
     id: 'hillside_nozzle', article: '§4.5.6', title: 'Hillside nozzle', entry: 'component', status: 'captured',

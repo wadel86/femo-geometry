@@ -19,7 +19,7 @@ import {
   type ComponentDefinition,
   type Note,
 } from '../definition.ts';
-import type { Point2, Profile, ProfileStep } from '../kernel/GeometryKernel.ts';
+import type { Point2, Profile, ProfileStep, Vec3 } from '../kernel/GeometryKernel.ts';
 import {
   dishedCoverTypeB,
   dishedCoverTypeC,
@@ -1558,6 +1558,67 @@ export const pipeBend: RunBuilder = (component, context) => {
 export const valveBody: RunBuilder = (component, context) => cylindricalShell(component, context);
 
 /**
+ * A butt-welding tee — RCC-M B3683.9: one forged fitting in the run, D_o × t over its length,
+ * with a branch outlet of its own D_o,b × T'_b. B3683.9's indices read the run's R_m/T_r and
+ * nothing of the shape, so it is drawn plainly: the run as the pipe it continues (its length
+ * stated, or 2·D_o, a common centre-to-end of about D_o each way), and the outlet normal to it at
+ * mid-length, towards +Y (azimuth 90°, clear of the revolved run's seam at azimuth 0), its face
+ * D_o/2 + D_o,b/2 from the run's axis — on an equal tee the same centre-to-end as the run. The
+ * crotch is left sharp: a forging's blend is not dimensioned, and the engine reads none.
+ *
+ * The run's two ends meet their neighbours as a pipe's do. The outlet carries no neighbour: a run
+ * is one line, so a pipe welded to the branch is a run of its own, and a fluid domain through a
+ * tee is open there.
+ */
+export const pipeTee: RunBuilder = (component, context) => {
+  const { kernel } = context;
+  const { outsideDiameter, thickness } = pipeBore(component);
+  const branchOutside = requireDimension(component, Sym.BRANCH_OUTSIDE_DIAMETER);
+  const branchWall = requireDimension(component, Sym.BRANCH_CONNECTED_THICKNESS);
+  if (!(branchOutside <= outsideDiameter)) {
+    throw new BuildError(
+      component,
+      `has a ${mm(branchOutside)} outlet on a ${mm(outsideDiameter)} run: a tee's outlet is no larger than its run`,
+      scope('out_of_scope', Sym.BRANCH_OUTSIDE_DIAMETER, `≤ ${mm(outsideDiameter)}, the run's D_o`, mm(branchOutside))
+    );
+  }
+  if (!(2 * branchWall < branchOutside)) {
+    throw new BuildError(
+      component,
+      `has a ${mm(branchWall)} outlet wall on a ${mm(branchOutside)} outlet, which leaves no bore`,
+      scope('out_of_scope', Sym.BRANCH_CONNECTED_THICKNESS, `< ${mm(branchOutside / 2)}, half the outlet's D_o`, mm(branchWall))
+    );
+  }
+  const notes: Note[] = [];
+  let length = optionalDimension(component, Sym.COURSE_LENGTH);
+  if (length === undefined) {
+    length = 2 * outsideDiameter;
+    notes.push(assumedNote(`Run length not stated — drawn ${mm(length)}, 2·D_o`, Sym.COURSE_LENGTH, mm(length)));
+  }
+  if (!(length > branchOutside)) {
+    throw new BuildError(
+      component,
+      `is ${mm(length)} long, too short to carry a ${mm(branchOutside)} outlet`,
+      scope('out_of_scope', Sym.COURSE_LENGTH, `> ${mm(branchOutside)}, the outlet's D_o`, mm(length))
+    );
+  }
+  // The run is the pipe it continues: everything a pipe's ends offer, they offer.
+  const run = pipeSegment({ ...component, dimensions: { ...component.dimensions, [Sym.COURSE_LENGTH]: length } }, context);
+  const ro = outsideDiameter / 2;
+  const ri = ro - thickness;
+  const bo = branchOutside / 2;
+  const bi = bo - branchWall;
+  const reach = ro + bo;
+  const axis = { origin: [0, 0, 0] as Vec3, axis: [0, 0, 1] as Vec3 };
+  const outlet = { origin: [0, 0, length / 2] as Vec3, axis: [0, 1, 0] as Vec3 };
+  const body = kernel.fuse(kernel.tube(axis, 0, ro, 0, length), kernel.tube(outlet, 0, bo, 0, reach));
+  const solid = kernel.cut(body, [kernel.tube(axis, 0, ri, -1, length + 1), kernel.tube(outlet, 0, bi, 0, reach + 1)]);
+  // Not a host: an opening in a tee is its outlet, already there.
+  const { host: _host, ...asRun } = run;
+  return { ...asRun, solid, notes: [...run.notes, ...notes] };
+};
+
+/**
  * A radially split volute pump casing — RCC-M C3431 to C3434, Figure C3431.1.3. Both spans lie in
  * the PLAN view: A1 from the centre to the volute's outer wall at the tongue section, A2 the larger
  * reach across the far side, at about 180°; the axial width is B, `pump_casing_width`, the B of
@@ -1653,6 +1714,7 @@ export const RUN_BUILDERS: Readonly<Record<string, RunBuilder>> = {
   pipe_segment: pipeSegment,
   pipe_bend: pipeBend,
   valve_body: valveBody,
+  pipe_tee: pipeTee,
   cylindrical_shell: cylindricalShell,
   conical_shell: conicalShell,
   spherical_shell: sphericalShell,

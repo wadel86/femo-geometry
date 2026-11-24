@@ -94,11 +94,13 @@ export const Kind = {
   // VIII-2 clause sizes a baffle; whether it becomes a `ComponentType` is TRESCA DBR's call.
   SEGMENTAL_BAFFLES: 'segmental_baffles',
   // RCC-M C3540: a valve body in the line, judged on its pressure series and bore rather than a
-  // stress formula (TRESCA DBR, feat/rccm-c3540-valve-body). A draft until that reaches develop.
+  // stress formula, and C3431–C3434's radially split volute pump casing. Catalogued on develop
+  // (TRESCA DBR, merged 2026-11-25).
   VALVE_BODY: 'valve_body',
-  // RCC-M C3431–C3434: a radially split volute pump casing (TRESCA DBR, 9ad07b0). A draft until
-  // that reaches develop.
   PUMP_CASING: 'pump_casing',
+  // RCC-M B3683.9: a butt-welding tee in the run (TRESCA DBR, feat/rccm-b3683-class1-branches
+  // 9da807f). A draft until that reaches develop.
+  PIPE_TEE: 'pipe_tee',
 } as const;
 
 /** The kinds above that only the catalogue's draft entries know: no `ComponentType` names them. */
@@ -109,8 +111,7 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
   Kind.SEGMENTAL_BAFFLES,
-  Kind.VALVE_BODY,
-  Kind.PUMP_CASING,
+  Kind.PIPE_TEE,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
@@ -303,6 +304,13 @@ export const Sym = {
   PIPE_BEND_RADIUS: 'pipe_bend_radius',
   /** α: the angle a pipe bend turns through, in degrees. */
   PIPE_BEND_ANGLE: 'pipe_bend_angle',
+  // RCC-M B3683.8 and B3683.9's branches, on TRESCA DBR's names (feat/rccm-b3683-class1-branches).
+  /** A butt-welding tee's branch outlet outside diameter. */
+  BRANCH_OUTSIDE_DIAMETER: 'branch_outside_diameter',
+  /** T'_b: the connected branch pipe's wall — a tee's outlet, or the pipe beyond a reinforced neck. */
+  BRANCH_CONNECTED_THICKNESS: 'branch_connected_thickness',
+  /** L_1: the height of a nozzle's reinforced neck, Figure B3643.3.a sketches (a) and (b). */
+  BRANCH_REINFORCEMENT_HEIGHT: 'branch_reinforcement_height',
   // RCC-M H3232 / Annexe ZVI's linear support member, on TRESCA DBR's names: the engine reads the
   // section's PROPERTIES, so the kernel draws what A and l fix and nothing it would have to invent.
   /** A: the member's cross-sectional area, mm². */

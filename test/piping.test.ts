@@ -207,6 +207,65 @@ test('a closed line through a bend holds the same fluid as the straight one Papp
   assert.deepEqual(bent.boundaries.filter((b) => b.type === 'opening').map((b) => b.name).sort(), ['opening:N1', 'opening:N2']);
 });
 
+test('a tee is the run with an outlet fused on at mid-length: its volume, its outlet face, and its two run welds', () => {
+  // DN 200 × DN 150: an outlet of 168.3 × 7.11 on the 219.1 × 8.18 run, 400 long.
+  const TEE = { ...PIPE, branch_outside_diameter: 168.3, branch_connected_thickness: 7.11, course_length: 400 };
+  const definition = line(pipe('P', 0, 300), part('T', 'pipe_tee', TEE, 1), pipe('Q', 2, 300));
+  const model = build(definition);
+  const t = model.parts.find((p) => p.componentId === 'T')!;
+  assert.equal(t.status, 'drawn', t.message);
+  assert.ok(kernel.isValid(t.solids[0]!));
+  const box = worldBox(model, 'T');
+  // The run from 300 to 700; the outlet's face at D_o/2 + D_o,b/2 = 193.7 towards +Y.
+  near(box.min, [-ro, -ro, 300]);
+  near(box.max, [ro, ro + 168.3 / 2, 700]);
+  // The run's annulus, plus the outlet's annulus from the run's outside surface out to the face,
+  // less what of the run's wall the outlet's bore removes — bounded by the two cylinders' ends.
+  const bo = 168.3 / 2;
+  const bi = bo - 7.11;
+  const volume = kernel.volume(t.solids[0]!);
+  const run = Math.PI * (ro * ro - ri * ri) * 400;
+  assert.ok(volume > run && volume < run + Math.PI * (bo * bo - bi * bi) * bo, `${volume}`);
+  // Both run ends are a pipe's, welded to their neighbours without an issue.
+  const joints = resolveGeometry(definition, model, kernel).joints.filter((j) => j.kind === 'butt_weld');
+  assert.deepEqual(joints.map((j) => j.id).sort(), ['P:upper~T:lower', 'T:upper~Q:lower']);
+  for (const j of joints) assert.deepEqual(j.issues, [], j.id);
+
+  // Unstated, the run is 2·D_o and says so; an outlet larger than the run is refused.
+  const { course_length: _l, ...unstated } = TEE;
+  const plain = partOf(line(part('T', 'pipe_tee', unstated, 0)), 'T');
+  close(kernel.bounds(plain.solids[0]!).max[2]!, 2 * 219.1, 1e-6);
+  assert.ok(plain.notes.some((n) => n.symbol === 'course_length'));
+  const wide = partOf(line(part('T', 'pipe_tee', { ...TEE, branch_outside_diameter: 273 }, 0)), 'T');
+  assert.equal(wide.status, 'failed');
+  assert.equal(wide.scope?.parameter, 'branch_outside_diameter');
+});
+
+test('a reinforced neck is t_n over L_1, then the connected pipe T\'_b on the same bore, and its end port says so', () => {
+  const NECK = { nozzle_inside_diameter: 80, nozzle_thickness: 11, nozzle_outward_projection: 200 };
+  const branchOn = (dimensions: Record<string, number>): AssemblyDefinition => ({
+    components: [pipe('P', 0, 1000), part('N', 'radial_nozzle', dimensions, 0, 'P')],
+    placements: { N: { anchor: 'shell_side', axialOffset: 500, azimuth: 90 } },
+    reversed: [],
+  });
+  const volumeOf = (definition: AssemblyDefinition) => kernel.volume(build(definition).parts.find((p) => p.componentId === 'N')!.solids[0]!);
+  const definition = branchOn({ ...NECK, branch_connected_thickness: 5.5, branch_reinforcement_height: 80 });
+  const model = build(definition);
+  const n = model.parts.find((p) => p.componentId === 'N')!;
+  assert.equal(n.status, 'drawn', n.message);
+  assert.ok(kernel.isValid(n.solids[0]!));
+  // What is removed is the outer 5.5 mm of wall over the 120 mm beyond L_1, exactly.
+  const removed = Math.PI * ((40 + 11) ** 2 - (40 + 5.5) ** 2) * 120;
+  close(volumeOf(branchOn(NECK)) - kernel.volume(n.solids[0]!), removed, 1e-6 * removed);
+  const end = resolveGeometry(definition, model, kernel).parts.find((p) => p.componentId === 'N')!.ports.find((p) => p.key === 'neck:outer-end')!;
+  close(end.outsideRadius!, 45.5);
+  close(end.thickness, 5.5);
+  // T'_b alone has no height to step at: the neck is uniform, and says why.
+  const alone = build(branchOn({ ...NECK, branch_connected_thickness: 5.5 })).parts.find((p) => p.componentId === 'N')!;
+  assert.ok(alone.notes.some((note) => note.symbol === 'branch_reinforcement_height'));
+  close(kernel.volume(alone.solids[0]!), volumeOf(branchOn(NECK)), 1e-9 * volumeOf(branchOn(NECK)));
+});
+
 test('a bend that is not drawn leaves no direction: what follows it is not drawn, and a bend tighter than its own tube is refused', () => {
   const after = build(
     line(
