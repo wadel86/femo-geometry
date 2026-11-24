@@ -341,7 +341,7 @@ export const DRAFT_ENTRIES: readonly DraftEntry[] = [
     ports: ['lower', 'upper'],
     joint: { kind: 'butt_weld', between: ['P', 'R'], ports: ['upper', 'lower'] },
     note:
-      'Draft kind until TRESCA DBR\'s PIPE_REDUCER reaches develop. B3683.6 b)\'s figure on the mid-surface: the large end D_1 × t_1 over L_1 at the bottom, the knuckle r, the cone at α, the flare r_f, ' +
+      'The engine\'s PIPE_REDUCER, on its symbols. B3683.6 b)\'s figure on the mid-surface: the large end D_1 × t_1 over L_1 at the bottom, the knuckle r, the cone at α, the flare r_f, ' +
       'the small end D_2 × t_2 over L_2, coaxial; the wall t_1 through the knuckle, t_2 through the flare, tapering along the cone. An unstated knuckle or flare is sharp on the mid-surface; ' +
       'unstated L_1/L_2 share a stated course_length, or are drawn zero, noted. Reversed, it reduces downward. weld_offset and test_pressure are the engine\'s',
   },

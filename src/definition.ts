@@ -101,8 +101,8 @@ export const Kind = {
   // RCC-M B3683.9: a butt-welding tee in the run. Catalogued on develop (TRESCA DBR 9da807f,
   // merged in e59258b).
   PIPE_TEE: 'pipe_tee',
-  // RCC-M B3683.6: a concentric butt-welding reducer in the run (TRESCA DBR,
-  // feat/rccm-b3683-reducers fd8c01b). A draft until that reaches develop.
+  // RCC-M B3683.6: a concentric butt-welding reducer in the run. Catalogued on develop (TRESCA
+  // DBR fd8c01b, in 3ac0e1d).
   PIPE_REDUCER: 'pipe_reducer',
 } as const;
 
@@ -114,7 +114,6 @@ export const DRAFT_KINDS: ReadonlySet<string> = new Set([
   Kind.TUBE_BUNDLE,
   Kind.LIFTING_LUG,
   Kind.SEGMENTAL_BAFFLES,
-  Kind.PIPE_REDUCER,
 ]);
 
 /** The dimensions the builders read, as `CodeSymbol.wireValue()` spells them. */
