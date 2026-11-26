@@ -37,7 +37,41 @@ export function radialPlate(
 }
 
 /**
- * Refuses an anchor whose part would not fit on the host where it is placed.
+ * How far an opening's edge must stay from its host's own boundary — a course's end, where the
+ * next part's face begins, or a head's rim. An edge ON the boundary, or nearer than this, leaves
+ * the hole's outline touching the face's outer one at a point: a valid solid to the kernel that
+ * built it, but STEP carries no per-edge tolerance and a strict checker downstream reads two
+ * wires that intersect (FreeCAD 1.1.4 on E-101's shell, 2026-11-26). Refused rather than nudged
+ * (the user, 2026-11-26): a silent move is a design change nobody made. 0.1 mm is ten times the
+ * largest tolerance that FreeCAD's checker needed to clear any boolean edge of the same exports.
+ */
+export const OPENING_CLEARANCE = 0.1;
+
+/**
+ * Refuses an opening whose edge lies on, or within {@link OPENING_CLEARANCE} of, its host's
+ * boundary at `edge`, `limit` being the boundary; `toward` says which way it clears.
+ */
+export function requireClearOfBoundary(
+  component: ComponentDefinition,
+  host: string,
+  edge: number,
+  limit: number,
+  boundary: string,
+  toward: string
+): void {
+  const gap = Math.abs(limit - edge);
+  // At the clearance itself is clear: 100 + 0.1 − 100 is a hair short of 0.1 in a double.
+  if (gap >= OPENING_CLEARANCE - 1e-9) return;
+  throw new AnchorError(
+    component,
+    `its opening's edge is ${gap < 1e-6 ? 'exactly on' : `${mm(gap)} from`} ${boundary} of ${host}: tangent, which leaves the hole's outline touching the face's — move it at least ${mm(OPENING_CLEARANCE - gap)} ${toward}`,
+    scope('out_of_scope', `opening edge to ${boundary} of ${host}`, `≥ ${mm(OPENING_CLEARANCE)}, clear of it`, mm(gap))
+  );
+}
+
+/**
+ * Refuses an anchor whose part would not fit on the host where it is placed — and, for a part
+ * that cuts an `opening` into its host, one whose edge is tangent to the host's boundary.
  *
  * @param halfExtent half the part's extent along the offset — the radius of an opening, half a
  *     ring's thickness
@@ -45,7 +79,8 @@ export function radialPlate(
 export function requireWithinHost(
   component: ComponentDefinition,
   context: MountedContext,
-  halfExtent: number
+  halfExtent: number,
+  opening = false
 ): void {
   const { placement, hostSurface, host } = context;
   if (placement.anchor !== hostSurface.anchor) {
@@ -58,9 +93,9 @@ export function requireWithinHost(
 
   const [low, high] = hostSurface.offsetRange;
   const offset = placement.axialOffset;
-  // A part may be tangent to its host's end — a nozzle sized to its baffle space exactly — and
+  // A part that cuts nothing may sit flush with its host's end — a ring at a course's end — and
   // the sum of its stated dimensions reaches it give or take the last bit of a double: a micron
-  // is noise, never a design.
+  // is noise, never a design. An opening may not: see OPENING_CLEARANCE.
   const noise = 1e-6;
   if (hostSurface.anchor === 'head_crown') {
     if (offset < -noise || offset + halfExtent > high + noise) {
@@ -77,6 +112,7 @@ export function requireWithinHost(
         )
       );
     }
+    if (opening) requireClearOfBoundary(component, host.name, offset + halfExtent, high, 'the rim', 'towards the axis');
     return;
   }
   if (offset - halfExtent < low - noise || offset + halfExtent > high + noise) {
@@ -87,5 +123,9 @@ export function requireWithinHost(
       `${mm(2 * halfExtent)} wide at ${mm(offset)} runs past ${host.name}, which is ${mm(high - low)} long`,
       scope('out_of_scope', `edge of the part along ${host.name}`, `${limit}, within its one host`, mm(edge))
     );
+  }
+  if (opening) {
+    requireClearOfBoundary(component, host.name, offset - halfExtent, low, 'the lower end', 'up the course');
+    requireClearOfBoundary(component, host.name, offset + halfExtent, high, 'the upper end', 'down the course');
   }
 }

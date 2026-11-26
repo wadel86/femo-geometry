@@ -24,7 +24,7 @@
         "tube_count": 147 } },
     { "id": "F", "name": "Segmental baffles", "kind": "segmental_baffles", "position": 100, "hostId": "S",
       "dimensions": { "baffle_cut_length": 96.75, "baffle_thickness": 4.8, "baffle_spacing": 154.8,
-        "baffle_inlet_spacing": 219.1, "baffle_outlet_spacing": 219.1, "baffle_count": 14,
+        "baffle_inlet_spacing": 240, "baffle_outlet_spacing": 219.1, "baffle_count": 14,
         "shell_baffle_clearance": 2.946, "tube_baffle_clearance": 0.794 } },
     { "id": "P", "name": "Pass partition", "kind": "pass_partition_plate", "position": 100, "hostId": "CH1",
       "dimensions": { "pass_partition_thickness": 10 } },
@@ -37,7 +37,7 @@
     "B": { "anchor": "shell_side", "axialOffset": 1283.75, "azimuth": 0 },
     "F": { "anchor": "shell_side", "axialOffset": 1283.75, "azimuth": 0 },
     "P": { "anchor": "shell_side", "axialOffset": 150, "azimuth": 90 },
-    "N1": { "anchor": "shell_side", "axialOffset": 109.55, "azimuth": 180 },
+    "N1": { "anchor": "shell_side", "axialOffset": 120, "azimuth": 180 },
     "N2": { "anchor": "shell_side", "axialOffset": 2399.5006, "azimuth": 0 }
   },
   "reversed": []

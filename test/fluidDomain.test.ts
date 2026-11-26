@@ -38,7 +38,8 @@ test('with the book\'s 154.8 mm end spaces E-101 has no domain: the chamber is a
 
 let e101: FluidDomain;
 test('fitted, its shell side is the bundle, its lane, the bypass annulus and the two nozzle bores', () => {
-  // N1's edge lands on the tubesheet face to the last bit of a double: tangent, and drawn.
+  // N1's edge stands 10.45 mm clear of the tubesheet face, inside a 240 mm inlet space: exactly
+  // tangent, as it once was, it is refused (tangentOpening.test.ts).
   e101 = domainOf(E101, 'N1', 200);
   const zones = Object.fromEntries(e101.zones.map((z) => [z.name, z]));
   assert.deepEqual(Object.keys(zones).sort(), ['zone:bundle', 'zone:bypass', 'zone:fluid', 'zone:lane:1']);

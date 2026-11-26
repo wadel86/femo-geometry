@@ -19,7 +19,7 @@ import {
   type Note,
 } from '../definition.ts';
 import type { Point2, Vec3 } from '../kernel/GeometryKernel.ts';
-import { mm, requireWithinHost } from './placing.ts';
+import { mm, requireClearOfBoundary, requireWithinHost } from './placing.ts';
 import type { CourseShape, HostFrame, MountedBuilder, MountedContext, MountedPart, Neck } from './types.ts';
 
 const DEG = Math.PI / 180;
@@ -412,7 +412,7 @@ function roundCorners(
 /** §4.5.5 and §4.5.10 — normal to the wall, whatever the host. */
 const radial: Aimer = (component, context, outside) => {
   if (context.placement.anchor === 'head_normal') return normalToHead(component, context, outside);
-  requireWithinHost(component, context, outside);
+  requireWithinHost(component, context, outside, true);
   return {
     frame: context.hostSurface.frameAt(context.placement.axialOffset, context.placement.azimuth),
     footprint: outside,
@@ -456,6 +456,8 @@ function normalToHead(component: ComponentDefinition, context: MountedContext, o
       scope('out_of_scope', 'the opening\'s far edge along the head', `on ${host.name}: within ${mm(high)} of the axis, above its lower end`, `${mm(edge[0])} from the axis, ${mm(edge[1])} above the lower end`)
     );
   }
+  // Nor reach it exactly: an edge on the lower end is tangent to the neighbour's face.
+  requireClearOfBoundary(component, host.name, edge[1], 0, 'the lower end', 'up the head');
   // How far the opening reaches along the offset, the radius from the axis: what the head's
   // other parts are kept clear of. Never less than the neck, so the cut runs deep enough.
   return { frame, footprint: outside, padAllowed: true };
@@ -475,7 +477,7 @@ const hillside: Aimer = (component, context, outside) => {
     );
   }
   const offset = requireDimension(component, Sym.NOZZLE_OFFSET);
-  requireWithinHost(component, context, outside);
+  requireWithinHost(component, context, outside, true);
 
   const z = context.placement.axialOffset;
   const a = course.insideRadiusAt(z);
@@ -527,7 +529,7 @@ const angled: Aimer = (component, context, outside) => {
   }
   const sin = Math.sin(theta * DEG);
   const footprint = outside / sin;
-  requireWithinHost(component, context, footprint);
+  requireWithinHost(component, context, footprint, true);
 
   const z = context.placement.axialOffset;
   const ro = course.outsideRadiusAt(z);
@@ -546,7 +548,7 @@ const angled: Aimer = (component, context, outside) => {
 /** §4.5.9.1 — in a cone, square to the vessel axis: horizontal, cutting `R_n/cos α` along the cone. */
 const perpendicular: Aimer = (component, context, outside) => {
   const course = courseOf(component, context, 'a nozzle perpendicular to the axis');
-  requireWithinHost(component, context, outside);
+  requireWithinHost(component, context, outside, true);
 
   const z = context.placement.axialOffset;
   const cos = Math.cos(course.halfApexAngle * DEG);
@@ -578,7 +580,7 @@ const axial: Aimer = (component, context, outside) => {
     );
   }
   const footprint = outside / Math.tan(alpha * DEG);
-  requireWithinHost(component, context, footprint);
+  requireWithinHost(component, context, footprint, true);
 
   const z = context.placement.axialOffset;
   const rho = course.outsideRadiusAt(z);

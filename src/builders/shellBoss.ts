@@ -106,7 +106,7 @@ export const shellBoss: MountedBuilder = (component, context) => {
   if (!(rdIn < 0.8 * inner)) {
     throw new BuildError(component, `has a ${mm(2 * rdIn)} disc in a ${mm(2 * inner)} bore`, scope('out_of_scope', Sym.BOSS_DISC_DIAMETER, `< ${mm(1.6 * inner)}, a patch of the wall`, mm(2 * rd)));
   }
-  requireWithinHost(component, context, rdIn / Math.sin(theta));
+  requireWithinHost(component, context, rdIn / Math.sin(theta), true);
 
   // The nozzle's own frame: h along its axis from the vessel's, ρ from its axis. Built about +Z at
   // the origin, turned onto the radial at the placement's azimuth and moved to its offset, then
