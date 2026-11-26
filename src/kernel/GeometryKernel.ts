@@ -256,5 +256,20 @@ export interface GeometryKernel {
    * A STEP file, millimetres: one product per entry, its solids kept apart — never fused, so
    * whoever meshes them decides where they are joined.
    */
-  exportStep(products: readonly StepProduct[]): string;
+  exportStep(products: readonly StepProduct[], options?: StepOptions): string;
+}
+
+/**
+ * How a STEP file carries its products' names. Without options, each product is a free root named
+ * on its PRODUCT alone, which OpenCascade-based readers (FreeCAD, Salome) show by name and a
+ * reader naming parts from their solids (Onshape) does not.
+ */
+export interface StepOptions {
+  /**
+   * Gathers the products under one root assembly of this name, one component per product, each
+   * occurrence named as its product: the structure every CAD reader takes names from.
+   */
+  readonly assembly?: string;
+  /** Writes each product's name on its shape representation and on its solids too. */
+  readonly nameSolids?: boolean;
 }

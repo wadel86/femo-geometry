@@ -340,6 +340,9 @@ export function resolveGeometry(
  * component, named by its id, its solids — repeats included — kept apart and unfused. In
  * analysis mode an assembly with anything refused is refused whole.
  */
+/** The root assembly of an exported vessel: what a CAD reader shows above the parts. */
+export const STEP_ASSEMBLY = 'Assembly';
+
 export function stepOf(
   definition: AssemblyDefinition,
   model: AssemblyModel,
@@ -362,5 +365,7 @@ export function stepOf(
       });
       return { name: part.componentId, solids };
     });
-  return kernel.exportStep(products);
+  // One assembly, every part named on its product, its occurrence and its solids: whichever of
+  // the three a CAD reader takes the name from (Onshape the solids, FreeCAD the product).
+  return kernel.exportStep(products, { assembly: STEP_ASSEMBLY, nameSolids: true });
 }

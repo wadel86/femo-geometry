@@ -47,7 +47,8 @@ import {
   curveIsClosed,
   loft as loftWires,
 } from 'brepjs';
-import { OcctKernel } from 'occt-wasm';
+import { OcctKernel, type ShapeHandle } from 'occt-wasm';
+import { nameRepresentationItems } from './stepNames.ts';
 import type {
   Bounds,
   CircleSection,
@@ -63,6 +64,7 @@ import type {
   Profile,
   Sheet,
   Solid,
+  StepOptions,
   StepProduct,
   SurfaceKind,
   Tessellation,
@@ -112,10 +114,17 @@ export interface BrepjsKernelOptions {
 export async function createBrepjsKernel(options: BrepjsKernelOptions = {}): Promise<GeometryKernel> {
   const occt = await OcctKernel.init(options.wasm === undefined ? undefined : { wasm: options.wasm });
   registerKernel('occt-wasm', OcctWasmAdapter.fromKernel(occt));
-  return new BrepjsKernel();
+  return new BrepjsKernel(occt);
 }
 
 class BrepjsKernel implements GeometryKernel {
+  /** The kernel brepjs runs on, for what brepjs does not wrap: an XCAF assembly document. */
+  private readonly occt: OcctKernel;
+
+  constructor(occt: OcctKernel) {
+    this.occt = occt;
+  }
+
   revolve(profile: Profile): Solid {
     return asSolid(drawing(profile).sketchOnPlane('XZ').revolve([0, 0, 1]));
   }
@@ -363,13 +372,46 @@ class BrepjsKernel implements GeometryKernel {
     return isValid(asShape(solid));
   }
 
-  exportStep(products: readonly StepProduct[]): string {
+  exportStep(products: readonly StepProduct[], options: StepOptions = {}): string {
     const parts = products
       .map((product) => [...product.solids.map(asShape), ...(product.sheets ?? []).map((s) => s as unknown as Shape)])
       .map((shapes, index) => ({ shapes, name: products[index]!.name }))
       .filter(({ shapes }) => shapes.length > 0)
       .map(({ shapes, name }) => ({ shape: shapes.length === 1 ? shapes[0] : compound(shapes), name }));
-    return unwrap(exportSTEPConfigured(parts, { unit: 'mm', modelUnit: 'mm' }));
+    const step =
+      options.assembly !== undefined && parts.length > 1
+        ? this.assemblyStep(parts, options.assembly)
+        : unwrap(exportSTEPConfigured(parts, { unit: 'mm', modelUnit: 'mm' }));
+    return options.nameSolids ? nameRepresentationItems(step) : step;
+  }
+
+  /**
+   * One root assembly, one component per part. Each part is added on its own first, so that a
+   * component of several solids reuses it as ONE part rather than being expanded into a
+   * sub-assembly of unnamed solids; the root is then grown from the first part, which moves into
+   * its first component under the part's name.
+   */
+  private assemblyStep(parts: readonly { shape: Shape; name: string }[], assembly: string): string {
+    const handle = (shape: Shape) => (shape.wrapped as { id: number }).id as ShapeHandle;
+    const doc = this.occt.createXCAFDocument();
+    try {
+      for (const part of parts.slice(1)) doc.addShape(handle(part.shape), { name: part.name });
+      const root = doc.addShape(handle(parts[0]!.shape), { name: parts[0]!.name });
+      for (const part of parts.slice(1)) doc.addChild(root, handle(part.shape));
+      doc.setName(root, assembly);
+      // Each occurrence carries its part's name: NEXT_ASSEMBLY_USAGE_OCCURRENCE is where an
+      // assembly-aware reader looks first.
+      for (const component of doc.getChildren(root)) {
+        const prototype = doc.getReferredLabel(component);
+        if (prototype === null) continue;
+        const info = doc.getLabelInfo(prototype);
+        if (info.shapeHandle !== null) this.occt.release(info.shapeHandle);
+        doc.setName(component, info.name);
+      }
+      return doc.exportSTEP();
+    } finally {
+      doc.close();
+    }
   }
 }
 
